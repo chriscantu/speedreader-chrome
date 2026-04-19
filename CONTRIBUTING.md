@@ -4,7 +4,7 @@ Thanks for your interest. This project is the Chrome port of [SpeedReader for Sa
 
 ## Development setup
 
-> **TODO(#1):** Real setup instructions land when [issue #1](https://github.com/chriscantu/speedreader-chrome/issues/1) (TypeScript + Vite toolchain) ships. Until then, the repo is docs + issue templates only.
+> **TODO(#2):** Real setup instructions land when [issue #2](https://github.com/chriscantu/speedreader-chrome/issues/2) (TypeScript + Vite toolchain) ships. Until then, the repo is docs + issue templates only.
 
 ## Branch naming
 
