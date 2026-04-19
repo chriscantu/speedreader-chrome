@@ -35,3 +35,6 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+
+# Local state for issue-creation scripts
+scripts/.milestone-numbers.tsv
