@@ -4,7 +4,64 @@ Thanks for your interest. This project is the Chrome port of [SpeedReader for Sa
 
 ## Development setup
 
-> **TODO(#2):** Real setup instructions land when [issue #2](https://github.com/chriscantu/speedreader-chrome/issues/2) (TypeScript + Vite toolchain) ships. Until then, the repo is docs + issue templates only.
+### Prerequisites
+
+- **Node.js** (v18+) and **npm**, or **Bun** (v1.0+)
+- [Chrome/Edge](https://www.chromium.org/chromium-projects/) for loading the extension
+
+### Quick start
+
+```bash
+# Install dependencies
+npm install          # or: bun install
+
+# Build the extension
+npm run build        # produces dist/
+
+# Watch mode (rebuild on changes)
+npm run dev
+```
+
+### Loading in Chrome
+
+1. Open Chrome and navigate to `chrome://extensions/`
+2. Enable **Developer mode** (top-right toggle)
+3. Click **Load unpacked**
+4. Select the `dist/` directory
+
+### Project structure
+
+```
+src/
+  popup/        # Popup UI (HTML, CSS, TS)
+  content/      # Content script (text extraction, RSVP overlay)
+  icons/        # Extension icons (16, 48, 128)
+dist/           # Built extension (output of `npm run build`)
+scripts/        # Issue/milestone automation
+```
+
+### Available scripts
+
+| Command          | Description                                     |
+|------------------|-------------------------------------------------|
+| `npm run build`  | TypeScript check + production build             |
+| `npm run dev`    | Watch mode (type-check + rebuild on change)     |
+
+### Architecture overview
+
+This project uses **Vite** + **@crxjs/vite-plugin** to build a **Chrome Manifest V3** extension from TypeScript source code.
+
+- **Manifest**: Generated from `src/manifest.ts` (TypeScript, not a raw JSON file)
+- **Popup**: `src/popup/` — the UI shown when clicking the extension icon
+- **Content script**: `src/content/` — injected into pages to provide RSVP reading
+- **Build output**: `dist/` — the directory you load into Chrome as an unpacked extension
+
+### Toolchain
+
+- **TypeScript** — type-safe development
+- **Vite** — fast bundling and dev server
+- **@crxjs/vite-plugin** — bundles the extension for Chrome
+- **Bun** or **npm** — package management
 
 ## Branch naming
 
