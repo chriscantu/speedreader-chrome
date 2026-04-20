@@ -1,16 +1,35 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SpeedReader</title>
-    <link rel="stylesheet" href="./index.css" />
-  </head>
-  <body>
-    <div id="root">
-      <h1>SpeedReader</h1>
-      <p>Reading shouldn't be this hard.</p>
-    </div>
-    <script type="module" src="./index.ts"></script>
-  </body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SpeedReader</title>
+  <style>
+    body {
+      width: 300px;
+      padding: 16px;
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+    }
+    h1 {
+      font-size: 16px;
+      margin: 0 0 8px 0;
+    }
+    p {
+      font-size: 13px;
+      color: #555;
+      margin: 0 0 12px 0;
+    }
+    .status {
+      font-size: 12px;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <h1>SpeedReader</h1>
+  <p>Click the extension icon or use the keyboard shortcut to start reading.</p>
+  <div class="status" id="status">Ready</div>
+  <script type="module" src="./index.ts"></script>
+</body>
 </html>
