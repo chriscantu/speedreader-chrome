@@ -198,3 +198,13 @@ The popup hi-fi mock (`docs/design/Speed Reader Hi-Fi.html`, surface `02 Toolbar
 **Rationale:** running Readability on every navigated tab is a per-tab CPU cost on pages the user never invokes us on, with no UX return. Lazy-on-popup-open is the floor; the eager path is a pessimization for users who only RSVP-read occasionally.
 
 **Acceptance criterion add:** the test harness MUST assert that loading a fixture page does NOT call `extract()` until a popup-open message is dispatched.
+
+### Manifest pin (issue #73)
+
+The behavioral lazy-on-popup-open contract above is enforced at the MV3 manifest level by:
+
+- **No `content_scripts` entry.** Eagerly-declared content scripts inject on every navigation matching `matches`, which would impose per-tab CPU cost on uninvited pages — exactly the failure mode this section rejects. The content script is injected on demand by the service worker via `chrome.scripting.executeScript({ target: { tabId }, files: [...] })` when the popup posts an `extract-summary` message.
+- **Permission set: `["storage", "activeTab", "scripting"]`.** No `host_permissions` declared. `activeTab` grants temporary host access to the active tab on user gesture (popup click), which is sufficient for `chrome.scripting.executeScript` per the [Chrome scripting API docs](https://developer.chrome.com/docs/extensions/reference/api/scripting). Dropping `<all_urls>` materially simplifies Chrome Web Store review (see #45).
+- **Restricted-URL guard.** Without an eager `content_scripts.matches` filter, the service worker is the sole gatekeeper for `chrome://`, `chrome-extension://`, `view-source:`, `about:`, and `https://chrome.google.com/webstore/*`. The guard is checked before every `executeScript` call (see §Failure Modes).
+
+Full rationale and trade-offs: `docs/superpowers/decisions/2026-05-08-lazy-injection-manifest.md`.
