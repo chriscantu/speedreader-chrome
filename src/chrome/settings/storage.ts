@@ -2,7 +2,9 @@ import type { SettingsV1 } from '../../core/settings/schema';
 import { migrate } from '../../core/settings/migrations';
 
 const KEY = 'speedreader.settings';
-const DEBOUNCE_MS = 300;
+export const DEBOUNCE_MS = 300;
+
+export type SaveSettingsInput = Omit<Partial<SettingsV1>, 'version'>;
 
 /**
  * Read settings from `chrome.storage.sync`, migrating + validating the raw
@@ -20,11 +22,24 @@ export async function loadSettings(): Promise<SettingsV1> {
   return settings;
 }
 
-let pendingPartial: Partial<SettingsV1> | null = null;
+let pendingPartial: SaveSettingsInput | null = null;
 let pendingTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingResolvers: Array<() => void> = [];
 let pendingRejectors: Array<(err: unknown) => void> = [];
 
+/**
+ * Trailing-edge flush of coalesced `saveSettings` calls.
+ *
+ * NOTE: this awaits `loadSettings()` to obtain the current canonical state
+ * before merging. `loadSettings()` may itself issue a `chrome.storage.sync.set`
+ * to canonicalise the stored payload (first install, version bump, or repair
+ * of a partial value). In those cases the full save sequence fires *two*
+ * underlying `set` calls — one canonicalisation, one merged save. Spec AC #6
+ * ("exactly one set ~300 ms after the last save") still holds because it
+ * concerns the debounced save itself; the canonicalisation is a separate,
+ * one-time event. Future integration tests should not assert
+ * `set.toHaveBeenCalledTimes(1)` blindly across a first-install + save flow.
+ */
 async function flushPendingSave(): Promise<void> {
   const partial = pendingPartial ?? {};
   const resolvers = pendingResolvers;
@@ -48,7 +63,7 @@ async function flushPendingSave(): Promise<void> {
  * single trailing-edge write to stay under `chrome.storage.sync`'s 120
  * writes/minute rate limit when wired to slider-style controls.
  */
-export function saveSettings(partial: Partial<SettingsV1>): Promise<void> {
+export function saveSettings(partial: SaveSettingsInput): Promise<void> {
   pendingPartial = { ...(pendingPartial ?? {}), ...partial };
   if (pendingTimer !== null) clearTimeout(pendingTimer);
   return new Promise<void>((resolve, reject) => {

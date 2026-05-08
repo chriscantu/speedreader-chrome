@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import sinonChrome from 'sinon-chrome';
 import { DEFAULT_SETTINGS } from '../../../core/settings/defaults';
 import type { SettingsV1 } from '../../../core/settings/schema';
+import { DEBOUNCE_MS } from '../storage';
 
 const KEY = 'speedreader.settings';
 
@@ -106,7 +107,7 @@ describe('chrome settings storage adapter', () => {
     // No write yet (debounce pending).
     expect(stub.storage.sync.set).not.toHaveBeenCalled();
 
-    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS_FOR_TEST);
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
     await Promise.all(promises);
 
     // Exactly one set call (the trailing-edge write); set may also fire from
@@ -121,7 +122,7 @@ describe('chrome settings storage adapter', () => {
     storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV1;
     const { saveSettings } = await import('../storage');
     const p = saveSettings({ theme: 'dark' });
-    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS_FOR_TEST);
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
     await p;
     const stored = storedRaw as SettingsV1;
     expect(stored.version).toBe(1);
@@ -161,5 +162,3 @@ describe('chrome settings storage adapter', () => {
     expect(listener).toHaveBeenCalledWith(DEFAULT_SETTINGS);
   });
 });
-
-const DEBOUNCE_MS_FOR_TEST = 300;
