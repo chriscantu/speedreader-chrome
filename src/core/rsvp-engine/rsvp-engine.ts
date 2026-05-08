@@ -8,7 +8,14 @@
  * No DOM, no chrome.* / browser.* — safe for src/core/.
  */
 
-export type RsvpState = 'idle' | 'playing' | 'paused' | 'done';
+export const RSVP_STATE = {
+  IDLE: 'idle',
+  PLAYING: 'playing',
+  PAUSED: 'paused',
+  DONE: 'done',
+} as const;
+
+export type RsvpState = (typeof RSVP_STATE)[keyof typeof RSVP_STATE];
 
 export type RsvpEvent = { type: 'word'; index: number; word: string } | { type: 'done' };
 
@@ -36,12 +43,28 @@ function assertValidWpm(wpm: number): void {
   }
 }
 
+// words must be an array of strings. Guards against null/undefined and
+// non-string elements at the engine's API boundary so callers from JS
+// or corrupt-data paths get a clear TypeError rather than a downstream
+// "Cannot read properties of null" surprise.
+function assertValidWords(words: unknown): asserts words is string[] {
+  if (!Array.isArray(words)) {
+    throw new TypeError(`Invalid words: expected an array, got ${typeof words}.`);
+  }
+  for (let i = 0; i < words.length; i++) {
+    if (typeof words[i] !== 'string') {
+      throw new TypeError(`Invalid words[${i}]: expected string, got ${typeof words[i]}.`);
+    }
+  }
+}
+
 export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
   assertValidWpm(options.wpm);
+  assertValidWords(options.words);
 
   const words = options.words.slice();
   let wpm = options.wpm;
-  let state: RsvpState = 'idle';
+  let state: RsvpState = RSVP_STATE.IDLE;
   let nextIndex = 0;
   let timerId: ReturnType<typeof setTimeout> | null = null;
   const listeners = new Set<RsvpListener>();
@@ -65,14 +88,14 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
   const scheduleNext = (): void => {
     timerId = setTimeout(() => {
       timerId = null;
-      if (state !== 'playing') return;
+      if (state !== RSVP_STATE.PLAYING) return;
       tick();
     }, msPerWord());
   };
 
   const tick = (): void => {
     if (nextIndex >= words.length) {
-      state = 'done';
+      state = RSVP_STATE.DONE;
       emit({ type: 'done' });
       return;
     }
@@ -86,23 +109,23 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
       return state;
     },
     start(): void {
-      if (state !== 'idle') return;
+      if (state !== RSVP_STATE.IDLE) return;
       if (words.length === 0) {
-        state = 'done';
+        state = RSVP_STATE.DONE;
         emit({ type: 'done' });
         return;
       }
-      state = 'playing';
+      state = RSVP_STATE.PLAYING;
       tick();
     },
     pause(): void {
-      if (state !== 'playing') return;
-      state = 'paused';
+      if (state !== RSVP_STATE.PLAYING) return;
+      state = RSVP_STATE.PAUSED;
       clearPending();
     },
     resume(): void {
-      if (state !== 'paused') return;
-      state = 'playing';
+      if (state !== RSVP_STATE.PAUSED) return;
+      state = RSVP_STATE.PLAYING;
       // Schedule the next word at the current cadence; tick handles done.
       if (nextIndex >= words.length) {
         tick();
@@ -111,8 +134,8 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
       }
     },
     stop(): void {
-      if (state === 'done') return;
-      state = 'done';
+      if (state === RSVP_STATE.DONE) return;
+      state = RSVP_STATE.DONE;
       clearPending();
     },
     setWpm(next: number): void {
@@ -121,7 +144,7 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
       // Reschedule any pending tick at the new cadence so the next emission
       // reflects the change. The currently displayed word's remaining time
       // is reset — acceptable for a control-surface live update.
-      if (state === 'playing' && timerId !== null) {
+      if (state === RSVP_STATE.PLAYING && timerId !== null) {
         clearPending();
         scheduleNext();
       }
