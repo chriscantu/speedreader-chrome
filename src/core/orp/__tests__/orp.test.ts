@@ -1,76 +1,113 @@
 import { describe, it, expect } from 'vitest';
 import { orp } from '../orp';
 
-// ORP heuristic: Spritz-style length-bucketed table.
-//   length 0       → 0 (degenerate; documented contract, does not throw)
-//   length 1       → 0
-//   length 2-5     → 1
-//   length 6-9     → 2
-//   length 10-13   → 3
-//   length >= 14   → 4
+// ORP heuristic ported from Safari reference:
+//   chriscantu/speed-reader →
+//   SpeedReader/SpeedReaderExtension/Resources/rsvp/focus-point.js
 //
-// Surrogate pairs / grapheme clusters are out of scope for the MVP.
-// The heuristic operates on UTF-16 code-unit length (String#length),
-// which matches the Safari reference for ASCII / common Latin-1 inputs.
+// Rule:
+//   - Strip trailing punctuation [.,!?;:]+
+//   - stripped.length <= 3  → 0
+//   - else                   → floor(stripped.length * 0.3)
+//
+// Surrogate pairs / grapheme clusters are out of scope. Heuristic
+// operates on UTF-16 code-unit length, matching Safari for ASCII /
+// common Latin-1 inputs.
 
 describe('orp', () => {
-  it('returns 0 for the empty string (degenerate input)', () => {
-    expect(orp('')).toBe(0);
+  // --- Safari parity cases (mirror tests/js/focus-point.test.js) ---
+
+  it('returns 0 for single-character word "I" (Safari parity)', () => {
+    // focus-point.test.js line 7
+    expect(orp('I')).toBe(0);
   });
 
-  it('returns 0 for a single-character word', () => {
-    expect(orp('a')).toBe(0);
+  it('returns 0 for two-character word "it" (Safari parity)', () => {
+    // focus-point.test.js line 11
+    expect(orp('it')).toBe(0);
   });
 
-  it('returns 1 at the 2-letter boundary', () => {
-    expect(orp('of')).toBe(1);
+  it('returns 0 for three-character word "the" (Safari parity)', () => {
+    // focus-point.test.js line 15
+    expect(orp('the')).toBe(0);
   });
 
-  it('returns 1 at the 5-letter upper boundary', () => {
+  it('returns 1 for "hello" (length 5, floor(5*0.3)=1) (Safari parity)', () => {
+    // focus-point.test.js line 20
     expect(orp('hello')).toBe(1);
   });
 
-  it('returns 2 at the 6-letter lower boundary', () => {
-    expect(orp('reader')).toBe(2);
+  it('returns 3 for "comprehension" (length 13, floor(13*0.3)=3) (Safari parity)', () => {
+    // focus-point.test.js line 25
+    expect(orp('comprehension')).toBe(3);
   });
 
-  it('returns 2 at the 9-letter upper boundary', () => {
-    expect(orp('extension')).toBe(2);
+  it('returns 2 for "reading" (length 7, floor(7*0.3)=2) (Safari parity)', () => {
+    // focus-point.test.js line 30
+    expect(orp('reading')).toBe(2);
   });
 
-  it('returns 3 at the 10-letter lower boundary', () => {
+  it('strips trailing comma: "hello," → same as "hello" (Safari parity)', () => {
+    // focus-point.test.js line 35
+    expect(orp('hello,')).toBe(1);
+  });
+
+  it('strips trailing period: "world." → same as "world" (Safari parity)', () => {
+    // focus-point.test.js line 40
+    expect(orp('world.')).toBe(1);
+  });
+
+  // --- Length-boundary cases the Safari heuristic specifically handles ---
+  // Boundary at length 3 → 4 (the floor switches from 0 to floor(len*0.3)).
+  // Cited against focus-point.js:12-13 in chriscantu/speed-reader.
+
+  it('boundary: length 3 → 0 (short-word floor; focus-point.js:12)', () => {
+    expect(orp('cat')).toBe(0);
+  });
+
+  it('boundary: length 4 → 1 (floor(4*0.3)=1; focus-point.js:13)', () => {
+    expect(orp('four')).toBe(1);
+  });
+
+  it('boundary: length 6 → 1 (floor(6*0.3)=1; focus-point.js:13)', () => {
+    expect(orp('reader')).toBe(1);
+  });
+
+  it('boundary: length 7 → 2 (floor(7*0.3)=2; focus-point.js:13)', () => {
+    expect(orp('writing')).toBe(2);
+  });
+
+  it('boundary: length 10 → 3 (floor(10*0.3)=3; focus-point.js:13)', () => {
     expect(orp('javascript')).toBe(3);
   });
 
-  it('returns 3 at the 13-letter upper boundary', () => {
-    expect(orp('compensating')).toBe(3); // 12
+  // --- Chrome-side extensions of the contract ---
+  // Safari does not test these directly; documented as explicit
+  // extensions of the contract for engine safety.
+
+  it('returns 0 for the empty string (degenerate; Chrome extension)', () => {
+    expect(orp('')).toBe(0);
   });
 
-  it('returns 3 at exactly 13 letters', () => {
-    expect(orp('accessibility'.slice(0, 13))).toBe(3);
+  it('handles very long words via formula (length 30 → floor(30*0.3)=9)', () => {
+    expect(orp('a'.repeat(30))).toBe(9);
   });
 
-  it('caps at 4 for 14-letter words', () => {
-    expect(orp('administrative')).toBe(4); // 14
-  });
-
-  it('caps at 4 for very long words (30+ letters)', () => {
-    expect(orp('a'.repeat(30))).toBe(4);
-    expect(orp('internationalization')).toBe(4); // 20
-  });
-
-  it('handles common English short words', () => {
-    expect(orp('the')).toBe(1);
-    expect(orp('and')).toBe(1);
+  it('handles "internationalization" (length 20 → floor(20*0.3)=6)', () => {
+    expect(orp('internationalization')).toBe(6);
   });
 
   it('treats hyphenated forms as their full character length', () => {
-    // "well-known" = 10 chars including hyphen → bucket 3
+    // "well-known" length 10 → floor(10*0.3)=3 (no trailing punctuation to strip)
     expect(orp('well-known')).toBe(3);
   });
 
-  it('handles non-ASCII Latin-1 (café = 4 code units) within ASCII-bias contract', () => {
-    // 'café' has String#length 4 (single code units) → bucket 1
+  it('handles non-ASCII Latin-1 (café = 4 code units → floor(4*0.3)=1)', () => {
     expect(orp('café')).toBe(1);
+  });
+
+  it('strips multiple trailing punctuation chars: "really?!"', () => {
+    // "really?!" → strip → "really" length 6 → floor(6*0.3)=1
+    expect(orp('really?!')).toBe(1);
   });
 });
