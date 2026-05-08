@@ -134,7 +134,15 @@ The CS is destroyed by the navigation; the Port closes (Chrome fires `onDisconne
 
 ### Second popup-click while reading
 
-The popup, on open, queries the SW for whether a Port for the active tab is currently held. If yes, the popup renders a "Reading… [pause / resume / close]" surface — it does NOT issue a second `start-read`. Re-opening the popup repeatedly is read-only state observation; explicit user action via the controls drives transitions. This is the simpler of the two candidates considered and matches the hi-fi mock's "reading-in-progress" popup state.
+The popup, on open, queries the SW for whether a Port for the active tab is currently held and what state the CS reports (`reading | paused | done`). The icon click acts as a **unidirectional advance** through the session cycle:
+
+- **State `reading`:** click sends `pause` via the held Port. CS pauses the engine and updates state to `paused`.
+- **State `paused`:** click sends `stop` via the Port. CS tears down the overlay; Port closes; session ends.
+- **State `done` or no Port held:** click sends `start-read` (fresh session).
+
+**Resume from `paused` is NOT a popup-icon click.** It requires an explicit `resume` action — either a popup button rendered on a separate popup-open, or an overlay control (Space, on-screen play). Rationale: icon click is a forward-only gesture; users who want to resume reach for an affordance that names the action, which avoids the easy-to-trigger destructive surprise of "I clicked the icon expecting to resume and it closed my read."
+
+The popup UI, when opened during a non-idle state, still surfaces full pause/resume/close affordances per the hi-fi mock. The icon-click shortcut only fires the cycle's next-step action; the in-popup buttons handle the rest.
 
 ## Restricted-URL Handling
 
