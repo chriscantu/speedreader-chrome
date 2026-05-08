@@ -20,12 +20,12 @@ export default {
   // Holds persistent state and handles messaging between content scripts
   // and the popup/options page.  No UI — purely a message bus.
   background: {
-    service_worker: 'src/background/index.ts',
+    service_worker: 'src/chrome/background/index.ts',
   },
 
   // --- Browser action (popup) ---------------------------------------------
   action: {
-    default_popup: 'src/popup/index.html',
+    default_popup: 'src/chrome/popup/index.html',
     default_title: 'SpeedReader',
     default_icon: {
       16: 'icons/icon16.png',
@@ -35,7 +35,7 @@ export default {
   },
 
   // --- Options page -------------------------------------------------------
-  options_page: 'src/options/index.html',
+  options_page: 'src/chrome/options/index.html',
 
   // --- Permissions (non-host) ---------------------------------------------
   // Each permission is justified in docs/permission-justifications.md.
@@ -51,7 +51,7 @@ export default {
   content_scripts: [
     {
       matches: ['<all_urls>'],
-      js: ['src/content/index.ts'],
+      js: ['src/chrome/content/index.ts'],
       run_at: 'document_idle',
     },
   ],
