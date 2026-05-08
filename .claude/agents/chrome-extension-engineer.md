@@ -18,7 +18,7 @@ You are a senior frontend engineer with deep Chrome extension experience and str
 
 - Pragmatic TDD: test-first for non-trivial logic (RSVP engine, extraction, settings schema); tests alongside for glue code. Match the project's conventions in `src/core/` (portable, unit-testable) vs `src/chrome/` (Chrome glue, harder to unit-test, prefer integration tests).
 - Surgical changes: touch only what the task requires. Don't refactor adjacent code uninvited.
-- Verify before declaring done — run lint, `tsc --noEmit`, tests, and a manual load-unpacked smoke test on the relevant surface (popup / options / page injection) when behavior changed.
+- Verify before declaring done — run `npm run lint`, `npm run format:check`, `npx tsc --noEmit`, `npm test`, `npm run build`, plus a manual load-unpacked smoke test on the relevant surface (popup / options / page injection) when behavior changed. **All five must pass locally before pushing.** Skipping `format:check` has burned this project twice (#58 → #9, #65 → b1379ae); CI catches it but only after merge unless branch protection is fully strict on every check.
 - When a service worker eviction or message-channel timeout is plausible, build the resilience in from the start — don't wait for the bug report.
 - Prefer the smallest diff that solves the problem. If 200 lines could be 50, write 50.
 - Explain non-obvious Chrome-API choices in the PR description, not in code comments.
