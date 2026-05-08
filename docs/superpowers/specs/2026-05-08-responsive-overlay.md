@@ -128,6 +128,16 @@ Touch affordances key off **input modality**, not container size — a Surface t
 
 Document-PiP is the headline post-M1 improvement. It's flagged not because it's risky but because it is the only proposed addition that meaningfully expands the test matrix; we want M1 stability before paying that cost.
 
+## Overlay lifecycle
+
+The overlay's lifecycle is driven by the messaging contract (`docs/superpowers/specs/2026-05-08-messaging-contract.md`). Mount and tear-down responsibilities sit entirely in the content script.
+
+- **Mount.** The CS creates the overlay on receipt of `start-read` (Port open frame). It appends a single `<div>` host to `document.body` and calls `attachShadow({ mode: 'closed' })` for host-page CSS isolation. All overlay markup, styles, and listeners live inside the closed shadow root; the host page cannot reach them.
+- **Destroy.** The CS removes the host node and disconnects listeners on **any** of: Port `onDisconnect` (popup closed, SW evicted, tab navigation), explicit `stop` frame, Esc keydown inside the shadow root, or close-button activation. Browser-driven destruction (full-page navigation) is fine — no explicit cleanup is required because the document is gone.
+- **Second popup-click while open.** The popup observes Port state via the SW (per the messaging contract). If a session Port for the active tab is held, the popup renders the "Reading… [pause / resume / close]" surface from the hi-fi mock; it does NOT re-issue `start-read`. Re-mount is impossible while the existing overlay is mounted.
+- **Focus management.** Before mount, the CS records `document.activeElement` on the host page. The shadow root traps Tab / Shift-Tab inside the overlay's focusable controls (play/pause, close, settings shortcut). Esc both closes the overlay and restores focus to the recorded element.
+- **Scroll lock.** On mount, the CS sets `document.documentElement.style.overflow = 'hidden'` (preserving the prior value). On destroy, the prior value is restored. The overlay's own scroll affordances live inside the shadow root and are unaffected.
+
 ## Out of Scope
 
 - Color palette / theme detail and named-theme tokens (lives with #27 / #28).
