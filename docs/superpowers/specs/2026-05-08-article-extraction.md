@@ -20,11 +20,11 @@ The Safari reference (`chriscantu/speed-reader`) advertises automatic extraction
 
 ### Options evaluated
 
-| Option | Pros | Cons |
-|---|---|---|
-| **A. Mozilla Readability** | Battle-tested in Firefox Reader View; MIT; maintained; handles `<article>`, `<main>`, `[role=main]`, then text-density heuristics; understands hydrated SPA DOM. | ~50 KB minified bundle cost; opinionated on listicles; no paywall awareness. |
-| **B. Safari-port** | Zero new dependency; theoretically pixel-parity with Safari output. | Safari source is undocumented from outside; reverse-engineering an undisclosed heuristic for a solo maintainer is higher cost than adopting the reference library. Likely no UX win. |
-| **C. Hybrid (Readability primary, Safari heuristics secondary)** | Maximum recall on edge cases. | Two extractors to maintain; ambiguous attribution when results diverge; dependency surface grows; not justified without evidence Readability misses on the M1 fixture corpus. |
+| Option                                                           | Pros                                                                                                                                                             | Cons                                                                                                                                                                                 |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **A. Mozilla Readability**                                       | Battle-tested in Firefox Reader View; MIT; maintained; handles `<article>`, `<main>`, `[role=main]`, then text-density heuristics; understands hydrated SPA DOM. | ~50 KB minified bundle cost; opinionated on listicles; no paywall awareness.                                                                                                         |
+| **B. Safari-port**                                               | Zero new dependency; theoretically pixel-parity with Safari output.                                                                                              | Safari source is undocumented from outside; reverse-engineering an undisclosed heuristic for a solo maintainer is higher cost than adopting the reference library. Likely no UX win. |
+| **C. Hybrid (Readability primary, Safari heuristics secondary)** | Maximum recall on edge cases.                                                                                                                                    | Two extractors to maintain; ambiguous attribution when results diverge; dependency surface grows; not justified without evidence Readability misses on the M1 fixture corpus.        |
 
 **Rationale:** Solo-maintainer scope plus "use the library everyone uses." If the fixture corpus exposes a class of pages where Readability fails systematically and a known heuristic fixes them, revisit hybrid in M2. M1 ships A.
 
@@ -58,9 +58,9 @@ export type ExtractionResult =
   | { ok: false; reason: ExtractionFailure };
 
 export type ExtractionFailure =
-  | 'restricted-page'   // chrome://, chrome-extension://, view-source:, Web Store
-  | 'no-content'        // Readability returned null
-  | 'insufficient'      // word count below threshold (see below)
+  | 'restricted-page' // chrome://, chrome-extension://, view-source:, Web Store
+  | 'no-content' // Readability returned null
+  | 'insufficient' // word count below threshold (see below)
   | 'paywall-suspected' // short visible text + subscribe-density heuristic
   | 'unknown-error';
 ```
@@ -89,14 +89,14 @@ The tokenizer is pure, in `src/core/tokenize/`, fully unit-testable.
 
 ## Code Layout
 
-| Path | Role | Boundary |
-|---|---|---|
-| `src/core/tokenize/` | `tokenize(text): string[]` — pure. | `src/core/` (no platform APIs). |
-| `src/core/extraction/types.ts` | `ExtractedArticle`, `ExtractionResult`. | `src/core/` (types only). |
-| `src/chrome/extraction/extract.ts` | Wraps `@mozilla/readability`, runs in content script, owns lifecycle (DOMContentLoaded gate, retry policy, restricted-page guard). | `src/chrome/`. |
-| `src/chrome/extraction/selection.ts` | Reads `window.getSelection()`, runs through `tokenize`. | `src/chrome/`. |
+| Path                                 | Role                                                                                                                               | Boundary                        |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `src/core/tokenize/`                 | `tokenize(text): string[]` — pure.                                                                                                 | `src/core/` (no platform APIs). |
+| `src/core/extraction/types.ts`       | `ExtractedArticle`, `ExtractionResult`.                                                                                            | `src/core/` (types only).       |
+| `src/chrome/extraction/extract.ts`   | Wraps `@mozilla/readability`, runs in content script, owns lifecycle (DOMContentLoaded gate, retry policy, restricted-page guard). | `src/chrome/`.                  |
+| `src/chrome/extraction/selection.ts` | Reads `window.getSelection()`, runs through `tokenize`.                                                                            | `src/chrome/`.                  |
 
-**Boundary trade-off:** `src/core/README.md` previously slotted "Article extraction" under core. We're keeping the *types and tokenizer* in core (portable to Safari) but pushing the *Readability invocation and lifecycle* into `src/chrome/extraction/`. Lifecycle is platform-coupled (content-script timing, restricted-URL list, `chrome.runtime.id` for messaging). When the Safari port lands, it will mirror the wrapper under `src/safari/extraction/` and reuse the core types + tokenizer untouched. The `src/core/README.md` "planned contents" list will be amended to reflect this in the implementation PR.
+**Boundary trade-off:** `src/core/README.md` previously slotted "Article extraction" under core. We're keeping the _types and tokenizer_ in core (portable to Safari) but pushing the _Readability invocation and lifecycle_ into `src/chrome/extraction/`. Lifecycle is platform-coupled (content-script timing, restricted-URL list, `chrome.runtime.id` for messaging). When the Safari port lands, it will mirror the wrapper under `src/safari/extraction/` and reuse the core types + tokenizer untouched. The `src/core/README.md` "planned contents" list will be amended to reflect this in the implementation PR.
 
 ## Insufficient Content & Selection Fallback
 
@@ -106,19 +106,19 @@ The tokenizer is pure, in `src/core/tokenize/`, fully unit-testable.
 
 1. Content script runs `extract()` after `DOMContentLoaded`.
 2. If `ok: false` with reason `no-content` or `insufficient`, retry once after `requestIdleCallback` (fallback: `setTimeout(500)`) — covers SPAs that hydrate post-paint.
-3. If retry still fails, surface failure to the popup. Popup shows: *"Couldn't find an article on this page. Select some text and click 'Read selection' to start anyway."*
+3. If retry still fails, surface failure to the popup. Popup shows: _"Couldn't find an article on this page. Select some text and click 'Read selection' to start anyway."_
 4. Popup exposes a **"Read selection"** button, enabled when the active tab reports a non-empty selection (the content script reports selection state on popup-open via `runtime.sendMessage`).
 5. M2-tracked: context-menu entry (`chrome.contextMenus`) "Read selection with SpeedReader." Out of scope for M1.
 
 ## Failure Modes
 
-| Mode | Detection | Behavior |
-|---|---|---|
-| **Restricted page** (`chrome://*`, `chrome-extension://*`, `https://chrome.google.com/webstore/*`, `view-source:*`, `about:*`) | URL match in service worker before content-script injection. | Popup shows "SpeedReader can't run on this page." No extraction attempt. |
-| **SPA late hydration** | First extraction returns `insufficient`. | One retry via `requestIdleCallback` / 500 ms; no third attempt — avoids spin on infinite-scroll feeds. |
-| **Paywall-suspected** | Visible article body < 200 words AND DOM contains ≥ 2 of: `subscribe`, `paywall`, `metered`, `register to read` (case-insensitive token match in body text). | Return `paywall-suspected`; popup shows "This page may be paywalled — try selecting the visible text." Do NOT attempt bypass. |
-| **iframes** | Extractor runs in top frame only. | Out of scope for M1. Documented; tracked under #56 (`future`). |
-| **Unknown error** | Readability throws. | Catch, log to `console.warn` with structured `{ url, error }`, return `unknown-error`. No telemetry — local-only constraint. |
+| Mode                                                                                                                           | Detection                                                                                                                                                    | Behavior                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Restricted page** (`chrome://*`, `chrome-extension://*`, `https://chrome.google.com/webstore/*`, `view-source:*`, `about:*`) | URL match in service worker before content-script injection.                                                                                                 | Popup shows "SpeedReader can't run on this page." No extraction attempt.                                                      |
+| **SPA late hydration**                                                                                                         | First extraction returns `insufficient`.                                                                                                                     | One retry via `requestIdleCallback` / 500 ms; no third attempt — avoids spin on infinite-scroll feeds.                        |
+| **Paywall-suspected**                                                                                                          | Visible article body < 200 words AND DOM contains ≥ 2 of: `subscribe`, `paywall`, `metered`, `register to read` (case-insensitive token match in body text). | Return `paywall-suspected`; popup shows "This page may be paywalled — try selecting the visible text." Do NOT attempt bypass. |
+| **iframes**                                                                                                                    | Extractor runs in top frame only.                                                                                                                            | Out of scope for M1. Documented; tracked under #56 (`future`).                                                                |
+| **Unknown error**                                                                                                              | Readability throws.                                                                                                                                          | Catch, log to `console.warn` with structured `{ url, error }`, return `unknown-error`. No telemetry — local-only constraint.  |
 
 ## Test Strategy
 
@@ -181,3 +181,20 @@ Deferred to Playwright (#38). Smoke: load unpacked, navigate to a fixture URL, c
 - Translation, language detection, RTL-aware tokenization, CJK word segmentation (post-M1)
 - Paywall bypass (never — ethical and legal floor)
 - Context-menu entry for selection (M2)
+
+## Trigger Timing — lazy on popup-open
+
+**Decision:** extraction runs lazily, on demand. It is **NOT** invoked on page load.
+
+The popup hi-fi mock (`docs/design/Speed Reader Hi-Fi.html`, surface `02 Toolbar popup`; rendered at `docs/design/screens/popup-hifi.png`) shows the CTA `Read this page · 3,842 words · ~9 min` in its idle state — i.e. the word count is visible **before** the user clicks the CTA. This pins the trigger timing:
+
+- The service worker MUST NOT inject the content script or invoke `extract()` on `chrome.tabs.onUpdated` / page load.
+- When the popup opens, it sends `runtime.sendMessage({ type: 'extract-summary' })` to the content script (auto-injected on demand via `chrome.scripting.executeScript` if the content script is not already present, gated by the restricted-URL guard in §Failure Modes).
+- The content script runs `extract()`, returns `{ words: number, estMinutes: number }` for the popup CTA, **and caches** the full `ExtractedArticle` against `location.href` in module-scope memory so the subsequent "Read this page" click does not re-extract.
+- A user who opens the popup but never starts reading pays one extraction cost; a user who never opens the popup on a tab pays zero.
+
+**Selection fallback** (§Insufficient Content & Selection Fallback) is unaffected — the popup queries selection state on open via the same on-demand message round-trip.
+
+**Rationale:** running Readability on every navigated tab is a per-tab CPU cost on pages the user never invokes us on, with no UX return. Lazy-on-popup-open is the floor; the eager path is a pessimization for users who only RSVP-read occasionally.
+
+**Acceptance criterion add:** the test harness MUST assert that loading a fixture page does NOT call `extract()` until a popup-open message is dispatched.

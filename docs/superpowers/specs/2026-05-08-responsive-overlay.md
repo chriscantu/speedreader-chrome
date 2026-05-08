@@ -36,10 +36,17 @@ Three tiers, measured against the overlay container via `@container`, **not** vi
 - `ultra` — `≥ 1280px`. 4K, 21:9, ultrawide.
 
 ```css
-.overlay { container-type: inline-size; container-name: rsvp; }
+.overlay {
+  container-type: inline-size;
+  container-name: rsvp;
+}
 
-@container rsvp (max-width: 479px)  { /* narrow */ }
-@container rsvp (min-width: 1280px) { /* ultra  */ }
+@container rsvp (max-width: 479px) {
+  /* narrow */
+}
+@container rsvp (min-width: 1280px) {
+  /* ultra  */
+}
 ```
 
 Between inflection points, type and spacing scale fluidly via `clamp()`. This satisfies WCAG 1.4.10 (Reflow): at the 320 CSS px floor, no horizontal scroll, no clipped controls. It also satisfies 1.4.4 (Resize Text) cleanly because everything is in `rem` / `cqi` / `ch` — a 200% browser zoom triples the container query thresholds in tandem with the type, so the overlay re-tiers on zoom the same way it does on resize.
@@ -52,7 +59,10 @@ Between inflection points, type and spacing scale fluidly via `clamp()`. This sa
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
 }
-.reading-zone { max-inline-size: min(72ch, 1100px); margin-inline: auto; }
+.reading-zone {
+  max-inline-size: min(72ch, 1100px);
+  margin-inline: auto;
+}
 ```
 
 - **Floor `2rem` (32 px @ default).** Minimum legible RSVP size for dyslexic readers per Atkinson Hyperlegible's recommended floor; below this ORP fixation degrades.
@@ -62,11 +72,11 @@ Between inflection points, type and spacing scale fluidly via `clamp()`. This sa
 
 ### 3. Control-bar adaptation
 
-| Tier | Layout | Target size | Placement |
-|---|---|---|---|
-| `narrow` | Single horizontal row, icon-only, condensed | `min-height: 44px` (AAA) | **Bottom-pinned** within overlay (thumb-reach) |
-| `wide` | Icon + label, full controls visible | 40×40 CSS px (AA: ≥24, design: 40 for non-thumb pointers) | Top of reader pane |
-| `ultra` | Same as `wide`, controls grouped left/right with central word area | 40×40 | Top of reader pane |
+| Tier     | Layout                                                             | Target size                                               | Placement                                      |
+| -------- | ------------------------------------------------------------------ | --------------------------------------------------------- | ---------------------------------------------- |
+| `narrow` | Single horizontal row, icon-only, condensed                        | `min-height: 44px` (AAA)                                  | **Bottom-pinned** within overlay (thumb-reach) |
+| `wide`   | Icon + label, full controls visible                                | 40×40 CSS px (AA: ≥24, design: 40 for non-thumb pointers) | Top of reader pane                             |
+| `ultra`  | Same as `wide`, controls grouped left/right with central word area | 40×40                                                     | Top of reader pane                             |
 
 WCAG 2.5.8 minimum is 24×24. We go to 44×44 on `narrow` because that tier is presumed thumb-reachable and the cost is zero.
 
@@ -82,8 +92,17 @@ The previous-3 / upcoming-3 word peek (a documented ADHD comprehension aid) coll
 Touch affordances key off **input modality**, not container size — a Surface tablet at 1280 px is touch; a phone with a paired Bluetooth mouse is fine pointer. Conflating "small viewport" with "touch" is the regression the Safari version has.
 
 ```css
-@media (pointer: coarse) { .control-bar button { min-height: 44px; min-width: 44px; } }
-@media (hover: hover)    { .control-bar button:hover { /* hover affordance */ } }
+@media (pointer: coarse) {
+  .control-bar button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+@media (hover: hover) {
+  .control-bar button:hover {
+    /* hover affordance */
+  }
+}
 ```
 
 `(pointer: coarse)` raises target sizes regardless of tier; `(hover: hover)` gates hover-only affordances so touch users never depend on a state they can't trigger.
@@ -96,16 +115,16 @@ Touch affordances key off **input modality**, not container size — a Surface t
 - **`prefers-contrast: more`** — boost stroke widths and use the highest-contrast palette variant.
 - **`prefers-reduced-motion: reduce`** — affects **overlay chrome transitions only** (fades, slides, control-bar reveals). It explicitly does **NOT** alter RSVP cadence; cadence is the format. Reducing it would slow reading without consent. Pause/resume affordance is the user's escape hatch for cadence; reduced-motion is the user's escape hatch for chrome.
 
-  Photosensitive-seizure note: at user-configurable WPM ≥ 700 the per-word cadence approaches 12 Hz, well above WCAG 2.3.1's 3-flash/sec threshold for *flashing*. RSVP word swaps are not flashes (no luminance cycling against the same region), but the engine MUST hard-cap WPM at 1000 and surface a one-time warning above 600 WPM.
+  Photosensitive-seizure note: at user-configurable WPM ≥ 700 the per-word cadence approaches 12 Hz, well above WCAG 2.3.1's 3-flash/sec threshold for _flashing_. RSVP word swaps are not flashes (no luminance cycling against the same region), but the engine MUST hard-cap WPM at 1000 and surface a one-time warning above 600 WPM.
 
 ### 7. Chrome-only improvements over Safari
 
-| Feature | Tier | User benefit | Platform | Fallback | Cost |
-|---|---|---|---|---|---|
-| `forced-colors` / `prefers-contrast` palettes | **M1** | Windows HCM users get a usable overlay; AAA-grade contrast on demand | CSS only | n/a — already covered by base styles | ~30 lines of CSS, one fixture screenshot per palette |
-| Document Picture-in-Picture reader | **post-M1, flagged** | Read in a floating window over other apps. Genuine ADHD multitask unlock — read article while on a call, read docs while coding. Safari cannot do this today. | `documentPictureInPicture` API (Chrome 116+, Edge) | Falls back to in-page overlay if API absent or `documentPictureInPicture` rejects | **Doubles overlay layout test surface** — every container-query tier must work in PiP windows down to ~240×180. Flagged behind `experimentalDocPiP` in settings; off by default. |
-| `Highlight` API for ORP underline | M1 | Native, GPU-accelerated highlight rendering for the ORP letter; smoother at high WPM, no DOM mutation per tick | CSS Custom Highlight API (Chrome 105+) | Falls back to a styled `<span>` wrapping the ORP letter | Small. Adds one capability check; both code paths share the tokenizer output. |
-| `prefers-reduced-data` palette | M1 (cheap) | Disables decorative gradients/shadows on metered connections; reduces paint cost on low-end devices | CSS media query | No-op when not asserted | ~5 lines. |
+| Feature                                       | Tier                 | User benefit                                                                                                                                                  | Platform                                           | Fallback                                                                          | Cost                                                                                                                                                                             |
+| --------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `forced-colors` / `prefers-contrast` palettes | **M1**               | Windows HCM users get a usable overlay; AAA-grade contrast on demand                                                                                          | CSS only                                           | n/a — already covered by base styles                                              | ~30 lines of CSS, one fixture screenshot per palette                                                                                                                             |
+| Document Picture-in-Picture reader            | **post-M1, flagged** | Read in a floating window over other apps. Genuine ADHD multitask unlock — read article while on a call, read docs while coding. Safari cannot do this today. | `documentPictureInPicture` API (Chrome 116+, Edge) | Falls back to in-page overlay if API absent or `documentPictureInPicture` rejects | **Doubles overlay layout test surface** — every container-query tier must work in PiP windows down to ~240×180. Flagged behind `experimentalDocPiP` in settings; off by default. |
+| `Highlight` API for ORP underline             | M1                   | Native, GPU-accelerated highlight rendering for the ORP letter; smoother at high WPM, no DOM mutation per tick                                                | CSS Custom Highlight API (Chrome 105+)             | Falls back to a styled `<span>` wrapping the ORP letter                           | Small. Adds one capability check; both code paths share the tokenizer output.                                                                                                    |
+| `prefers-reduced-data` palette                | M1 (cheap)           | Disables decorative gradients/shadows on metered connections; reduces paint cost on low-end devices                                                           | CSS media query                                    | No-op when not asserted                                                           | ~5 lines.                                                                                                                                                                        |
 
 Document-PiP is the headline post-M1 improvement. It's flagged not because it's risky but because it is the only proposed addition that meaningfully expands the test matrix; we want M1 stability before paying that cost.
 
@@ -129,3 +148,15 @@ Document-PiP is the headline post-M1 improvement. It's flagged not because it's 
 7. With the overlay container resized live from 1200 px → 360 px, the tier switch from `wide` → `narrow` does NOT trigger a layout shift in the active word column (ORP column position stable; verified by `ResizeObserver` snapshot before/after the tick).
 8. Axe-core scan against the overlay in all three tiers passes with no `color-contrast` or `target-size` violations.
 9. Document-PiP feature flag, when enabled and supported, opens a PiP window and the overlay renders correctly down to a 320 px PiP window width; when unsupported, the toggle is hidden and the in-page overlay path is used.
+
+## Visual reference
+
+Imported in PR for `docs/design-pack-reconciliation` (see `docs/design/RECONCILIATION.md`). Files:
+
+- `docs/design/Speed Reader Hi-Fi.html` — authoritative hi-fi for the in-page reader, including ORP highlight treatment, prev/upcoming-3 context line placement, control bar, and scrim. Corresponds to the `wide` tier (≥ 480 px container).
+- `docs/design/screens/popup-hifi.png`, `docs/design/screens/popup-color.png` — the surrounding browser context and how the overlay's popup partner sits next to the page.
+- `docs/design/screens/paper-theme.png`, `docs/design/screens/paper-forced.png` — `paper` theme baseline and the forced-colors variant. The forced-colors screen is the visual anchor for §6 `forced-colors: active` behavior in this spec.
+
+**Coverage gap — narrow tier has no mock.** The hi-fi pack is desktop-first. No screen exists at 320–767 px container width. The prose in §1 (Breakpoint philosophy) and §3 (Control-bar adaptation) remains authoritative for the `narrow` tier; do not infer narrow-tier behavior from the `wide` mocks. When narrow-tier visuals land, file under #35 follow-up and update this section.
+
+**Ultra tier (≥ 1280 px)** is also not depicted at 4K dimensions in the pack; the `max-inline-size: min(72ch, 1100px)` cap in §2 is the binding contract regardless.
