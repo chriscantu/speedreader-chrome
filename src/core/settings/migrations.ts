@@ -37,7 +37,10 @@ export function migrate(rawValue: unknown): SettingsV1 {
   const merged = { ...DEFAULT_SETTINGS, ...value, version: CURRENT_VERSION };
   const parsed = SettingsSchemaV1.safeParse(merged);
   if (!parsed.success) {
-    console.warn('[speedreader] settings failed validation, falling back to defaults', parsed.error);
+    console.warn(
+      '[speedreader] settings failed validation, falling back to defaults',
+      parsed.error,
+    );
     return { ...DEFAULT_SETTINGS };
   }
   return parsed.data;

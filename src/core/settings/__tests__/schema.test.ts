@@ -36,9 +36,7 @@ describe('SettingsSchemaV1', () => {
   });
 
   it('rejects an unknown theme', () => {
-    expect(
-      SettingsSchemaV1.safeParse({ ...DEFAULT_SETTINGS, theme: 'sepia' }).success,
-    ).toBe(false);
+    expect(SettingsSchemaV1.safeParse({ ...DEFAULT_SETTINGS, theme: 'sepia' }).success).toBe(false);
   });
 
   it('rejects a wrong version literal', () => {
