@@ -53,7 +53,7 @@ import { z } from 'zod';
 export const SettingsSchemaV1 = z.object({
   version: z.literal(1),
   wpm: z.number().int().min(100).max(600).multipleOf(10),
-  theme: z.enum(['light', 'dark', 'system']),
+  theme: z.enum(['system', 'light', 'dark', 'sepia', 'paper', 'cream', 'nord']),
   font: z.string(),
   fontSize: z.number().int().min(12).max(48),
   openDyslexic: z.boolean(),
@@ -68,7 +68,7 @@ export const CURRENT_VERSION = 1 as const;
 Field notes:
 
 - `wpm` — bounded to the documented Safari range, multiples of 10 to match slider granularity.
-- `theme: 'system'` follows `prefers-color-scheme`; the overlay resolves it at render time.
+- `theme` accepts `system` plus six named palettes (`light`, `dark`, `sepia`, `paper`, `cream`, `nord`) — verified against the hi-fi mock CSS (`docs/design/Speed Reader Hi-Fi.html`, `[data-theme]` selectors). `system` follows `prefers-color-scheme` and resolves to `light` or `dark` at render time. The expansion past Safari's 3-theme baseline is intentional per parity-as-floor-not-ceiling; see `docs/design/RECONCILIATION.md` and the theme-expansion follow-up issue.
 - `font` is a free string in v1; the curated enum lands with #28 and will be a v2 migration if it tightens.
 - `openDyslexic` is the toggle for the bundled OpenDyslexic face; `font` and the toggle are independent so a user can have OpenDyslexic on as an override.
 - `punctuationPacing` defaults on; tracks the Safari behaviour.
@@ -137,6 +137,11 @@ src/chrome/settings/
 ```
 
 Boundary contract: `src/core/settings/**` has zero `chrome.*` imports. The adapter does not re-export the schema; consumers import core directly.
+
+## Visual reference
+
+- `docs/design/Speed Reader Hi-Fi.html` — surface `04 Options` exposes settings beyond v1's surface: `chunk size` (1/2/3, tracked under #51, M2), `focus marker` (line/bold/underline, no existing issue, post-M1), `accent color` swatches (no existing issue, post-M1), `slow down long words` (no existing issue, post-M1), `auto-detect articles` and `only on selection` toggles. The v1 schema does NOT add fields for these; they land via a v2 migration when their feature issues ship. The migration hook (`migrate(rawValue)`) and the `version`-as-field design make that drop-in.
+- `docs/design/screens/popup-hifi.png` shows the popup's `12 saved` and `Recent` list — these are persisted state from #48 (reading position, M2) and #49 (reading history, M2), NOT settings; they live on `chrome.storage.local` and are out of scope for this schema.
 
 ## Out of Scope
 

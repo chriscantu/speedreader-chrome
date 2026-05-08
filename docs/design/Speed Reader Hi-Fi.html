@@ -1,0 +1,2838 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SpeedReader — Chrome Extension (Hi-fi)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Chrome-ish palette */
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #f8f9fa;
+    --surface-3: #f1f3f4;
+    --border: #dadce0;
+    --border-strong: #bdc1c6;
+    --text: #202124;
+    --text-2: #3c4043;
+    --text-muted: #5f6368;
+    --text-faint: #80868b;
+    --brand-red: #d93025;      /* logo red */
+    --brand-red-soft: #fce8e6;
+    --accent: #1a73e8;         /* focus / primary */
+    --accent-hover: #1765cc;
+    --accent-soft: #e8f0fe;
+    --shadow-1: 0 1px 2px rgba(60,64,67,.1), 0 1px 3px 1px rgba(60,64,67,.06);
+    --shadow-2: 0 1px 3px rgba(60,64,67,.12), 0 4px 8px 3px rgba(60,64,67,.08);
+    --shadow-3: 0 4px 8px 3px rgba(60,64,67,.15), 0 1px 3px rgba(60,64,67,.3);
+    --radius-sm: 4px;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --font-ui: 'Roboto', 'Google Sans', -apple-system, 'Segoe UI', system-ui, sans-serif;
+    --font-mono: 'Roboto Mono', ui-monospace, monospace;
+    --font-reader: 'Source Serif 4', Georgia, serif;
+  }
+  [data-theme="dark"] {
+    --bg: #202124;
+    --surface: #292a2d;
+    --surface-2: #303134;
+    --surface-3: #3c4043;
+    --border: #3c4043;
+    --border-strong: #5f6368;
+    --text: #e8eaed;
+    --text-2: #bdc1c6;
+    --text-muted: #9aa0a6;
+    --text-faint: #80868b;
+    --brand-red: #f28b82;
+    --brand-red-soft: #5c2b28;
+    --accent: #8ab4f8;
+    --accent-hover: #aecbfa;
+    --accent-soft: #1e3a5f;
+    --shadow-1: 0 1px 2px rgba(0,0,0,.3), 0 1px 3px 1px rgba(0,0,0,.15);
+    --shadow-2: 0 1px 3px rgba(0,0,0,.3), 0 4px 8px 3px rgba(0,0,0,.15);
+    --shadow-3: 0 4px 8px 3px rgba(0,0,0,.3), 0 1px 3px rgba(0,0,0,.3);
+  }
+  [data-theme="sepia"] {
+    --bg: #f6efdd;
+    --surface: #faf3e0;
+    --surface-2: #f0e7cd;
+    --surface-3: #e7ddbf;
+    --border: #d6ccae;
+    --border-strong: #b5a987;
+    --text: #3a2f1a;
+    --text-2: #55452a;
+    --text-muted: #7a6a48;
+    --brand-red: #b3261e;
+    --brand-red-soft: #f4d9d5;
+    --accent: #1558b0;
+    --accent-soft: #dce8f5;
+  }
+  /* Paper: warm off-white like a trade paperback — less yellow than sepia */
+  [data-theme="paper"] {
+    --bg: #f5f1ea;
+    --surface: #faf7f1;
+    --surface-2: #efeadf;
+    --surface-3: #e4ddd0;
+    --border: #d8d1c2;
+    --border-strong: #b5ad9d;
+    --text: #2a2621;
+    --text-2: #48433b;
+    --text-muted: #706a5f;
+    --text-faint: #9b958a;
+    --brand-red: #b3261e;
+    --brand-red-soft: #f0d9d5;
+    --accent: #1a73e8;
+    --accent-hover: #1765cc;
+    --accent-soft: #e3edfa;
+  }
+  /* Cream: very subtle warmth — almost white */
+  [data-theme="cream"] {
+    --bg: #fbf9f4;
+    --surface: #ffffff;
+    --surface-2: #f5f2ea;
+    --surface-3: #ecead2;
+    --surface-3: #ece8dd;
+    --border: #e3ded1;
+    --border-strong: #c0bbab;
+    --text: #1f1d19;
+    --text-2: #3a3730;
+    --text-muted: #6a6558;
+    --text-faint: #9a9588;
+    --brand-red: #c5221f;
+    --brand-red-soft: #f8e4e1;
+    --accent: #1a73e8;
+    --accent-hover: #1765cc;
+    --accent-soft: #e8f0fe;
+  }
+  /* Nord: cool muted light — soft gray-blue, no yellow */
+  [data-theme="nord"] {
+    --bg: #eceff4;
+    --surface: #f4f6fa;
+    --surface-2: #e5e9f0;
+    --surface-3: #d8dee9;
+    --border: #c9d1df;
+    --border-strong: #9aa5b8;
+    --text: #2e3440;
+    --text-2: #3b4252;
+    --text-muted: #4c566a;
+    --text-faint: #7b87a0;
+    --brand-red: #bf616a;
+    --brand-red-soft: #ead4d7;
+    --accent: #5e81ac;
+    --accent-hover: #4c6a8f;
+    --accent-soft: #dde4ee;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background: var(--surface-3); color: var(--text); font-family: var(--font-ui); -webkit-font-smoothing: antialiased; }
+
+  /* ===== TABS at top (surface switcher) ===== */
+  .surface-nav {
+    position: sticky; top: 0; z-index: 40;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 20px;
+    display: flex; align-items: center; gap: 20px;
+  }
+  .surface-nav .brand {
+    display:flex; align-items:center; gap: 10px;
+    font-weight: 500; font-size: 14px; color: var(--text);
+  }
+  .logo {
+    width: 26px; height: 26px; border-radius: 7px;
+    background: var(--brand-red); color: #fff;
+    display:grid; place-items:center; font-weight: 700; font-size: 13px;
+    position: relative; font-family: var(--font-mono);
+    box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  }
+  .logo::after {
+    content:''; position:absolute; left:50%; top: 5px; bottom:5px; width: 1.5px; background: rgba(255,255,255,.5); transform: translateX(-50%);
+  }
+  .surface-tabs { display:flex; gap: 2px; margin-left: 20px; }
+  .surface-tab {
+    padding: 8px 14px; font-size: 13px; font-weight: 500; color: var(--text-muted);
+    border-radius: 8px; cursor: pointer; border: 1px solid transparent;
+    display:flex; align-items:center; gap:8px;
+  }
+  .surface-tab:hover { background: var(--surface-2); color: var(--text); }
+  .surface-tab.active { background: var(--accent-soft); color: var(--accent); }
+  .surface-tab .idx { font-family: var(--font-mono); font-size: 10px; opacity: .7; }
+  .surface-nav .spacer { flex: 1; }
+  .surface-nav .hint {
+    font-size: 12px; color: var(--text-muted);
+    display:flex; align-items:center; gap: 6px;
+  }
+  .kbd {
+    font-family: var(--font-mono); font-size: 11px;
+    padding: 2px 6px; border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 4px; background: var(--surface); color: var(--text-2);
+  }
+
+  /* ===== SURFACE CONTAINER ===== */
+  .surface { display: none; }
+  .surface.active { display: block; }
+
+  /* ===== Browser frame (shared) ===== */
+  .browser {
+    max-width: 1280px; margin: 24px auto; background: var(--surface);
+    border-radius: var(--radius-lg); overflow: hidden;
+    box-shadow: var(--shadow-2);
+    border: 1px solid var(--border);
+  }
+  .browser-chrome {
+    background: var(--surface-2);
+    padding: 10px 14px 0; border-bottom: 1px solid var(--border);
+  }
+  .chrome-row1 { display:flex; align-items:center; gap:10px; padding-bottom: 8px; }
+  .window-dots { display:flex; gap:6px; }
+  .window-dots span { width: 12px; height: 12px; border-radius: 50%; }
+  .window-dots span:nth-child(1){ background: #ff5f57; }
+  .window-dots span:nth-child(2){ background: #febc2e; }
+  .window-dots span:nth-child(3){ background: #28c840; }
+  .tabs-row { display:flex; gap: 2px; flex: 1; padding-left: 10px; align-items: flex-end; }
+  .ctab {
+    padding: 8px 14px; background: var(--surface); border-radius: 10px 10px 0 0;
+    font-size: 12px; color: var(--text); border: 1px solid var(--border); border-bottom: none;
+    max-width: 260px; overflow:hidden; text-overflow: ellipsis; white-space: nowrap;
+    display:flex; align-items:center; gap: 8px;
+  }
+  .ctab.ghost { background: transparent; color: var(--text-muted); border-color: transparent; }
+  .ctab .favicon { width: 14px; height: 14px; border-radius: 3px; background: var(--brand-red); display:inline-block; }
+  .ctab.ghost .favicon { background: var(--text-faint); }
+  .newtab { padding: 6px 8px; color: var(--text-muted); font-size: 16px; }
+  .chrome-row2 {
+    display:flex; align-items:center; gap: 10px; padding: 8px 0 10px;
+    border-top: 1px solid var(--border); margin-top: -1px;
+  }
+  .nav-btns { display:flex; gap: 4px; color: var(--text-muted); font-size: 16px; }
+  .nav-btns span { width: 28px; height: 28px; display:grid; place-items:center; border-radius: 50%; }
+  .omnibox {
+    flex: 1; background: var(--surface-3); border-radius: 999px; padding: 6px 14px;
+    font-size: 12px; color: var(--text-2); display:flex; align-items:center; gap: 8px;
+    border: 1px solid transparent;
+  }
+  .omnibox .lock { color: var(--text-muted); font-size: 12px; }
+  .omnibox .url { color: var(--text); }
+  .omnibox .path { color: var(--text-muted); }
+  .ext-tray { display:flex; gap: 2px; align-items:center; padding-right: 4px; }
+  .ext-btn {
+    width: 28px; height: 28px; border-radius: 50%; display:grid; place-items:center;
+    color: var(--text-muted); font-size: 14px; cursor: pointer;
+  }
+  .ext-btn:hover { background: var(--surface-3); }
+  .ext-btn.sr {
+    background: transparent;
+  }
+  .ext-btn.sr .mini-logo {
+    width: 18px; height: 18px; border-radius: 5px; background: var(--brand-red); color:#fff;
+    display:grid; place-items:center; font-size:9px; font-weight:700; font-family: var(--font-mono);
+    position: relative;
+  }
+  .ext-btn.sr .mini-logo::after {
+    content:''; position:absolute; left:50%; top:3px; bottom:3px; width:1px; background: rgba(255,255,255,.55); transform:translateX(-50%);
+  }
+  .ext-btn.sr.active { background: var(--accent-soft); }
+
+  /* ===== SURFACE 1: Modal overlay on article ===== */
+  .article {
+    padding: 48px 80px 80px;
+    position: relative;
+    background: var(--surface);
+    min-height: 720px;
+  }
+  .article .kicker {
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: .12em; margin-bottom: 12px;
+  }
+  .article h1 {
+    font-family: var(--font-reader); font-size: 42px; line-height: 1.15; font-weight: 600;
+    margin: 0 0 16px; color: var(--text); letter-spacing: -0.01em;
+    text-wrap: pretty;
+  }
+  .article .byline {
+    font-size: 13px; color: var(--text-muted); margin-bottom: 28px;
+    display:flex; gap: 14px; align-items:center;
+  }
+  .article .byline .avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #fbbc04, #ea4335); }
+  .article .hero {
+    width: 100%; aspect-ratio: 16/7; border-radius: 12px; margin: 0 0 32px;
+    background:
+      repeating-linear-gradient(135deg, var(--surface-2) 0 10px, var(--surface-3) 10px 20px);
+    border: 1px solid var(--border);
+    display: grid; place-items: center;
+    font-family: var(--font-mono); color: var(--text-muted); font-size: 11px; letter-spacing: .1em;
+  }
+  .article p {
+    font-family: var(--font-reader); font-size: 18px; line-height: 1.7; color: var(--text-2);
+    max-width: 680px; margin: 0 auto 20px;
+    text-wrap: pretty;
+  }
+
+  /* Dimmed state */
+  .article.dimmed::before {
+    content:''; position:absolute; inset:0;
+    background: rgba(32,33,36,.55);
+    backdrop-filter: blur(1.5px) saturate(85%);
+    z-index: 10;
+    pointer-events: none;
+  }
+  [data-theme="dark"] .article.dimmed::before { background: rgba(0,0,0,.72); }
+
+  /* Word-level highlighting on article */
+  .article .w {
+    transition: background .08s ease, color .08s ease;
+    border-radius: 3px; padding: 0 1px;
+  }
+  .article .w.read { color: var(--text-muted); opacity: .65; }
+  .article .w.current {
+    background: color-mix(in oklab, var(--accent-soft) 55%, transparent);
+    color: var(--text) !important; opacity: 1;
+    position: relative; z-index: 15;
+  }
+  .article.dimmed .w.current {
+    background: color-mix(in oklab, var(--accent-soft) 55%, transparent);
+    box-shadow: none;
+  }
+  /* Lift current word above the scrim */
+  .article .w.current { z-index: 15; }
+
+  /* Modal */
+  .rsvp-modal {
+    position: absolute; z-index: 20;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 620px; max-width: calc(100% - 80px);
+    background: var(--surface); border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-3);
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .modal-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 12px 16px 12px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .modal-title {
+    display:flex; align-items:center; gap: 10px;
+    font-size: 13px; font-weight: 500; color: var(--text);
+  }
+  .modal-title .mini-logo {
+    width: 18px; height: 18px; border-radius: 5px; background: var(--brand-red); color:#fff;
+    display:grid; place-items:center; font-size:9px; font-weight:700; font-family: var(--font-mono);
+    position: relative;
+  }
+  .modal-title .mini-logo::after { content:''; position:absolute; left:50%; top:3px; bottom:3px; width:1px; background: rgba(255,255,255,.55); transform:translateX(-50%); }
+  .modal-title .source { color: var(--text-muted); font-weight: 400; font-size: 12px; }
+  .icon-btn {
+    width: 30px; height: 30px; border-radius: 50%; border: none; background: transparent;
+    color: var(--text-muted); cursor: pointer; display:grid; place-items:center;
+    font-size: 14px;
+  }
+  .icon-btn:hover { background: var(--surface-3); color: var(--text); }
+  .modal-header .actions { display:flex; gap: 2px; }
+
+  .article-meta {
+    padding: 14px 24px 0;
+    display:flex; align-items: center; gap: 16px;
+    font-size: 12px; color: var(--text-muted);
+  }
+  .article-meta .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-faint); }
+  .article-meta .pill {
+    padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); font-size: 11px;
+    border: 1px solid var(--border);
+  }
+
+  /* The word */
+  .rsvp-stage {
+    padding: 40px 24px 24px;
+    position: relative;
+  }
+  .rsvp-word {
+    font-family: var(--font-mono);
+    font-size: 54px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    text-align: center;
+    position: relative;
+    min-height: 80px;
+    display:grid; place-items:center;
+    color: var(--text);
+    user-select: none;
+  }
+  .rsvp-word .pre, .rsvp-word .post { color: var(--text); }
+  .rsvp-word .orp { color: var(--accent); font-weight: 600; }
+  .rsvp-word-wrap {
+    position: relative; display:inline-block; padding: 8px 0;
+  }
+  .focus-tick-top, .focus-tick-bot {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    width: 1.5px; background: var(--accent); opacity: .85;
+    border-radius: 1px;
+  }
+  .focus-tick-top { top: -10px; height: 14px; }
+  .focus-tick-bot { bottom: -10px; height: 14px; }
+
+  .rsvp-context {
+    text-align: center; color: var(--text-muted); font-size: 13px;
+    margin-top: 16px; font-family: var(--font-reader);
+    line-height: 1.5; padding: 0 28px;
+    min-height: 24px;
+  }
+  .rsvp-context .now { color: var(--text); background: var(--accent-soft); padding: 0 4px; border-radius: 3px; }
+
+  /* Progress */
+  .rsvp-progress {
+    padding: 10px 24px 0;
+    display:flex; align-items:center; gap: 12px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+  }
+  .scrub {
+    flex:1; height: 4px; background: var(--surface-3); border-radius: 999px;
+    position: relative; cursor: pointer;
+  }
+  .scrub .fill {
+    position:absolute; left:0; top:0; bottom:0; background: var(--accent); border-radius:999px;
+    width: 34%;
+  }
+  .scrub .thumb {
+    position:absolute; left: 34%; top:50%; transform:translate(-50%,-50%);
+    width: 12px; height: 12px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 0 3px var(--surface);
+  }
+
+  /* Controls */
+  .rsvp-controls {
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 12px 20px 18px;
+    gap: 10px;
+  }
+  .ctrl-group { display:flex; align-items:center; gap: 2px; }
+  .ctrl-btn {
+    width: 38px; height: 38px; border-radius: 50%; border: none;
+    background: transparent; color: var(--text-2); cursor: pointer;
+    display:grid; place-items:center;
+    font-size: 16px;
+  }
+  .ctrl-btn:hover { background: var(--surface-2); color: var(--text); }
+  .ctrl-btn.primary {
+    background: var(--accent); color: white; width: 48px; height: 48px;
+    font-size: 18px;
+    box-shadow: var(--shadow-1);
+  }
+  .ctrl-btn.primary:hover { background: var(--accent-hover); }
+  .wpm-display {
+    display:flex; align-items:center; gap: 8px;
+    padding: 6px 12px; background: var(--surface-2); border-radius: 999px;
+    border: 1px solid var(--border);
+  }
+  .wpm-display .num { font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--text); }
+  .wpm-display .lbl { font-size: 11px; color: var(--text-muted); }
+  .wpm-display button {
+    width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-2); cursor: pointer; font-size: 13px;
+    display:grid; place-items:center; padding: 0;
+  }
+  .wpm-display button:hover { background: var(--surface-3); }
+
+  .modal-footer {
+    border-top: 1px solid var(--border);
+    padding: 8px 18px;
+    display:flex; align-items: center; justify-content: space-between;
+    font-size: 11px; color: var(--text-muted);
+    background: var(--surface-2);
+  }
+  .shortcuts { display:flex; gap: 14px; }
+  .shortcut { display:flex; gap: 6px; align-items:center; }
+
+  /* ===== SURFACE 2: Options page ===== */
+  .options-shell {
+    max-width: 1100px; margin: 24px auto; background: var(--surface);
+    border-radius: var(--radius-lg); overflow: hidden;
+    box-shadow: var(--shadow-2);
+    border: 1px solid var(--border);
+    min-height: 720px;
+  }
+  .opt-header {
+    padding: 28px 36px 20px;
+    border-bottom: 1px solid var(--border);
+    display:flex; align-items:center; gap: 16px;
+  }
+  .opt-header .logo-lg {
+    width: 44px; height: 44px; border-radius: 11px; background: var(--brand-red); color: #fff;
+    display:grid; place-items:center; font-weight:700; font-family: var(--font-mono); position: relative;
+    font-size: 18px;
+    box-shadow: 0 2px 4px rgba(0,0,0,.15);
+  }
+  .opt-header .logo-lg::after { content:''; position:absolute; left:50%; top:8px; bottom:8px; width:2px; background: rgba(255,255,255,.5); transform:translateX(-50%);}
+  .opt-header h2 {
+    margin: 0 0 2px; font-size: 22px; font-weight: 500; color: var(--text);
+  }
+  .opt-header .subt { font-size: 13px; color: var(--text-muted); }
+  .opt-header .right { margin-left: auto; display:flex; gap: 8px; align-items:center; }
+  .opt-version { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
+  .opt-body {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    min-height: 560px;
+  }
+
+  /* Left: live preview */
+  .opt-preview {
+    background: var(--surface-2);
+    padding: 28px;
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 16px;
+    position: relative;
+  }
+  .preview-head {
+    display:flex; align-items:center; justify-content:space-between;
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .preview-head .live-dot {
+    display:inline-flex; gap: 6px; align-items:center;
+  }
+  .preview-head .live-dot::before {
+    content:''; width: 6px; height: 6px; border-radius: 50%; background: #34a853;
+    box-shadow: 0 0 0 0 rgba(52, 168, 83, .7);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(52,168,83,.5); }
+    70% { box-shadow: 0 0 0 8px rgba(52,168,83,0); }
+    100% { box-shadow: 0 0 0 0 rgba(52,168,83,0); }
+  }
+
+  .preview-stage {
+    background: var(--surface);
+    border: 1px solid var(--border); border-radius: 14px;
+    padding: 48px 20px 28px;
+    box-shadow: var(--shadow-1);
+    display: flex; flex-direction: column; align-items: center; gap: 18px;
+    position: relative;
+  }
+  .preview-wpm-hud {
+    position: absolute; top: 12px; left: 14px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+  }
+  .preview-wpm-hud .wpm-now { color: var(--accent); font-weight: 600; }
+  .preview-stage .preview-controls {
+    display:flex; align-items:center; gap: 8px; padding-top: 8px;
+    border-top: 1px dashed var(--border); width: 100%; justify-content: center;
+    padding: 12px 0 0;
+  }
+
+  .sample-passage {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 18px; font-family: var(--font-reader); font-size: 13.5px; line-height: 1.6; color: var(--text-2);
+    max-height: 140px; overflow: hidden; position: relative;
+  }
+  .sample-passage::after {
+    content:''; position:absolute; left:0; right:0; bottom:0; height: 40px;
+    background: linear-gradient(to bottom, transparent, var(--surface));
+  }
+  .sample-passage .current-word { background: var(--accent-soft); color: var(--text); padding: 0 2px; border-radius: 3px; }
+  .sample-passage h4 {
+    margin: 0 0 8px; font-family: var(--font-ui); font-size: 11px; color: var(--text-muted);
+    letter-spacing: .1em; text-transform: uppercase; font-weight: 500;
+  }
+
+  /* Right: settings panel */
+  .opt-settings {
+    padding: 28px 36px 32px;
+    overflow-y: auto;
+    max-height: 640px;
+  }
+  .opt-nav {
+    display:flex; gap: 2px; margin-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .opt-nav-item {
+    padding: 10px 14px; font-size: 13px; font-weight: 500; color: var(--text-muted);
+    border-bottom: 2px solid transparent; cursor: pointer;
+    margin-bottom: -1px;
+  }
+  .opt-nav-item:hover { color: var(--text); }
+  .opt-nav-item.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .opt-group {
+    margin-bottom: 22px;
+  }
+  .opt-group h3 {
+    font-size: 12px; color: var(--text-muted); margin: 0 0 10px;
+    text-transform: uppercase; letter-spacing: .08em; font-weight: 600;
+  }
+  .opt-row {
+    display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 16px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .opt-row:last-child { border-bottom: none; }
+  .opt-row .label { font-size: 14px; font-weight: 500; color: var(--text); }
+  .opt-row .hint { font-size: 12px; color: var(--text-muted); margin-top: 3px; line-height: 1.45; max-width: 340px; }
+  .opt-control { display:flex; align-items:center; gap: 10px; }
+
+  /* Slider */
+  input[type="range"].slider {
+    -webkit-appearance: none; appearance: none;
+    width: 160px; height: 4px; background: var(--surface-3); border-radius: 999px; outline:none;
+    cursor: pointer;
+  }
+  input[type="range"].slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%; background: var(--accent);
+    border: 2px solid var(--surface); box-shadow: var(--shadow-1); cursor: pointer;
+  }
+  input[type="range"].slider::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%; background: var(--accent);
+    border: 2px solid var(--surface); cursor: pointer;
+  }
+  .slider-value {
+    font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--text);
+    min-width: 72px; text-align: right;
+  }
+
+  /* Toggle */
+  .toggle {
+    width: 34px; height: 20px; border-radius: 999px; background: var(--surface-3);
+    position: relative; cursor: pointer; transition: background .15s;
+    border: 1px solid var(--border);
+  }
+  .toggle::after {
+    content:''; position:absolute; left:2px; top: 50%; transform: translateY(-50%);
+    width: 14px; height: 14px; border-radius: 50%; background: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: left .15s, background .15s;
+  }
+  .toggle.on { background: var(--accent); border-color: var(--accent); }
+  .toggle.on::after { left: 16px; }
+
+  /* Segmented */
+  .segmented {
+    display:inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    background: var(--surface);
+  }
+  .segmented .seg {
+    padding: 6px 12px; font-size: 12px; font-weight: 500; color: var(--text-muted);
+    border-right: 1px solid var(--border); cursor: pointer; background: transparent;
+    border-top:none; border-bottom:none; border-left:none;
+  }
+  .segmented .seg:last-child { border-right: none; }
+  .segmented .seg.active { background: var(--accent-soft); color: var(--accent); }
+  .segmented .seg:hover:not(.active) { background: var(--surface-2); color: var(--text); }
+
+  /* Swatch */
+  .swatches { display:flex; gap: 6px; }
+  .swatch {
+    width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent; padding: 2px; background: transparent;
+    display:grid; place-items:center;
+  }
+  .swatch .dot { width: 100%; height: 100%; border-radius: 50%; border: 1px solid var(--border); }
+  .swatch.active { border-color: var(--accent); }
+
+  .shortcut-row {
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .shortcut-row:last-child { border: none; }
+  .shortcut-keys { display:flex; gap: 4px; }
+
+  /* ===== SURFACE 3: Onboarding ===== */
+  .ob-shell {
+    max-width: 1100px; margin: 24px auto; background: var(--surface);
+    border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-2);
+    border: 1px solid var(--border);
+    min-height: 680px;
+    display: flex; flex-direction: column;
+  }
+  .ob-top {
+    padding: 16px 28px; border-bottom: 1px solid var(--border);
+    display:flex; align-items:center; gap: 14px;
+  }
+  .ob-top .logo-md {
+    width: 28px; height: 28px; border-radius: 8px; background: var(--brand-red); color: #fff;
+    display:grid; place-items:center; font-weight:700; font-family: var(--font-mono); font-size: 12px;
+    position: relative;
+  }
+  .ob-top .logo-md::after { content:''; position:absolute; left:50%; top:5px; bottom:5px; width:1.5px; background: rgba(255,255,255,.5); transform:translateX(-50%); }
+  .ob-top .brandname { font-weight: 500; font-size: 14px; color: var(--text); }
+  .ob-steps { margin-left: auto; display:flex; gap: 8px; align-items: center; font-size: 12px; color: var(--text-muted); }
+  .step-dots { display:flex; gap: 6px; margin-left: 8px; }
+  .step-dots .d { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-3); border: 1px solid var(--border); }
+  .step-dots .d.done { background: var(--accent); border-color: var(--accent); }
+  .step-dots .d.current { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  .ob-main { flex: 1; position: relative; overflow: hidden; }
+  .ob-screen { display: none; position: absolute; inset: 0; padding: 40px 56px; overflow: auto; }
+  .ob-screen.active { display: flex; }
+
+  /* Screen 1: Welcome */
+  .ob-welcome {
+    flex-direction: row; gap: 48px; align-items: center;
+  }
+  .ob-welcome .left { flex: 1; max-width: 480px; }
+  .ob-welcome .right { flex: 1; display:grid; place-items:center; }
+  .ob-eyebrow {
+    font-family: var(--font-mono); font-size: 11px; color: var(--accent);
+    letter-spacing: .12em; text-transform: uppercase; margin-bottom: 14px;
+  }
+  .ob-welcome h1 {
+    font-size: 40px; font-weight: 500; line-height: 1.1; margin: 0 0 18px;
+    color: var(--text); letter-spacing: -.02em;
+    text-wrap: balance;
+  }
+  .ob-welcome h1 .accent { color: var(--accent); }
+  .ob-welcome p.lead {
+    font-size: 15px; line-height: 1.6; color: var(--text-2);
+    margin: 0 0 24px; max-width: 440px;
+  }
+  .ob-cta-row { display:flex; gap: 10px; margin-bottom: 24px; }
+  .btn {
+    padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 500;
+    cursor: pointer; border: 1px solid transparent; display:inline-flex; align-items:center; gap: 8px;
+    font-family: inherit;
+  }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.primary:hover { background: var(--accent-hover); }
+  .btn.ghost { background: transparent; color: var(--text-2); border-color: var(--border); }
+  .btn.ghost:hover { background: var(--surface-2); }
+
+  .ob-feature-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  .ob-feature-list li {
+    display:flex; align-items:center; gap: 10px; font-size: 13px; color: var(--text-2);
+  }
+  .ob-feature-list .check {
+    width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); display:grid; place-items:center; font-size: 12px; font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .ob-demo-card {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 16px;
+    padding: 48px 40px;
+    width: 100%; max-width: 440px;
+    box-shadow: var(--shadow-2);
+    position: relative;
+  }
+  .ob-demo-card .demo-word {
+    font-family: var(--font-mono); font-size: 56px; font-weight: 500; text-align:center;
+    color: var(--text); letter-spacing: .02em;
+    position: relative; padding: 20px 0;
+    display: grid; place-items: center;
+    min-height: 100px;
+  }
+  .ob-demo-card .orp { color: var(--accent); font-weight: 600; }
+  .ob-demo-card .demo-caption {
+    font-size: 12px; color: var(--text-muted); text-align: center; margin-top: 16px;
+    font-family: var(--font-mono); letter-spacing: .08em; text-transform: uppercase;
+  }
+  .demo-progress {
+    height: 3px; background: var(--surface-3); border-radius: 999px; margin-top: 20px;
+    overflow: hidden;
+  }
+  .demo-progress .fill { height: 100%; background: var(--accent); border-radius: 999px; width: 0%; transition: width .1s linear; }
+  .demo-tick-top, .demo-tick-bot {
+    position:absolute; left: 50%; transform: translateX(-50%);
+    width: 2px; background: var(--accent); border-radius: 1px;
+  }
+  .demo-tick-top { top: 8px; height: 14px; }
+  .demo-tick-bot { bottom: 8px; height: 14px; }
+
+  /* Screen 2: Calibrate */
+  .ob-calibrate {
+    flex-direction: column; align-items: center; gap: 24px; padding: 40px 56px 32px;
+  }
+  .calibrate-head { text-align: center; max-width: 560px; }
+  .calibrate-head h2 {
+    font-size: 30px; font-weight: 500; margin: 0 0 10px; letter-spacing: -.01em;
+    text-wrap: balance;
+  }
+  .calibrate-head p { font-size: 14px; color: var(--text-muted); margin: 0; line-height: 1.6; }
+
+  .calibrate-stage {
+    width: 100%; max-width: 720px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 16px;
+    padding: 40px 40px 28px;
+    display:flex; flex-direction: column; gap: 20px;
+    position: relative;
+  }
+  .calibrate-word {
+    font-family: var(--font-mono); font-size: 64px; font-weight: 500; text-align: center;
+    color: var(--text); min-height: 110px; display:grid; place-items:center;
+    position: relative; letter-spacing: .02em;
+  }
+  .calibrate-word .orp { color: var(--accent); font-weight: 600; }
+  .calibrate-tick-top, .calibrate-tick-bot {
+    position:absolute; left: 50%; transform: translateX(-50%);
+    width: 2px; background: var(--accent); border-radius: 1px;
+  }
+  .calibrate-tick-top { top: 0; height: 16px; }
+  .calibrate-tick-bot { bottom: 0; height: 16px; }
+  .calibrate-controls {
+    display:flex; align-items:center; gap: 14px;
+    padding-top: 16px; border-top: 1px solid var(--border);
+  }
+  .calibrate-slider { flex:1; display:flex; align-items:center; gap: 12px; }
+  .calibrate-slider label { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); letter-spacing: .1em; text-transform: uppercase; min-width: 50px; }
+  .calibrate-meta {
+    display:flex; align-items:center; justify-content: space-between;
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+  }
+  .calibrate-meta .prog { display:flex; align-items:center; gap: 10px; }
+  .calibrate-meta .prog .bar { width: 80px; height: 3px; background: var(--surface-3); border-radius: 999px; overflow: hidden; }
+  .calibrate-meta .prog .bar .f { height:100%; background: var(--accent); width: 40%; }
+
+  .calibrate-footer {
+    display:flex; align-items:center; justify-content: space-between;
+    width: 100%; max-width: 720px;
+  }
+  .calibrate-tip {
+    font-size: 12px; color: var(--text-muted); display:flex; align-items:center; gap:8px;
+  }
+  .calibrate-tip .ico { width: 18px; height: 18px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display:grid; place-items:center; font-size: 11px; font-weight: 600; }
+
+  /* Screen 3: Ready */
+  .ob-ready {
+    flex-direction: column; align-items: center; gap: 24px; justify-content: center;
+    text-align: center;
+  }
+  .ob-ready .big-check {
+    width: 72px; height: 72px; border-radius: 50%; background: var(--accent-soft); color: var(--accent);
+    display:grid; place-items:center; font-size: 32px; margin-bottom: 6px;
+  }
+  .ob-ready h2 { font-size: 34px; font-weight: 500; margin: 0; letter-spacing: -.01em; }
+  .ob-ready p { font-size: 14px; color: var(--text-muted); max-width: 460px; line-height: 1.6; margin: 0; }
+  .stats-row {
+    display:grid; grid-template-columns: repeat(3, 1fr); gap: 14px; width: 100%; max-width: 560px;
+    margin-top: 10px;
+  }
+  .stat {
+    padding: 16px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+    text-align: left;
+  }
+  .stat .k { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px;}
+  .stat .v { font-size: 22px; font-weight: 500; color: var(--text); }
+  .stat .u { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); margin-left: 3px; }
+
+  .ob-foot {
+    padding: 16px 28px; border-top: 1px solid var(--border);
+    display:flex; align-items:center; justify-content: space-between;
+    background: var(--surface-2);
+  }
+
+  /* ===== Tweaks panel ===== */
+  #tweaks {
+    position: fixed; right: 20px; bottom: 20px; z-index: 100;
+    width: 290px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    padding: 16px; box-shadow: var(--shadow-3);
+    display: none;
+    font-family: var(--font-ui);
+  }
+  #tweaks.on { display: block; }
+  #tweaks h3 { margin: 0 0 12px; font-size: 15px; font-weight: 500; color: var(--text); display:flex; align-items:center; gap: 8px; }
+  #tweaks h3::before { content:''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .tw-row { display:flex; align-items:center; justify-content:space-between; gap: 10px; margin: 10px 0; font-size: 12px; }
+  .tw-row label { color: var(--text-muted); }
+  .tw-help { font-size: 11px; color: var(--text-muted); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); line-height: 1.5; }
+
+  /* Focus style variants */
+  body[data-focus="line"] .orp { color: var(--accent); font-weight: 600; }
+  body[data-focus="bold"] .orp { color: var(--text); font-weight: 700; }
+  body[data-focus="bold"] .focus-tick-top, body[data-focus="bold"] .focus-tick-bot,
+  body[data-focus="bold"] .demo-tick-top, body[data-focus="bold"] .demo-tick-bot,
+  body[data-focus="bold"] .calibrate-tick-top, body[data-focus="bold"] .calibrate-tick-bot { display: none; }
+  body[data-focus="underline"] .orp { color: var(--text); text-decoration: underline 2px var(--accent); text-underline-offset: 4px; }
+  body[data-focus="underline"] .focus-tick-top, body[data-focus="underline"] .focus-tick-bot,
+  body[data-focus="underline"] .demo-tick-top, body[data-focus="underline"] .demo-tick-bot,
+  body[data-focus="underline"] .calibrate-tick-top, body[data-focus="underline"] .calibrate-tick-bot { display: none; }
+
+  /* ===== SURFACE: TOOLBAR POPUP ===== */
+  .popup-stage {
+    position: relative;
+    min-height: 720px;
+    padding: 0;
+    background: var(--surface);
+    overflow: hidden;
+  }
+  /* Faint article peek behind popup */
+  .popup-stage .page-peek {
+    position: absolute; inset: 0;
+    padding: 48px 96px;
+    overflow: hidden;
+    opacity: .35;
+    filter: blur(.5px);
+    pointer-events: none;
+  }
+  .popup-stage .page-peek h1 {
+    font-family: var(--font-reader); font-size: 40px; line-height: 1.15;
+    font-weight: 600; color: var(--text); margin: 0 0 14px; max-width: 640px;
+  }
+  .popup-stage .page-peek p {
+    font-family: var(--font-reader); font-size: 17px; line-height: 1.7;
+    color: var(--text-2); max-width: 640px; margin: 0 0 16px;
+  }
+  /* Scrim dimming page for popup focus */
+  .popup-stage::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(32,33,36,.04), rgba(32,33,36,.08));
+    pointer-events: none;
+  }
+  [data-theme="dark"] .popup-stage::after { background: linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.35)); }
+
+  /* Pointer arrow indicating anchor */
+  .popup-anchor-arrow {
+    position: absolute; top: 0; right: 126px; /* line up with SR ext btn */
+    width: 14px; height: 10px;
+    z-index: 12;
+  }
+  .popup-anchor-arrow::before {
+    content: ''; position: absolute; inset: 0;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    transform: rotate(45deg);
+    transform-origin: center;
+    top: 4px; width: 12px; height: 12px;
+    box-shadow: -1px -1px 0 rgba(0,0,0,0);
+  }
+
+  /* The popup itself */
+  .popup {
+    position: absolute; top: 10px; right: 44px;
+    width: 340px;
+    background: var(--surface);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    box-shadow: 0 12px 28px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.08);
+    z-index: 15;
+    overflow: hidden;
+    font-family: var(--font-ui);
+    display: flex; flex-direction: column;
+  }
+  [data-theme="dark"] .popup { box-shadow: 0 12px 32px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4); }
+
+  .popup-hd {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .popup-hd .mini-logo {
+    width: 20px; height: 20px; border-radius: 5px; background: var(--brand-red);
+    color: #fff; display: grid; place-items: center;
+    font-size: 10px; font-weight: 700; font-family: var(--font-mono);
+    position: relative;
+  }
+  .popup-hd .mini-logo::after {
+    content:''; position:absolute; left:50%; top:3px; bottom:3px; width:1px; background: rgba(255,255,255,.55); transform: translateX(-50%);
+  }
+  .popup-hd .name { font-size: 13px; font-weight: 500; color: var(--text); }
+  .popup-hd .count {
+    margin-left: auto;
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--text-muted);
+    background: var(--surface-2); border: 1px solid var(--border);
+    padding: 2px 6px; border-radius: 999px;
+  }
+  .popup-hd .gear {
+    width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+    color: var(--text-muted); font-size: 14px; cursor: pointer;
+  }
+  .popup-hd .gear:hover { background: var(--surface-3); color: var(--text); }
+
+  /* Primary CTA — read this page */
+  .popup-primary {
+    padding: 14px 14px 12px;
+  }
+  .popup-cta {
+    width: 100%;
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    border: none; cursor: pointer;
+    text-align: left;
+    transition: background .15s ease, transform .08s ease;
+  }
+  .popup-cta:hover { background: var(--accent-hover); }
+  .popup-cta:active { transform: translateY(1px); }
+  [data-theme="dark"] .popup-cta { color: #202124; }
+  .popup-cta .play-ico {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: rgba(255,255,255,.2);
+    display: grid; place-items: center; flex-shrink: 0;
+    font-size: 13px;
+  }
+  [data-theme="dark"] .popup-cta .play-ico { background: rgba(0,0,0,.2); }
+  .popup-cta .txt { flex: 1; min-width: 0; }
+  .popup-cta .txt .t1 {
+    font-size: 13px; font-weight: 600; line-height: 1.2;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .popup-cta .txt .t2 {
+    font-size: 11px; opacity: .82; margin-top: 2px;
+    font-family: var(--font-mono);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .popup-cta .kbd-hint {
+    font-family: var(--font-mono); font-size: 10px;
+    padding: 3px 6px; border-radius: 4px;
+    background: rgba(255,255,255,.2);
+    flex-shrink: 0;
+  }
+  [data-theme="dark"] .popup-cta .kbd-hint { background: rgba(0,0,0,.15); }
+
+  /* Not-an-article state */
+  .popup-cta.disabled {
+    background: var(--surface-2);
+    color: var(--text-muted);
+    cursor: not-allowed;
+    border: 1px solid var(--border);
+  }
+  .popup-cta.disabled .play-ico { background: var(--surface-3); color: var(--text-muted); }
+
+  /* Section labels */
+  .popup-sec-label {
+    font-size: 10.5px; font-weight: 600; letter-spacing: .06em;
+    color: var(--text-muted); text-transform: uppercase;
+    padding: 14px 14px 6px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .popup-sec-label .more {
+    font-weight: 500; text-transform: none; letter-spacing: 0;
+    font-size: 11px; color: var(--accent); cursor: pointer;
+  }
+
+  /* Recents list */
+  .popup-recents {
+    padding: 0 6px 6px;
+    max-height: 196px;
+    overflow-y: auto;
+  }
+  .popup-recents::-webkit-scrollbar { width: 6px; }
+  .popup-recents::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+
+  .recent-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    position: relative;
+    transition: background .12s ease;
+  }
+  .recent-item:hover { background: var(--surface-2); }
+  .recent-item .favi {
+    width: 20px; height: 20px; border-radius: 4px;
+    flex-shrink: 0;
+    display: grid; place-items: center;
+    font-size: 10px; font-weight: 700;
+    color: #fff;
+    font-family: var(--font-mono);
+  }
+  .recent-item .txt { flex: 1; min-width: 0; }
+  .recent-item .title {
+    font-size: 12.5px; font-weight: 500; color: var(--text);
+    line-height: 1.25;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-bottom: 2px;
+  }
+  .recent-item .sub {
+    font-size: 10.5px; color: var(--text-muted);
+    font-family: var(--font-mono);
+    display: flex; align-items: center; gap: 6px;
+    white-space: nowrap; overflow: hidden;
+  }
+  .recent-item .sub .sep { color: var(--text-faint); }
+
+  /* Resume bar */
+  .recent-item .resume-bar {
+    flex-shrink: 0;
+    width: 42px; height: 4px;
+    border-radius: 999px;
+    background: var(--surface-3);
+    overflow: hidden;
+    position: relative;
+  }
+  .recent-item .resume-bar .fill {
+    position: absolute; inset: 0;
+    background: var(--accent);
+    transform-origin: left;
+  }
+  .recent-item .resume-pct {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    min-width: 30px; text-align: right;
+  }
+
+  /* Secondary row */
+  .popup-alt {
+    display: flex; gap: 6px;
+    padding: 0 10px 10px;
+  }
+  .popup-alt .alt-btn {
+    flex: 1;
+    padding: 9px 10px;
+    border-radius: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px;
+    color: var(--text-2);
+    transition: background .12s ease, border-color .12s ease;
+  }
+  .popup-alt .alt-btn:hover { background: var(--surface-3); border-color: var(--border-strong); color: var(--text); }
+  .popup-alt .alt-btn .ico {
+    width: 14px; height: 14px;
+    display: grid; place-items: center;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  /* Footer */
+  .popup-ft {
+    margin-top: auto;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px;
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+    font-size: 10.5px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+  .popup-ft .kbd { font-size: 10px; padding: 1px 5px; }
+  .popup-ft .version { opacity: .85; }
+
+  /* Toolbar popover for the "popup" surface — SR ext button highlighted */
+  .popup-stage .ext-btn.sr.active {
+    background: var(--accent-soft);
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  /* Empty-state variant of popup (first run) */
+  .popup.empty .popup-recents,
+  .popup.empty .popup-sec-label.recents-label { display: none; }
+  .popup.empty .popup-primary { padding-bottom: 14px; }
+
+  /* Variant picker for popup */
+  .popup-variant-picker {
+    display: flex; justify-content: center; gap: 8px;
+    padding: 16px 0 0;
+    position: relative; z-index: 20;
+  }
+  .popup-variant-picker .vb {
+    padding: 6px 14px; font-size: 12px; font-weight: 500;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-family: var(--font-ui);
+  }
+  .popup-variant-picker .vb:hover { background: var(--surface-2); color: var(--text); }
+  .popup-variant-picker .vb.on {
+    background: var(--text);
+    color: var(--surface);
+    border-color: var(--text);
+  }
+
+  /* ===== SURFACE: CONTEXT MENU FLOW ===== */
+  .ctx-stage {
+    position: relative;
+    min-height: 720px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  /* 3-step vertical flow */
+  .ctx-flow {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .ctx-step {
+    position: relative;
+    padding: 20px 32px 32px;
+    border-bottom: 1px dashed var(--border);
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+  .ctx-step:last-child { border-bottom: none; }
+  .ctx-step .ctx-step-body {
+    padding-top: 8px;
+  }
+  @media (max-width: 720px) {
+    .ctx-step { grid-template-columns: 1fr; gap: 16px; }
+  }
+  .ctx-step-num {
+    font-family: var(--font-mono);
+    font-size: 10.5px; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .ctx-step-num .n { color: var(--accent); margin-right: 8px; }
+  .ctx-step-title {
+    font-size: 15px; font-weight: 500;
+    color: var(--text);
+    text-wrap: balance;
+    margin-bottom: 2px;
+  }
+  .ctx-step-sub {
+    font-size: 12px; color: var(--text-muted);
+    margin-bottom: 0; line-height: 1.5;
+  }
+
+  /* Mini page inside each step */
+  .ctx-page {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 22px;
+    position: relative;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    min-height: 340px;
+    overflow: hidden;
+  }
+  .ctx-page h3 {
+    font-family: var(--font-reader);
+    font-size: 20px; font-weight: 600;
+    color: var(--text); margin: 0 0 8px;
+    line-height: 1.2;
+  }
+  .ctx-page .meta {
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+    letter-spacing: .03em;
+  }
+  .ctx-page p {
+    font-family: var(--font-reader);
+    font-size: 14px; line-height: 1.6;
+    color: var(--text-2);
+    margin: 0 0 12px;
+  }
+  .ctx-page p .sel {
+    background: #b4d7ff; /* Chrome selection blue */
+    color: var(--text);
+    box-shadow: 0 0 0 .5px #7eb2ff;
+    padding: 0 1px;
+  }
+  [data-theme="dark"] .ctx-page p .sel {
+    background: #264f78; color: #e8eaed;
+    box-shadow: 0 0 0 .5px #3b6ea8;
+  }
+  [data-theme="paper"] .ctx-page p .sel {
+    background: #d9e7f7;
+    box-shadow: 0 0 0 .5px #a9c5e8;
+  }
+  [data-theme="cream"] .ctx-page p .sel {
+    background: #d4e2f5;
+    box-shadow: 0 0 0 .5px #a1bfe4;
+  }
+  [data-theme="nord"] .ctx-page p .sel {
+    background: #c8d4e5;
+    box-shadow: 0 0 0 .5px #8ea0bc;
+  }
+  [data-theme="sepia"] .ctx-page p .sel {
+    background: #e5d4a7;
+    box-shadow: 0 0 0 .5px #b19d72;
+  }
+
+  /* Chrome context menu */
+  .chrome-menu {
+    position: absolute;
+    min-width: 224px;
+    background: #ffffff;
+    border: 1px solid rgba(0,0,0,.08);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.15), 0 2px 4px rgba(0,0,0,.08);
+    padding: 6px 0;
+    font-family: var(--font-ui);
+    font-size: 13px;
+    color: #202124;
+    z-index: 20;
+  }
+  [data-theme="dark"] .chrome-menu {
+    background: #292a2d;
+    border-color: rgba(255,255,255,.08);
+    color: #e8eaed;
+  }
+  .chrome-menu-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 16px 6px 36px;
+    cursor: pointer; position: relative;
+    min-height: 28px;
+    white-space: nowrap;
+  }
+  .chrome-menu-item:hover { background: #f1f3f4; }
+  [data-theme="dark"] .chrome-menu-item:hover { background: #3c4043; }
+  .chrome-menu-item.disabled { color: #9aa0a6; cursor: default; }
+  .chrome-menu-item.disabled:hover { background: transparent; }
+  .chrome-menu-item .ico {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    width: 16px; height: 16px;
+    display: grid; place-items: center;
+    color: #5f6368; font-size: 13px;
+  }
+  [data-theme="dark"] .chrome-menu-item .ico { color: #bdc1c6; }
+  .chrome-menu-item .shortcut {
+    margin-left: auto;
+    color: #5f6368; font-size: 12px;
+    padding-left: 32px;
+    font-family: var(--font-ui);
+  }
+  [data-theme="dark"] .chrome-menu-item .shortcut { color: #9aa0a6; }
+  .chrome-menu-item .chev {
+    margin-left: auto;
+    color: #5f6368; font-size: 11px;
+    padding-left: 24px;
+  }
+  .chrome-menu-sep {
+    height: 1px; background: rgba(0,0,0,.08);
+    margin: 4px 0;
+  }
+  [data-theme="dark"] .chrome-menu-sep { background: rgba(255,255,255,.08); }
+  /* SR item — highlighted */
+  .chrome-menu-item.sr {
+    background: #e8f0fe;
+    color: #1a73e8;
+    font-weight: 500;
+  }
+  [data-theme="dark"] .chrome-menu-item.sr {
+    background: rgba(138,180,248,.12);
+    color: #8ab4f8;
+  }
+  .chrome-menu-item.sr .ico {
+    color: var(--brand-red);
+  }
+  .chrome-menu-item.sr .mini-sr {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    width: 16px; height: 16px; border-radius: 3px;
+    background: var(--brand-red); color: #fff;
+    display: grid; place-items: center;
+    font-size: 8px; font-weight: 700; font-family: var(--font-mono);
+  }
+  .chrome-menu-item.sr .mini-sr::after {
+    content:''; position:absolute; left:50%; top:3px; bottom:3px; width:1px;
+    background: rgba(255,255,255,.55); transform: translateX(-50%);
+  }
+
+  /* Submenu */
+  .chrome-submenu {
+    position: absolute;
+    left: 100%; top: -8px;
+    min-width: 240px;
+    background: #ffffff;
+    border: 1px solid rgba(0,0,0,.08);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.15), 0 2px 4px rgba(0,0,0,.08);
+    padding: 6px 0;
+    font-family: var(--font-ui);
+    font-size: 13px;
+    color: #202124;
+    z-index: 22;
+    white-space: nowrap;
+  }
+  [data-theme="dark"] .chrome-submenu {
+    background: #292a2d; border-color: rgba(255,255,255,.08); color: #e8eaed;
+  }
+  .chrome-submenu .sub-head {
+    padding: 4px 14px 6px;
+    font-size: 10.5px; color: #80868b;
+    font-weight: 500; text-transform: uppercase; letter-spacing: .06em;
+  }
+  .chrome-submenu .sub-item {
+    padding: 6px 16px 6px 36px;
+    position: relative;
+    cursor: pointer;
+    display: flex; align-items: center;
+  }
+  .chrome-submenu .sub-item:hover { background: #f1f3f4; }
+  [data-theme="dark"] .chrome-submenu .sub-item:hover { background: #3c4043; }
+  .chrome-submenu .sub-item .check {
+    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+    color: #1a73e8; font-size: 14px;
+    visibility: hidden;
+  }
+  .chrome-submenu .sub-item.on .check { visibility: visible; }
+  .chrome-submenu .sub-item .note {
+    margin-left: auto;
+    color: #80868b; font-size: 11px;
+    padding-left: 16px;
+    font-family: var(--font-mono);
+  }
+
+  /* Right-click pointer */
+  .ctx-cursor {
+    position: absolute;
+    font-size: 18px;
+    z-index: 25;
+    pointer-events: none;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,.25));
+  }
+  .ctx-cursor .ping {
+    position: absolute; top: -8px; left: -8px;
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 2px solid var(--accent);
+    opacity: 0;
+    animation: ctxPing 2.4s ease-out infinite;
+  }
+  @keyframes ctxPing {
+    0% { transform: scale(.5); opacity: .85; }
+    100% { transform: scale(1.6); opacity: 0; }
+  }
+
+  /* Mini modal mock in step 3 */
+  .ctx-mini-modal {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 88%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.15);
+    overflow: hidden;
+    z-index: 10;
+  }
+  .ctx-mini-modal .mm-hd {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 500;
+  }
+  .ctx-mini-modal .mm-hd .mm-logo {
+    width: 18px; height: 18px; border-radius: 4px;
+    background: var(--brand-red); color: #fff;
+    display: grid; place-items: center;
+    font-size: 9px; font-weight: 700; font-family: var(--font-mono);
+    position: relative;
+  }
+  .ctx-mini-modal .mm-hd .mm-logo::after {
+    content:''; position:absolute; left:50%; top:3px; bottom:3px; width:1px;
+    background: rgba(255,255,255,.55); transform: translateX(-50%);
+  }
+  .ctx-mini-modal .mm-hd .source {
+    color: var(--text-muted); font-weight: 400;
+  }
+  .ctx-mini-modal .mm-hd .close {
+    margin-left: auto; color: var(--text-muted); font-size: 14px;
+  }
+  .ctx-mini-modal .mm-scope {
+    padding: 10px 14px;
+    font-size: 11px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    display: flex; align-items: center; gap: 8px;
+    font-weight: 500;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .ctx-mini-modal .mm-scope .scope-label {
+    font-family: var(--font-mono); font-size: 10px;
+    padding: 2px 6px; border-radius: 3px;
+    background: var(--accent); color: var(--surface);
+  }
+  [data-theme="dark"] .ctx-mini-modal .mm-scope .scope-label { color: #202124; }
+  .ctx-mini-modal .mm-scope .back {
+    margin-left: auto; font-size: 11px;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .ctx-mini-modal .mm-word {
+    padding: 30px 14px 16px;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: .01em;
+    position: relative;
+  }
+  .ctx-mini-modal .mm-word .orp {
+    color: var(--accent); font-weight: 600;
+  }
+  .ctx-mini-modal .mm-word .tick-t,
+  .ctx-mini-modal .mm-word .tick-b {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    width: 1.5px; background: var(--accent);
+  }
+  .ctx-mini-modal .mm-word .tick-t { top: 8px; height: 10px; }
+  .ctx-mini-modal .mm-word .tick-b { bottom: 8px; height: 10px; }
+  .ctx-mini-modal .mm-context {
+    font-family: var(--font-reader);
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 1.5;
+    padding: 0 20px 18px;
+    max-width: 100%;
+  }
+  .ctx-mini-modal .mm-context .now {
+    color: var(--text); font-weight: 500;
+  }
+  .ctx-mini-modal .mm-bar {
+    height: 3px; background: var(--surface-2);
+    margin: 0 20px 10px;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .ctx-mini-modal .mm-bar .fill {
+    height: 100%; background: var(--accent);
+    width: 22%;
+  }
+  .ctx-mini-modal .mm-ctrls {
+    padding: 6px 14px 14px;
+    display: flex; align-items: center; justify-content: center;
+    gap: 8px;
+  }
+  .ctx-mini-modal .mm-ctrls .mmb {
+    width: 28px; height: 28px; border-radius: 50%;
+    border: none; background: transparent;
+    color: var(--text-muted); font-size: 13px;
+    cursor: pointer;
+    display: grid; place-items: center;
+  }
+  .ctx-mini-modal .mm-ctrls .mmb.pri {
+    background: var(--accent); color: #fff;
+    width: 36px; height: 36px; font-size: 14px;
+  }
+  [data-theme="dark"] .ctx-mini-modal .mm-ctrls .mmb.pri { color: #202124; }
+  .ctx-mini-modal .mm-ctrls .wpm {
+    margin-left: 10px;
+    font-family: var(--font-mono);
+    font-size: 11px; color: var(--text-muted);
+  }
+  .ctx-mini-modal .mm-ctrls .wpm strong { color: var(--text); font-weight: 600; }
+
+  /* Scrim behind the modal */
+  .ctx-page .scrim {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,.35);
+    z-index: 5;
+    backdrop-filter: blur(1px);
+  }
+
+  /* Variant picker for ctx surface */
+  .ctx-variant-picker {
+    display: flex; justify-content: center; gap: 8px;
+    padding: 16px 0 0;
+    position: relative; z-index: 20;
+  }
+  .ctx-variant-picker .vb {
+    padding: 6px 14px; font-size: 12px; font-weight: 500;
+    border-radius: 999px;
+    white-space: nowrap;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-family: var(--font-ui);
+  }
+  .ctx-variant-picker .vb:hover { background: var(--surface-2); color: var(--text); }
+  .ctx-variant-picker .vb.on {
+    background: var(--text); color: var(--surface); border-color: var(--text);
+  }
+
+  /* Browser frame for ctx surface */
+  .ctx-stage .browser-chrome + .ctx-flow-wrap {
+    padding: 0;
+  }
+
+</style>
+</head>
+<body data-theme="light" data-focus="line">
+
+<!-- ===== SURFACE NAV ===== -->
+<div class="surface-nav">
+  <div class="brand">
+    <div class="logo">SR</div>
+    <span>SpeedReader</span>
+    <span style="color: var(--text-muted); font-weight: 400; font-size: 12px; margin-left: 4px;">Chrome extension · hi-fi</span>
+  </div>
+  <div class="surface-tabs" role="tablist">
+    <div class="surface-tab active" data-surface="modal" role="tab"><span class="idx">01</span> In-page reader</div>
+    <div class="surface-tab" data-surface="popup" role="tab"><span class="idx">02</span> Toolbar popup</div>
+    <div class="surface-tab" data-surface="context" role="tab"><span class="idx">03</span> Context menu</div>
+    <div class="surface-tab" data-surface="options" role="tab"><span class="idx">04</span> Options</div>
+    <div class="surface-tab" data-surface="onboarding" role="tab"><span class="idx">05</span> Onboarding</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="hint">Tip: press <span class="kbd">Space</span> to play/pause the reader</div>
+</div>
+
+<!-- ===================================================== -->
+<!-- SURFACE 01: IN-PAGE MODAL OVERLAY -->
+<!-- ===================================================== -->
+<section class="surface active" data-surface="modal">
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="chrome-row1">
+        <div class="window-dots"><span></span><span></span><span></span></div>
+        <div class="tabs-row">
+          <div class="ctab"><span class="favicon"></span> The Awful German Language — Gutenberg</div>
+          <div class="ctab ghost"><span class="favicon"></span> Docs</div>
+          <div class="ctab ghost"><span class="favicon"></span> Inbox (3)</div>
+          <div class="newtab">+</div>
+        </div>
+      </div>
+      <div class="chrome-row2">
+        <div class="nav-btns"><span>‹</span><span>›</span><span>↻</span></div>
+        <div class="omnibox">
+          <span class="lock">🔒</span>
+          <span class="url">gutenberg.org</span><span class="path">/files/245/245-h/awful-german-language.html</span>
+        </div>
+        <div class="ext-tray">
+          <div class="ext-btn">☆</div>
+          <div class="ext-btn sr active" title="SpeedReader · Reading"><span class="mini-logo">SR</span></div>
+          <div class="ext-btn">⋮</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="article dimmed" id="articleBg">
+      <div class="kicker">Essay · Public domain</div>
+      <h1>The Awful German Language</h1>
+      <div class="byline">
+        <div class="avatar"></div>
+        <div>
+          <div style="color: var(--text); font-weight: 500;">Mark Twain</div>
+          <div style="font-size: 12px;">A Tramp Abroad · 1880 · ~24 min read</div>
+        </div>
+      </div>
+      <div class="hero">[ hero illustration — a cluttered library ]</div>
+      <div id="articleBody"></div>
+
+      <!-- Modal -->
+      <div class="rsvp-modal" id="modal">
+        <div class="modal-header">
+          <div class="modal-title">
+            <div class="mini-logo">SR</div>
+            <div>
+              SpeedReader
+              <span class="source"> · gutenberg.org</span>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="icon-btn" title="Bookmark">☆</button>
+            <button class="icon-btn" title="Settings">⚙</button>
+            <button class="icon-btn" title="Close">✕</button>
+          </div>
+        </div>
+
+        <div class="article-meta">
+          <span><strong style="color: var(--text); font-weight: 500;">The Awful German Language</strong></span>
+          <span class="dot"></span>
+          <span>Mark Twain</span>
+          <span class="dot"></span>
+          <span class="pill">3,842 words</span>
+        </div>
+
+        <div class="rsvp-stage">
+          <div class="rsvp-word">
+            <div class="rsvp-word-wrap">
+              <div class="focus-tick-top"></div>
+              <span id="rsvpWord"><span class="pre">p</span><span class="orp">e</span><span class="post">rplexing</span></span>
+              <div class="focus-tick-bot"></div>
+            </div>
+          </div>
+          <div class="rsvp-context" id="rsvpContext">
+            …language it is. Surely there is not another language that is so
+            <span class="now">slipshod</span> and systemless, and so slippery…
+          </div>
+        </div>
+
+        <div class="rsvp-progress">
+          <span id="timeNow">04:12</span>
+          <div class="scrub"><div class="fill" id="scrubFill"></div><div class="thumb" id="scrubThumb"></div></div>
+          <span id="timeTotal">12:18</span>
+        </div>
+
+        <div class="rsvp-controls">
+          <div class="ctrl-group">
+            <button class="ctrl-btn" title="Previous sentence">⏮</button>
+            <button class="ctrl-btn" title="Back 5s">⟲</button>
+          </div>
+          <button class="ctrl-btn primary" id="playBtn" title="Play/Pause">▶</button>
+          <div class="ctrl-group">
+            <button class="ctrl-btn" title="Forward 5s">⟳</button>
+            <button class="ctrl-btn" title="Next sentence">⏭</button>
+          </div>
+          <div class="wpm-display">
+            <button id="wpmDown">−</button>
+            <span class="num" id="wpmNum">420</span>
+            <span class="lbl">wpm</span>
+            <button id="wpmUp">+</button>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <div class="shortcuts">
+            <div class="shortcut"><span class="kbd">Space</span><span>Play</span></div>
+            <div class="shortcut"><span class="kbd">←</span><span class="kbd">→</span><span>Sentence</span></div>
+            <div class="shortcut"><span class="kbd">↑</span><span class="kbd">↓</span><span>Speed</span></div>
+          </div>
+          <span>Esc to exit</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================== -->
+<!-- SURFACE: TOOLBAR POPUP -->
+<!-- ===================================================== -->
+<section class="surface" data-surface="popup">
+  <div class="popup-variant-picker" role="tablist" aria-label="Popup state">
+    <button class="vb on" data-pv="populated">Populated (3 recents)</button>
+    <button class="vb" data-pv="resume">Active resume</button>
+    <button class="vb" data-pv="empty">First run (empty)</button>
+    <button class="vb" data-pv="nonarticle">Non-article page</button>
+  </div>
+
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="chrome-row1">
+        <div class="window-dots"><span></span><span></span><span></span></div>
+        <div class="tabs-row">
+          <div class="ctab"><span class="favicon"></span> <span id="popupTabTitle">The Awful German Language — Gutenberg</span></div>
+          <div class="ctab ghost"><span class="favicon"></span> Docs</div>
+          <div class="ctab ghost"><span class="favicon"></span> Inbox (3)</div>
+          <div class="newtab">+</div>
+        </div>
+      </div>
+      <div class="chrome-row2">
+        <div class="nav-btns"><span>‹</span><span>›</span><span>↻</span></div>
+        <div class="omnibox">
+          <span class="lock">🔒</span>
+          <span class="url" id="popupUrl">gutenberg.org</span><span class="path" id="popupPath">/files/245/245-h/awful-german-language.html</span>
+        </div>
+        <div class="ext-tray">
+          <div class="ext-btn">☆</div>
+          <div class="ext-btn sr active" title="SpeedReader"><span class="mini-logo">SR</span></div>
+          <div class="ext-btn">⋮</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="popup-stage">
+      <div class="page-peek">
+        <h1 id="peekTitle">The Awful German Language</h1>
+        <p>A person who has not studied German can form no idea of what a perplexing language it is. Surely there is not another language that is so slipshod and systemless, and so slippery and elusive to the grasp.</p>
+        <p>One is washed about in it, hither and thither, in the most helpless way; and when at last he thinks he has captured a rule which offers firm ground to take a rest on amid the general rage and turmoil of the ten parts of speech, he turns over the page and reads…</p>
+        <p>"Let the pupil make careful note of the following exceptions."</p>
+      </div>
+
+      <div class="popup-anchor-arrow"></div>
+
+      <!-- THE POPUP -->
+      <div class="popup" id="srPopup">
+        <div class="popup-hd">
+          <div class="mini-logo">SR</div>
+          <div class="name">SpeedReader</div>
+          <div class="count" id="popupCount">12 saved</div>
+          <div class="gear" title="Settings">⚙</div>
+        </div>
+
+        <div class="popup-primary">
+          <button class="popup-cta" id="popupCta">
+            <div class="play-ico">▶</div>
+            <div class="txt">
+              <div class="t1" id="ctaT1">Read this page</div>
+              <div class="t2" id="ctaT2">3,842 words · ~9 min</div>
+            </div>
+            <div class="kbd-hint">⌘⇧R</div>
+          </button>
+        </div>
+
+        <div class="popup-sec-label recents-label">
+          <span>Recent</span>
+          <span class="more">See all →</span>
+        </div>
+
+        <div class="popup-recents" id="popupRecents">
+          <!-- populated via JS based on variant -->
+        </div>
+
+        <div class="popup-alt">
+          <button class="alt-btn"><span class="ico">📋</span> Paste text</button>
+          <button class="alt-btn"><span class="ico">🔗</span> From URL</button>
+        </div>
+
+        <div class="popup-ft">
+          <span><span class="kbd">⌘⇧R</span> anywhere</span>
+          <span class="version">v1.0.0</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================== -->
+<!-- SURFACE: CONTEXT MENU FLOW -->
+<!-- ===================================================== -->
+<section class="surface" data-surface="context">
+  <div class="ctx-variant-picker">
+    <button class="vb on" data-cv="selection">Text selection</button>
+    <button class="vb" data-cv="link">Link to article</button>
+    <button class="vb" data-cv="image">No selection</button>
+  </div>
+
+  <div class="browser" style="margin-top: 16px;">
+    <div class="browser-chrome">
+      <div class="chrome-row1">
+        <div class="window-dots"><span></span><span></span><span></span></div>
+        <div class="tabs-row">
+          <div class="ctab"><span class="favicon"></span> The Awful German Language — Gutenberg</div>
+          <div class="newtab">+</div>
+        </div>
+      </div>
+      <div class="chrome-row2">
+        <div class="nav-btns"><span>‹</span><span>›</span><span>↻</span></div>
+        <div class="omnibox">
+          <span class="lock">🔒</span>
+          <span class="url">gutenberg.org</span><span class="path">/files/245/245-h/awful-german-language.html</span>
+        </div>
+        <div class="ext-tray">
+          <div class="ext-btn">☆</div>
+          <div class="ext-btn sr"><span class="mini-logo">SR</span></div>
+          <div class="ext-btn">⋮</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ctx-stage">
+      <div class="ctx-flow" id="ctxFlow">
+
+        <!-- STEP 1: Select text -->
+        <div class="ctx-step">
+          <div class="ctx-step-head">
+            <div class="ctx-step-num"><span class="n">01</span>Select</div>
+            <div class="ctx-step-title">Highlight text on the page</div>
+            <div class="ctx-step-sub">Any span — a sentence, paragraph, or whole article body.</div>
+          </div>
+
+          <div class="ctx-step-body">
+          <div class="ctx-page" id="ctxStep1">
+            <h3>The Awful German Language</h3>
+            <div class="meta">Mark Twain · 1880</div>
+            <p>A person who has not studied German can form no idea of what a <span class="sel" id="selText">perplexing language it is. Surely there is not another language that is so slipshod and systemless, and so slippery and elusive to the grasp</span>.</p>
+            <p>One is washed about in it, hither and thither, in the most helpless way; and when at last he thinks he has captured a rule…</p>
+          </div>
+          </div>
+        </div>
+
+        <!-- STEP 2: Right-click menu -->
+        <div class="ctx-step">
+          <div class="ctx-step-head">
+            <div class="ctx-step-num"><span class="n">02</span>Right-click</div>
+            <div class="ctx-step-title">Open the context menu</div>
+            <div class="ctx-step-sub">SpeedReader appears as a native menu item with your last speed.</div>
+          </div>
+
+          <div class="ctx-step-body">
+          <div class="ctx-page" id="ctxStep2" style="overflow: visible; min-height: 360px;">
+            <h3>The Awful German Language</h3>
+            <div class="meta">Mark Twain · 1880</div>
+            <p>A person who has not studied German can form no idea of what a <span class="sel">perplexing language it is. Surely there is not another language that is so slipshod and systemless…</span></p>
+
+            <div class="chrome-menu" style="top: 92px; left: 120px;">
+              <div class="chrome-menu-item"><span class="ico">📋</span>Copy<span class="shortcut">⌘C</span></div>
+              <div class="chrome-menu-item"><span class="ico">🔍</span>Search Google for "perplexing…"</div>
+              <div class="chrome-menu-item"><span class="ico">🌐</span>Translate selection</div>
+              <div class="chrome-menu-sep"></div>
+              <div class="chrome-menu-item sr">
+                <span class="mini-sr">SR</span>
+                SpeedReader: Read selection
+                <span class="chev">›</span>
+              </div>
+              <div class="chrome-menu-sep"></div>
+              <div class="chrome-menu-item"><span class="ico">🖨</span>Print…<span class="shortcut">⌘P</span></div>
+              <div class="chrome-menu-item"><span class="ico">⋯</span>Inspect</div>
+
+              <!-- Submenu -->
+              <div class="chrome-submenu" style="left: 100%; top: 86px;">
+                <div class="sub-head">Speed</div>
+                <div class="sub-item on"><span class="check">✓</span>420 wpm <span class="note">last used</span></div>
+                <div class="sub-item"><span class="check">✓</span>300 wpm</div>
+                <div class="sub-item"><span class="check">✓</span>500 wpm</div>
+                <div class="sub-item"><span class="check">✓</span>Custom…</div>
+                <div class="chrome-menu-sep"></div>
+                <div class="sub-item"><span class="check">✓</span>Start from word 1</div>
+                <div class="sub-item on"><span class="check">✓</span>Show context line</div>
+              </div>
+            </div>
+            <div class="ctx-cursor" style="top: 78px; left: 110px;">
+              <span class="ping"></span>
+              ▲
+            </div>
+          </div>
+          </div>
+        </div>
+
+        <!-- STEP 3: Modal launches with selection -->
+        <div class="ctx-step">
+          <div class="ctx-step-head">
+            <div class="ctx-step-num"><span class="n">03</span>Read</div>
+            <div class="ctx-step-title">Modal launches with selection</div>
+            <div class="ctx-step-sub">Scoped to your selection. One click to expand to the full article.</div>
+          </div>
+
+          <div class="ctx-step-body">
+          <div class="ctx-page" id="ctxStep3" style="min-height: 380px;">
+            <h3 style="opacity: .3;">The Awful German Language</h3>
+            <div class="meta" style="opacity: .3;">Mark Twain · 1880</div>
+            <p style="opacity: .3;">A person who has not studied German can form no idea of what a perplexing language it is…</p>
+            <div class="scrim"></div>
+
+            <div class="ctx-mini-modal" style="width: 440px;">
+              <div class="mm-hd">
+                <div class="mm-logo">SR</div>
+                <span>SpeedReader</span>
+                <span class="source">· selection</span>
+                <span class="close">✕</span>
+              </div>
+              <div class="mm-scope">
+                <span class="scope-label">SELECTION</span>
+                <span>24 words · ~4 sec</span>
+                <span class="back">← Full article</span>
+              </div>
+              <div class="mm-word">
+                <span class="tick-t"></span>
+                <span>perp<span class="orp">l</span>exing</span>
+                <span class="tick-b"></span>
+              </div>
+              <div class="mm-context">
+                <span>…form no idea of what a</span>
+                <span class="now"> perplexing</span>
+                <span> language it is…</span>
+              </div>
+              <div class="mm-bar"><div class="fill"></div></div>
+              <div class="mm-ctrls">
+                <button class="mmb">⟲</button>
+                <button class="mmb pri">▶</button>
+                <button class="mmb">⟳</button>
+                <span class="wpm"><strong>420</strong> wpm</span>
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================== -->
+<!-- SURFACE 02: OPTIONS PAGE -->
+<!-- ===================================================== -->
+<section class="surface" data-surface="options">
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="chrome-row1">
+        <div class="window-dots"><span></span><span></span><span></span></div>
+        <div class="tabs-row">
+          <div class="ctab"><span class="favicon"></span> SpeedReader — Settings</div>
+          <div class="ctab ghost"><span class="favicon"></span> New tab</div>
+          <div class="newtab">+</div>
+        </div>
+      </div>
+      <div class="chrome-row2">
+        <div class="nav-btns"><span>‹</span><span>›</span><span>↻</span></div>
+        <div class="omnibox">
+          <span class="url">chrome-extension://</span><span class="path">speedreader/options.html</span>
+        </div>
+        <div class="ext-tray">
+          <div class="ext-btn">☆</div>
+          <div class="ext-btn sr active"><span class="mini-logo">SR</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="options-shell">
+    <div class="opt-header">
+      <div class="logo-lg">SR</div>
+      <div>
+        <h2>SpeedReader</h2>
+        <div class="subt">Tune how words stream. Changes apply live to the preview.</div>
+      </div>
+      <div class="right">
+        <span class="opt-version">v1.0.0 · Chrome</span>
+        <button class="btn ghost">Reset defaults</button>
+      </div>
+    </div>
+
+    <div class="opt-body">
+
+      <!-- LEFT: live preview -->
+      <div class="opt-preview">
+        <div class="preview-head">
+          <span>Live preview</span>
+          <span class="live-dot">playing</span>
+        </div>
+
+        <div class="preview-stage">
+          <div class="preview-wpm-hud">
+            <span class="wpm-now" id="prevWpm">420</span> wpm · chunk <span id="prevChunk">1</span>
+          </div>
+          <div class="rsvp-word-wrap" style="padding: 20px 0;">
+            <div class="focus-tick-top"></div>
+            <div class="rsvp-word" id="prevWord" style="font-size: 48px; min-height: 64px;">
+              <span class="pre">p</span><span class="orp">e</span><span class="post">rplexing</span>
+            </div>
+            <div class="focus-tick-bot"></div>
+          </div>
+          <div class="preview-controls">
+            <button class="ctrl-btn" title="Restart">↺</button>
+            <button class="ctrl-btn primary" id="prevPlay" style="width: 40px; height: 40px; font-size: 15px;">▶</button>
+            <button class="ctrl-btn" title="Slower">−</button>
+            <button class="ctrl-btn" title="Faster">+</button>
+          </div>
+        </div>
+
+        <div class="sample-passage">
+          <h4>Sample passage · Mark Twain</h4>
+          <div id="samplePassage">
+            A person who has not studied German can form no idea of what a
+            <span class="current-word">perplexing</span>
+            language it is. Surely there is not another language that is so slipshod and systemless, and so slippery and elusive to the grasp.
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: settings -->
+      <div class="opt-settings">
+        <div class="opt-nav">
+          <div class="opt-nav-item active">Reading</div>
+          <div class="opt-nav-item">Appearance</div>
+          <div class="opt-nav-item">Shortcuts</div>
+          <div class="opt-nav-item">Sites</div>
+          <div class="opt-nav-item">About</div>
+        </div>
+
+        <div class="opt-group">
+          <h3>Pacing</h3>
+
+          <div class="opt-row">
+            <div>
+              <div class="label">Reading speed</div>
+              <div class="hint">Words per minute. Most people settle between 400–600.</div>
+            </div>
+            <div class="opt-control">
+              <input type="range" min="100" max="1000" step="10" value="420" class="slider" id="wpmSlider">
+              <span class="slider-value" id="wpmSliderVal">420 wpm</span>
+            </div>
+          </div>
+
+          <div class="opt-row">
+            <div>
+              <div class="label">Chunk size</div>
+              <div class="hint">Show 1–3 words at once per tick.</div>
+            </div>
+            <div class="opt-control">
+              <div class="segmented" id="chunkSeg">
+                <button class="seg active" data-v="1">1</button>
+                <button class="seg" data-v="2">2</button>
+                <button class="seg" data-v="3">3</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="opt-row">
+            <div>
+              <div class="label">Pause on punctuation</div>
+              <div class="hint">Extra beat after <code>. , ; —</code> to mirror natural rhythm.</div>
+            </div>
+            <div class="opt-control">
+              <div class="toggle on" id="tgPunct"></div>
+            </div>
+          </div>
+
+          <div class="opt-row">
+            <div>
+              <div class="label">Slow down long words</div>
+              <div class="hint">Words over 8 letters linger ~20% longer.</div>
+            </div>
+            <div class="opt-control">
+              <div class="toggle on" id="tgLong"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="opt-group">
+          <h3>Appearance</h3>
+
+          <div class="opt-row">
+            <div>
+              <div class="label">Theme</div>
+              <div class="hint">Matches the page reader and modal.</div>
+            </div>
+            <div class="opt-control">
+              <div class="segmented" id="themeSeg">
+                <button class="seg active" data-v="light">Light</button>
+                <button class="seg" data-v="dark">Dark</button>
+                <button class="seg" data-v="paper">Paper</button>
+                <button class="seg" data-v="cream">Cream</button>
+                <button class="seg" data-v="nord">Nord</button>
+                <button class="seg" data-v="sepia">Sepia</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="opt-row">
+            <div>
+              <div class="label">Focus marker</div>
+              <div class="hint">How the Optimal Recognition Point is highlighted.</div>
+            </div>
+            <div class="opt-control">
+              <div class="segmented" id="focusSeg">
+                <button class="seg active" data-v="line">Line</button>
+                <button class="seg" data-v="bold">Bold</button>
+                <button class="seg" data-v="underline">Underline</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="opt-row">
+            <div>
+              <div class="label">Accent color</div>
+              <div class="hint">Color of the focus letter.</div>
+            </div>
+            <div class="opt-control swatches" id="accentSwatches">
+              <button class="swatch active" data-v="blue"><div class="dot" style="background:#1a73e8"></div></button>
+              <button class="swatch" data-v="teal"><div class="dot" style="background:#00897b"></div></button>
+              <button class="swatch" data-v="violet"><div class="dot" style="background:#7b1fa2"></div></button>
+              <button class="swatch" data-v="amber"><div class="dot" style="background:#e8710a"></div></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="opt-group">
+          <h3>Extraction</h3>
+          <div class="opt-row">
+            <div>
+              <div class="label">Auto-detect articles</div>
+              <div class="hint">Strip menus, ads, and sidebars before reading.</div>
+            </div>
+            <div class="opt-control">
+              <div class="toggle on" id="tgAuto"></div>
+            </div>
+          </div>
+          <div class="opt-row">
+            <div>
+              <div class="label">Only on selection</div>
+              <div class="hint">Require text to be selected before starting.</div>
+            </div>
+            <div class="opt-control">
+              <div class="toggle" id="tgSel"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================== -->
+<!-- SURFACE 03: ONBOARDING -->
+<!-- ===================================================== -->
+<section class="surface" data-surface="onboarding">
+
+  <div class="browser">
+    <div class="browser-chrome">
+      <div class="chrome-row1">
+        <div class="window-dots"><span></span><span></span><span></span></div>
+        <div class="tabs-row">
+          <div class="ctab"><span class="favicon"></span> <span id="tabTitle">Welcome to SpeedReader</span></div>
+          <div class="newtab">+</div>
+        </div>
+      </div>
+      <div class="chrome-row2">
+        <div class="nav-btns"><span>‹</span><span>›</span><span>↻</span></div>
+        <div class="omnibox">
+          <span class="url">chrome-extension://</span><span class="path">speedreader/welcome.html</span>
+        </div>
+        <div class="ext-tray">
+          <div class="ext-btn sr active"><span class="mini-logo">SR</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ob-shell">
+    <div class="ob-top">
+      <div class="logo-md">SR</div>
+      <div class="brandname">SpeedReader</div>
+      <div class="ob-steps">
+        <span id="stepLabel">Step 1 of 3</span>
+        <div class="step-dots">
+          <div class="d current" data-s="0"></div>
+          <div class="d" data-s="1"></div>
+          <div class="d" data-s="2"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ob-main">
+
+      <!-- SCREEN 1: Welcome -->
+      <div class="ob-screen ob-welcome active" data-step="0">
+        <div class="left">
+          <div class="ob-eyebrow">Installed · Let's go</div>
+          <h1>Read a book at <span class="accent">the speed of thought.</span></h1>
+          <p class="lead">SpeedReader streams one word at a time, right where your eye naturally focuses. No scrolling. No skimming. Just the text, flowing.</p>
+          <div class="ob-cta-row">
+            <button class="btn primary" data-next>Try a sample read →</button>
+            <button class="btn ghost" data-skip>Skip intro</button>
+          </div>
+          <ul class="ob-feature-list">
+            <li><span class="check">✓</span> Works on any article, blog, or selection</li>
+            <li><span class="check">✓</span> 100–1000 WPM, from a gentle pace to a sprint</li>
+            <li><span class="check">✓</span> Keyboard shortcut: <span class="kbd">⌘</span> <span class="kbd">Shift</span> <span class="kbd">R</span></li>
+            <li><span class="check">✓</span> Privacy-first — everything stays in your browser</li>
+          </ul>
+        </div>
+        <div class="right">
+          <div class="ob-demo-card">
+            <div class="demo-word">
+              <div class="rsvp-word-wrap" style="display: inline-block;">
+                <div class="demo-tick-top"></div>
+                <span id="demoWord"><span class="pre">r</span><span class="orp">e</span><span class="post">ading</span></span>
+                <div class="demo-tick-bot"></div>
+              </div>
+            </div>
+            <div class="demo-progress"><div class="fill" id="demoFill"></div></div>
+            <div class="demo-caption">The blue letter is where you look</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCREEN 2: Calibrate -->
+      <div class="ob-screen ob-calibrate" data-step="1">
+        <div class="calibrate-head">
+          <h2>Find your pace.</h2>
+          <p>We'll stream a short passage. Drag the slider to a speed that feels challenging but comfortable.</p>
+        </div>
+
+        <div class="calibrate-stage">
+          <div class="calibrate-meta">
+            <span>Sample · The Awful German Language — Twain</span>
+            <span class="prog"><span class="bar"><span class="f" id="calBar"></span></span> <span id="calTime">00:08 / 00:22</span></span>
+          </div>
+          <div class="rsvp-word-wrap" style="display:flex; justify-content:center;">
+            <div class="calibrate-tick-top"></div>
+            <div class="calibrate-word" id="calWord">
+              <span class="pre">l</span><span class="orp">a</span><span class="post">nguage</span>
+            </div>
+            <div class="calibrate-tick-bot"></div>
+          </div>
+          <div class="calibrate-controls">
+            <button class="ctrl-btn primary" id="calPlay" style="width: 44px; height: 44px;">▶</button>
+            <div class="calibrate-slider">
+              <label>Speed</label>
+              <input type="range" min="100" max="1000" step="10" value="420" class="slider" id="calSlider" style="width: 100%;">
+              <span class="slider-value" id="calVal">420 wpm</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="calibrate-footer">
+          <div class="calibrate-tip">
+            <span class="ico">?</span>
+            If the word blurs, nudge down by 20. If you're waiting for the next word, nudge up.
+          </div>
+          <button class="btn primary" data-next>Keep this speed →</button>
+        </div>
+      </div>
+
+      <!-- SCREEN 3: Ready -->
+      <div class="ob-screen ob-ready" data-step="2">
+        <div class="big-check">✓</div>
+        <h2>You're set.</h2>
+        <p>Open any article and click the <strong style="color: var(--text);">SR</strong> icon in your toolbar, or hit <span class="kbd">⌘</span> <span class="kbd">Shift</span> <span class="kbd">R</span>.</p>
+
+        <div class="stats-row">
+          <div class="stat">
+            <div class="k">Your speed</div>
+            <div class="v" id="finalWpm">420<span class="u">wpm</span></div>
+          </div>
+          <div class="stat">
+            <div class="k">About</div>
+            <div class="v">1.7<span class="u">× average</span></div>
+          </div>
+          <div class="stat">
+            <div class="k">Time saved per hour</div>
+            <div class="v">25<span class="u">min</span></div>
+          </div>
+        </div>
+
+        <div style="display:flex; gap: 10px; margin-top: 20px;">
+          <button class="btn primary">Pin to toolbar</button>
+          <button class="btn ghost">Open settings</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="ob-foot">
+      <button class="btn ghost" id="obBack" data-back>← Back</button>
+      <span style="font-size: 12px; color: var(--text-muted);">You can change all of this later in Settings.</span>
+      <button class="btn primary" id="obNext" data-next>Next →</button>
+    </div>
+  </div>
+</section>
+
+
+<!-- ===== TWEAKS ===== -->
+<div id="tweaks">
+  <h3>Tweaks</h3>
+
+  <div class="tw-row">
+    <label>Theme</label>
+    <div class="segmented" data-tw-group="theme" style="flex-wrap:wrap; gap:2px;">
+      <button class="seg active" data-v="light">Light</button>
+      <button class="seg" data-v="dark">Dark</button>
+      <button class="seg" data-v="paper">Paper</button>
+      <button class="seg" data-v="cream">Cream</button>
+      <button class="seg" data-v="nord">Nord</button>
+      <button class="seg" data-v="sepia">Sepia</button>
+    </div>
+  </div>
+
+  <div class="tw-row">
+    <label>Focus style</label>
+    <div class="segmented" data-tw-group="focus">
+      <button class="seg active" data-v="line">Line</button>
+      <button class="seg" data-v="bold">Bold</button>
+      <button class="seg" data-v="underline">U</button>
+    </div>
+  </div>
+
+  <div class="tw-row">
+    <label>Accent</label>
+    <div class="segmented" data-tw-group="accent">
+      <button class="seg active" data-v="blue">Blue</button>
+      <button class="seg" data-v="teal">Teal</button>
+      <button class="seg" data-v="violet">Violet</button>
+    </div>
+  </div>
+
+  <div class="tw-row">
+    <label>Modal dim</label>
+    <div class="toggle on" id="twDim"></div>
+  </div>
+
+  <div class="tw-help">The reader animates live. Space toggles play/pause on the main modal.</div>
+</div>
+
+
+<script>
+(function(){
+  // ===== Tweaks state =====
+  const TWEAKS = /*EDITMODE-BEGIN*/{
+    "theme": "light",
+    "focus": "underline",
+    "accent": "blue",
+    "dim": true
+  }/*EDITMODE-END*/;
+
+  const state = { ...TWEAKS };
+  const accents = {
+    blue:   { accent: '#1a73e8', hover:'#1765cc', soft: '#e8f0fe' },
+    teal:   { accent: '#00897b', hover:'#00695c', soft: '#d6ecea' },
+    violet: { accent: '#7b1fa2', hover:'#6a1b9a', soft: '#f0e4f6' },
+    amber:  { accent: '#e8710a', hover:'#b75a00', soft: '#fce8d4' }
+  };
+
+  function applyTweaks() {
+    document.body.setAttribute('data-theme', state.theme);
+    document.body.setAttribute('data-focus', state.focus);
+    const a = accents[state.accent] || accents.blue;
+    document.documentElement.style.setProperty('--accent', a.accent);
+    document.documentElement.style.setProperty('--accent-hover', a.hover);
+    document.documentElement.style.setProperty('--accent-soft', a.soft);
+    document.getElementById('articleBg').classList.toggle('dimmed', !!state.dim);
+
+    // sync segmented UIs in tweaks panel
+    document.querySelectorAll('#tweaks .segmented[data-tw-group]').forEach(seg => {
+      const g = seg.getAttribute('data-tw-group');
+      seg.querySelectorAll('.seg').forEach(b => {
+        b.classList.toggle('active', b.getAttribute('data-v') === state[g]);
+      });
+    });
+    document.getElementById('twDim').classList.toggle('on', state.dim);
+
+    // sync in-page segmented matches for theme/focus/accent
+    syncSeg('themeSeg', state.theme);
+    syncSeg('focusSeg', state.focus);
+    document.querySelectorAll('#accentSwatches .swatch').forEach(s => {
+      s.classList.toggle('active', s.getAttribute('data-v') === state.accent);
+    });
+  }
+  function syncSeg(id, v) {
+    const el = document.getElementById(id); if (!el) return;
+    el.querySelectorAll('.seg').forEach(b => b.classList.toggle('active', b.getAttribute('data-v') === v));
+  }
+
+  // Wire tweaks panel
+  document.querySelectorAll('#tweaks .segmented[data-tw-group] .seg').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const g = btn.parentElement.getAttribute('data-tw-group');
+      state[g] = btn.getAttribute('data-v');
+      applyTweaks(); persist(g);
+    });
+  });
+  document.getElementById('twDim').addEventListener('click', () => {
+    state.dim = !state.dim; applyTweaks(); persist('dim');
+  });
+  function persist(key) {
+    try { window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { [key]: state[key] } }, '*'); } catch(e) {}
+  }
+
+  // ===== Edit-mode protocol =====
+  window.addEventListener('message', (e) => {
+    const d = e.data || {};
+    if (d.type === '__activate_edit_mode') document.getElementById('tweaks').classList.add('on');
+    else if (d.type === '__deactivate_edit_mode') document.getElementById('tweaks').classList.remove('on');
+  });
+  try { window.parent.postMessage({ type: '__edit_mode_available' }, '*'); } catch(e) {}
+
+  // ===== Surface switcher =====
+  const savedSurface = localStorage.getItem('sr_surface') || 'modal';
+  function showSurface(name) {
+    document.querySelectorAll('.surface').forEach(s => s.classList.toggle('active', s.getAttribute('data-surface') === name));
+    document.querySelectorAll('.surface-tab').forEach(t => t.classList.toggle('active', t.getAttribute('data-surface') === name));
+    localStorage.setItem('sr_surface', name);
+  }
+  document.querySelectorAll('.surface-tab').forEach(t => {
+    t.addEventListener('click', () => showSurface(t.getAttribute('data-surface')));
+  });
+  showSurface(savedSurface);
+
+  // ===== Popup surface — variants & recents =====
+  const RECENTS = [
+    { title: 'The Awful German Language', site: 'gutenberg.org', meta: '9 min', color: '#d93025', letter: 'G', pct: 34, active: true },
+    { title: 'On doing one thing at a time', site: 'quarterly.example', meta: 'yesterday', color: '#1a73e8', letter: 'Q', pct: 100 },
+    { title: 'Eye-tracking & the span of attention', site: 'arxiv-mirror.org', meta: '2 days ago', color: '#188038', letter: 'A', pct: 62 },
+    { title: 'Why deep reading is dying', site: 'newyorker.com', meta: '4 days ago', color: '#5f6368', letter: 'N', pct: 100 },
+    { title: 'The psychology of flow', site: 'psycnet.apa.org', meta: 'last week', color: '#b06000', letter: 'P', pct: 18 },
+  ];
+
+  function renderRecents(filter) {
+    const root = document.getElementById('popupRecents');
+    if (!root) return;
+    let items = RECENTS.slice();
+    if (filter === 'resume') {
+      items = items.filter(r => r.pct < 100);
+    }
+    root.innerHTML = items.map(r => `
+      <div class="recent-item">
+        <div class="favi" style="background:${r.color}">${r.letter}</div>
+        <div class="txt">
+          <div class="title">${r.title}</div>
+          <div class="sub">
+            <span>${r.site}</span>
+            <span class="sep">·</span>
+            <span>${r.meta}</span>
+          </div>
+        </div>
+        ${r.pct < 100 ? `
+          <div class="resume-bar"><div class="fill" style="width:${r.pct}%"></div></div>
+          <span class="resume-pct">${r.pct}%</span>
+        ` : `<span class="resume-pct" style="color:var(--text-faint)">done</span>`}
+      </div>
+    `).join('');
+  }
+
+  function setPopupVariant(v) {
+    const popup = document.getElementById('srPopup');
+    const cta = document.getElementById('popupCta');
+    const t1 = document.getElementById('ctaT1');
+    const t2 = document.getElementById('ctaT2');
+    const count = document.getElementById('popupCount');
+    const tabTitle = document.getElementById('popupTabTitle');
+    const url = document.getElementById('popupUrl');
+    const path = document.getElementById('popupPath');
+    const peek = document.getElementById('peekTitle');
+    if (!popup) return;
+
+    popup.classList.remove('empty');
+    cta.classList.remove('disabled');
+
+    if (v === 'populated') {
+      t1.textContent = 'Read this page';
+      t2.textContent = '3,842 words · ~9 min';
+      count.textContent = '12 saved';
+      tabTitle.textContent = 'The Awful German Language — Gutenberg';
+      url.textContent = 'gutenberg.org';
+      path.textContent = '/files/245/245-h/awful-german-language.html';
+      peek.textContent = 'The Awful German Language';
+      renderRecents('all');
+    } else if (v === 'resume') {
+      t1.textContent = 'Resume: The Awful German Language';
+      t2.textContent = '34% read · ~6 min left';
+      count.textContent = '12 saved';
+      tabTitle.textContent = 'The Awful German Language — Gutenberg';
+      url.textContent = 'gutenberg.org';
+      path.textContent = '/files/245/245-h/awful-german-language.html';
+      peek.textContent = 'The Awful German Language';
+      renderRecents('resume');
+    } else if (v === 'empty') {
+      popup.classList.add('empty');
+      t1.textContent = 'Read this page';
+      t2.textContent = '3,842 words · ~9 min';
+      count.textContent = 'New';
+      tabTitle.textContent = 'The Awful German Language — Gutenberg';
+      url.textContent = 'gutenberg.org';
+      path.textContent = '/files/245/245-h/awful-german-language.html';
+      peek.textContent = 'The Awful German Language';
+    } else if (v === 'nonarticle') {
+      cta.classList.add('disabled');
+      t1.textContent = 'No article detected';
+      t2.textContent = 'Try selecting text, or paste below';
+      count.textContent = '12 saved';
+      tabTitle.textContent = 'Google — Search';
+      url.textContent = 'google.com';
+      path.textContent = '/search?q=speed+reading';
+      peek.textContent = 'Search results';
+      renderRecents('all');
+    }
+  }
+
+  document.querySelectorAll('.popup-variant-picker .vb').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.popup-variant-picker .vb').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      setPopupVariant(b.getAttribute('data-pv'));
+    });
+  });
+  setPopupVariant('populated');
+
+  // ===== Context menu surface — variants =====
+  function setCtxVariant(v) {
+    const step1 = document.getElementById('ctxStep1');
+    const step2 = document.getElementById('ctxStep2');
+    const step3 = document.getElementById('ctxStep3');
+    if (!step1) return;
+
+    const scopeLabel = step3.querySelector('.scope-label');
+    const scopeMeta = step3.querySelector('.mm-scope span:nth-child(2)');
+    const srItem = step2.querySelector('.chrome-menu-item.sr');
+    let srItemText = null;
+    if (srItem) {
+      for (const n of srItem.childNodes) {
+        if (n.nodeType === 3 && n.nodeValue.trim()) { srItemText = n; break; }
+      }
+    }
+
+    if (v === 'selection') {
+      if (srItemText) srItemText.nodeValue = 'SpeedReader: Read selection';
+      if (scopeLabel) scopeLabel.textContent = 'SELECTION';
+      if (scopeMeta) scopeMeta.textContent = '24 words · ~4 sec';
+    } else if (v === 'link') {
+      if (srItemText) srItemText.nodeValue = 'SpeedReader: Read linked page';
+      if (scopeLabel) scopeLabel.textContent = 'LINKED PAGE';
+      if (scopeMeta) scopeMeta.textContent = '2,104 words · ~5 min';
+    } else if (v === 'image') {
+      if (srItemText) srItemText.nodeValue = 'SpeedReader: Read this page';
+      if (scopeLabel) scopeLabel.textContent = 'FULL PAGE';
+      if (scopeMeta) scopeMeta.textContent = '3,842 words · ~9 min';
+    }
+  }
+  document.querySelectorAll('.ctx-variant-picker .vb').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.ctx-variant-picker .vb').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      setCtxVariant(b.getAttribute('data-cv'));
+    });
+  });
+  setCtxVariant('selection');
+
+  // ===== ORP calculation =====
+  // Classic ORP: approximately 1/3 into the word, max 5
+  function orpIndex(word) {
+    const n = word.length;
+    if (n <= 1) return 0;
+    if (n <= 3) return 1;
+    if (n <= 5) return 1;
+    if (n <= 9) return 2;
+    return 3;
+  }
+  function renderWord(word) {
+    const i = orpIndex(word);
+    const pre = word.slice(0, i), orp = word.slice(i, i + 1), post = word.slice(i + 1);
+    return `<span class="pre">${pre}</span><span class="orp">${orp}</span><span class="post">${post}</span>`;
+  }
+
+  // ===== Sample passage (Twain, public domain) =====
+  const passage = `A person who has not studied German can form no idea of what a perplexing language it is. Surely there is not another language that is so slipshod and systemless, and so slippery and elusive to the grasp. One is washed about in it, hither and thither, in the most helpless way; and when at last he thinks he has captured a rule which offers firm ground to take a rest on amid the general rage and turmoil of the ten parts of speech, he turns over the page and reads, Let the pupil make careful note of the following exceptions. He runs his eye down and finds that there are more exceptions to the rule than instances of it.`;
+  const words = passage.split(/\s+/).filter(Boolean);
+
+  function wordDelay(word, wpm) {
+    let base = 60000 / wpm;
+    // punctuation pause
+    if (/[.!?]$/.test(word)) base *= 2.2;
+    else if (/[,;:—]$/.test(word)) base *= 1.6;
+    // long word pause
+    if (word.replace(/[^\w]/g,'').length > 8) base *= 1.2;
+    return base;
+  }
+
+  // ===== Modal reader =====
+  let modalIdx = 0, modalWpm = 420, modalTimer = null, modalPlaying = true;
+  const rsvpWord = document.getElementById('rsvpWord');
+  const rsvpCtx = document.getElementById('rsvpContext');
+  const playBtn = document.getElementById('playBtn');
+  const wpmNum = document.getElementById('wpmNum');
+  const scrubFill = document.getElementById('scrubFill');
+  const scrubThumb = document.getElementById('scrubThumb');
+  const timeNow = document.getElementById('timeNow');
+  const timeTotal = document.getElementById('timeTotal');
+
+  function modalTick() {
+    if (!modalPlaying) return;
+    const w = words[modalIdx % words.length];
+    rsvpWord.innerHTML = renderWord(w.replace(/[^\w'-]/g,''));
+    // context: show 6 words before + current highlighted + 8 after
+    const before = words.slice(Math.max(0, modalIdx - 6), modalIdx).join(' ');
+    const after = words.slice(modalIdx + 1, modalIdx + 9).join(' ');
+    rsvpCtx.innerHTML = `…${before} <span class="now">${w}</span> ${after}…`;
+    // highlight on page
+    highlightArticleWord(modalIdx % words.length);
+    // progress
+    const p = (modalIdx % words.length) / words.length;
+    scrubFill.style.width = (p*100)+'%';
+    scrubThumb.style.left = (p*100)+'%';
+    const totalSec = words.length * 60 / modalWpm;
+    const nowSec = p * totalSec;
+    timeNow.textContent = fmtTime(nowSec);
+    timeTotal.textContent = fmtTime(totalSec);
+    modalIdx++;
+    modalTimer = setTimeout(modalTick, wordDelay(w, modalWpm));
+  }
+  function fmtTime(s) { s = Math.max(0, Math.round(s)); const m = Math.floor(s/60); const r = s%60; return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`; }
+
+  playBtn.addEventListener('click', toggleModalPlay);
+  function toggleModalPlay() {
+    modalPlaying = !modalPlaying;
+    playBtn.textContent = modalPlaying ? '⏸' : '▶';
+    if (modalPlaying) modalTick();
+    else clearTimeout(modalTimer);
+  }
+  document.getElementById('wpmUp').addEventListener('click', () => setModalWpm(modalWpm + 20));
+  document.getElementById('wpmDown').addEventListener('click', () => setModalWpm(modalWpm - 20));
+  function setModalWpm(v) {
+    modalWpm = Math.max(100, Math.min(1000, v));
+    wpmNum.textContent = modalWpm;
+  }
+  document.addEventListener('keydown', (e) => {
+    const activeSurface = document.querySelector('.surface.active').getAttribute('data-surface');
+    if (activeSurface !== 'modal') return;
+    if (e.code === 'Space') { e.preventDefault(); toggleModalPlay(); }
+    else if (e.code === 'ArrowUp') setModalWpm(modalWpm + 20);
+    else if (e.code === 'ArrowDown') setModalWpm(modalWpm - 20);
+  });
+  // start
+  playBtn.textContent = '⏸';
+
+  // ===== Render article body from the same `words` array so it stays in sync =====
+  // Paragraph breaks are inserted at sentence boundaries to mimic the original text.
+  const articleBody = document.getElementById('articleBody');
+  function renderArticle() {
+    // Break into paragraphs roughly every ~42 words at a sentence boundary
+    let html = '<p>';
+    let paraWords = 0;
+    words.forEach((w, i) => {
+      html += `<span class="w" data-i="${i}">${w}</span> `;
+      paraWords++;
+      if (paraWords > 36 && /[.?!]$/.test(w)) {
+        html += '</p><p>';
+        paraWords = 0;
+      }
+    });
+    html += '</p>';
+    articleBody.innerHTML = html;
+  }
+  renderArticle();
+
+  let lastHighlight = -1;
+  function highlightArticleWord(i) {
+    if (i === lastHighlight) return;
+    const spans = articleBody.querySelectorAll('.w');
+    if (lastHighlight >= 0 && spans[lastHighlight]) spans[lastHighlight].classList.remove('current');
+    spans.forEach((s, idx) => s.classList.toggle('read', idx < i));
+    if (spans[i]) {
+      spans[i].classList.add('current');
+      spans[i].classList.remove('read');
+    }
+    lastHighlight = i;
+  }
+
+  modalTick();
+
+  // ===== Options live preview =====
+  let prevIdx = 0, prevWpm = 420, prevChunk = 1, prevTimer = null, prevPlaying = true;
+  const prevWordEl = document.getElementById('prevWord');
+  const prevWpmEl = document.getElementById('prevWpm');
+  const prevChunkEl = document.getElementById('prevChunk');
+  const prevPlayBtn = document.getElementById('prevPlay');
+  const samplePassage = document.getElementById('samplePassage');
+
+  function previewTick() {
+    if (!prevPlaying) return;
+    const n = prevChunk;
+    const chunk = words.slice(prevIdx % words.length, (prevIdx % words.length) + n).join(' ');
+    // focus on middle word for chunk > 1
+    const target = chunk.split(' ')[Math.floor((n-1)/2)].replace(/[^\w'-]/g,'');
+    prevWordEl.innerHTML = renderWord(target).replace('class="pre">', `class="pre">`);
+    // rebuild with surrounding words for chunk display
+    if (n > 1) {
+      const parts = chunk.split(' ');
+      const html = parts.map((w, i) => {
+        if (i === Math.floor((n-1)/2)) return renderWord(w.replace(/[^\w'-]/g,''));
+        return `<span class="pre">${w}</span>`;
+      }).join(' ');
+      prevWordEl.innerHTML = html;
+    }
+    // update sample passage highlight
+    const htmlBits = words.map((w, i) => {
+      const base = i % words.length;
+      if (base === (prevIdx % words.length)) return `<span class="current-word">${w}</span>`;
+      return w;
+    }).join(' ');
+    samplePassage.innerHTML = `<h4>Sample passage · Mark Twain</h4>${htmlBits}`;
+    prevIdx++;
+    prevTimer = setTimeout(previewTick, wordDelay(words[prevIdx % words.length], prevWpm));
+  }
+  prevPlayBtn.addEventListener('click', () => {
+    prevPlaying = !prevPlaying;
+    prevPlayBtn.textContent = prevPlaying ? '⏸' : '▶';
+    if (prevPlaying) previewTick(); else clearTimeout(prevTimer);
+  });
+  prevPlayBtn.textContent = '⏸';
+  previewTick();
+
+  // WPM slider
+  const wpmSlider = document.getElementById('wpmSlider');
+  const wpmSliderVal = document.getElementById('wpmSliderVal');
+  wpmSlider.addEventListener('input', () => {
+    prevWpm = parseInt(wpmSlider.value, 10);
+    wpmSliderVal.textContent = prevWpm + ' wpm';
+    prevWpmEl.textContent = prevWpm;
+  });
+
+  // Chunk segmented
+  document.querySelectorAll('#chunkSeg .seg').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#chunkSeg .seg').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      prevChunk = parseInt(b.getAttribute('data-v'), 10);
+      prevChunkEl.textContent = prevChunk;
+    });
+  });
+
+  // Theme segmented
+  document.querySelectorAll('#themeSeg .seg').forEach(b => {
+    b.addEventListener('click', () => { state.theme = b.getAttribute('data-v'); applyTweaks(); persist('theme'); });
+  });
+  document.querySelectorAll('#focusSeg .seg').forEach(b => {
+    b.addEventListener('click', () => { state.focus = b.getAttribute('data-v'); applyTweaks(); persist('focus'); });
+  });
+  document.querySelectorAll('#accentSwatches .swatch').forEach(b => {
+    b.addEventListener('click', () => { state.accent = b.getAttribute('data-v'); applyTweaks(); persist('accent'); });
+  });
+
+  // Toggles
+  ['tgPunct','tgLong','tgAuto','tgSel'].forEach(id => {
+    const el = document.getElementById(id);
+    el.addEventListener('click', () => el.classList.toggle('on'));
+  });
+
+  // ===== Onboarding =====
+  let obStep = parseInt(localStorage.getItem('sr_ob_step') || '0', 10);
+  if (isNaN(obStep) || obStep < 0 || obStep > 2) obStep = 0;
+  const obScreens = document.querySelectorAll('.ob-screen');
+  const obDots = document.querySelectorAll('.step-dots .d');
+  const stepLabel = document.getElementById('stepLabel');
+  const tabTitle = document.getElementById('tabTitle');
+  const titles = ['Welcome to SpeedReader', 'Calibrate your speed', 'You\'re ready'];
+  function showStep(n) {
+    obStep = Math.max(0, Math.min(2, n));
+    localStorage.setItem('sr_ob_step', obStep);
+    obScreens.forEach(s => s.classList.toggle('active', parseInt(s.getAttribute('data-step'),10) === obStep));
+    obDots.forEach((d, i) => {
+      d.classList.toggle('current', i === obStep);
+      d.classList.toggle('done', i < obStep);
+    });
+    stepLabel.textContent = `Step ${obStep+1} of 3`;
+    tabTitle.textContent = titles[obStep];
+    document.getElementById('obBack').style.visibility = obStep === 0 ? 'hidden' : 'visible';
+    document.getElementById('obNext').textContent = obStep === 2 ? 'Start reading →' : 'Next →';
+  }
+  document.querySelectorAll('[data-next]').forEach(b => b.addEventListener('click', () => showStep(obStep+1)));
+  document.querySelectorAll('[data-back]').forEach(b => b.addEventListener('click', () => showStep(obStep-1)));
+  document.querySelectorAll('[data-skip]').forEach(b => b.addEventListener('click', () => showStep(2)));
+  showStep(obStep);
+
+  // Demo word ticker (screen 1)
+  const demoWords = ['reading','at','the','speed','of','thought','with','SpeedReader','perplexing','language'];
+  let demoIdx = 0;
+  const demoWord = document.getElementById('demoWord');
+  const demoFill = document.getElementById('demoFill');
+  setInterval(() => {
+    const w = demoWords[demoIdx % demoWords.length];
+    demoWord.innerHTML = renderWord(w);
+    demoFill.style.width = ((demoIdx % demoWords.length)/demoWords.length*100)+'%';
+    demoIdx++;
+  }, 380);
+
+  // Calibrate screen ticker
+  let calWpm = 420, calIdx = 0, calPlaying = true, calTimer = null;
+  const calWord = document.getElementById('calWord');
+  const calSlider = document.getElementById('calSlider');
+  const calVal = document.getElementById('calVal');
+  const calBar = document.getElementById('calBar');
+  const calTime = document.getElementById('calTime');
+  const calPlay = document.getElementById('calPlay');
+  const finalWpm = document.getElementById('finalWpm');
+  function calTick() {
+    if (!calPlaying) return;
+    const w = words[calIdx % words.length].replace(/[^\w'-]/g,'');
+    calWord.innerHTML = renderWord(w);
+    const p = (calIdx % words.length) / words.length;
+    calBar.style.width = (p*100)+'%';
+    const total = words.length * 60 / calWpm;
+    calTime.textContent = fmtTime(p*total) + ' / ' + fmtTime(total);
+    calIdx++;
+    calTimer = setTimeout(calTick, wordDelay(words[calIdx % words.length], calWpm));
+  }
+  calPlay.addEventListener('click', () => {
+    calPlaying = !calPlaying; calPlay.textContent = calPlaying ? '⏸' : '▶';
+    if (calPlaying) calTick(); else clearTimeout(calTimer);
+  });
+  calSlider.addEventListener('input', () => {
+    calWpm = parseInt(calSlider.value, 10); calVal.textContent = calWpm + ' wpm';
+    finalWpm.innerHTML = calWpm + '<span class="u">wpm</span>';
+  });
+  calPlay.textContent = '⏸';
+  calTick();
+
+  applyTweaks();
+})();
+</script>
+
+</body>
+</html>
