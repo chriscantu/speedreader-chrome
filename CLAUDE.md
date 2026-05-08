@@ -15,12 +15,13 @@ SpeedReader for Chrome is a Chrome (MV3) port of [chriscantu/speed-reader](https
 
 ## Repo orientation
 
-Once scaffolded (issue #1), the layout follows:
+The source tree is split along the platform boundary:
 
-- `src/core/` — platform-agnostic RSVP engine, extraction, settings schema, overlay UI. Kept portable for a future shared-core extraction across Safari + Chrome.
-- `src/chrome/` — Chrome-specific glue: service worker, content script, popup, options page, `chrome.*` API adapters.
+- `src/core/` — platform-agnostic RSVP engine, extraction, settings schema, overlay UI. Kept portable for a future shared-core extraction across Safari + Chrome. **No `chrome.*` or `browser.*` imports allowed.** See `src/core/README.md` for the full boundary contract.
+- `src/chrome/` — Chrome-specific glue: service worker (`background/`), content script (`content/`), popup, options page, and `manifest.ts`. May depend on `src/core/`; the reverse is forbidden.
+- `icons/` (repo root) — platform-agnostic icon assets referenced by the manifest.
 
-Until then, the repo is docs + issue templates only.
+`src/core/` is currently a placeholder — engine, extraction, and overlay land in later issues. STRUCTURE.md (issue #41) will expand this orientation into a standalone reference.
 
 ## Key references
 
