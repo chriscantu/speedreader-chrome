@@ -25,8 +25,8 @@ describe('tokenize', () => {
       expect(tokenize('a  \t  b\t\tc')).toEqual(['a', 'b', 'c']);
     });
 
-    it('flattens newlines (no paragraph token)', () => {
-      expect(tokenize('hello\n\nworld\nfoo')).toEqual(['hello', 'world', 'foo']);
+    it('treats single newlines as soft wraps (collapsed as whitespace)', () => {
+      expect(tokenize('hello\nworld\nfoo')).toEqual(['hello', 'world', 'foo']);
     });
 
     it('trims leading and trailing whitespace', () => {
@@ -83,6 +83,44 @@ describe('tokenize', () => {
 
     it('handles multiple em-dashes', () => {
       expect(tokenize('a—b—c')).toEqual(['a', '—', 'b', '—', 'c']);
+    });
+  });
+
+  describe('en-dash', () => {
+    it('splits en-dash with surrounding spaces into its own token', () => {
+      expect(tokenize('pages 12 – 15')).toEqual(['pages', '12', '–', '15']);
+    });
+
+    it('splits en-dash without surrounding spaces into its own token', () => {
+      expect(tokenize('pages 12–15')).toEqual(['pages', '12', '–', '15']);
+    });
+
+    // Date ranges split, mirroring em-dash. Consistency for #15 punctuation
+    // pacing — every dash is a pause marker — beats keeping `2024–2026` whole.
+    it('splits date-range en-dash into its own token', () => {
+      expect(tokenize('2024–2026 era')).toEqual(['2024', '–', '2026', 'era']);
+    });
+  });
+
+  describe('paragraph break sentinel', () => {
+    it('emits "\\n\\n" between two paragraphs', () => {
+      expect(tokenize('hello world\n\nfoo bar')).toEqual(['hello', 'world', '\n\n', 'foo', 'bar']);
+    });
+
+    it('collapses runs of 4 newlines to a single paragraph sentinel', () => {
+      expect(tokenize('hello\n\n\n\nworld')).toEqual(['hello', '\n\n', 'world']);
+    });
+
+    it('emits one sentinel between each adjacent paragraph pair', () => {
+      expect(tokenize('a\n\nb\n\nc')).toEqual(['a', '\n\n', 'b', '\n\n', 'c']);
+    });
+
+    it('strips leading paragraph break', () => {
+      expect(tokenize('\n\nfoo bar')).toEqual(['foo', 'bar']);
+    });
+
+    it('strips trailing paragraph break', () => {
+      expect(tokenize('foo bar\n\n')).toEqual(['foo', 'bar']);
     });
   });
 
