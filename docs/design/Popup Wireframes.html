@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Popup — Wireframes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Kalam:wght@400;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1a1a1a; --ink-soft: #3a3a3a; --muted: #7a7a7a;
+    --line: #2a2a2a; --paper: #fafaf7; --paper-2: #f3f2ec;
+    --accent: #d63838; --accent-soft: #f4c9c9; --blue: #3a6ea8;
+    --hl: #fff2a8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background: var(--paper); color: var(--ink); font-family: 'Inter', system-ui, sans-serif; }
+  body { padding: 56px 48px 120px; }
+  .doc-head { max-width: 1280px; margin: 0 auto 40px; border-bottom: 1.5px solid var(--line); padding-bottom: 18px; display:flex; justify-content:space-between; align-items:flex-end; gap:24px; flex-wrap:wrap; }
+  .doc-head h1 { font-family: 'Caveat', cursive; font-weight:700; font-size: 44px; margin:0 0 4px; }
+  .doc-head .sub { font-family:'Kalam', cursive; color: var(--ink-soft); font-size: 15px; max-width: 620px; line-height:1.5; }
+  .doc-head .meta { font-family:'JetBrains Mono', monospace; font-size:11px; color: var(--muted); text-align:right; line-height:1.8; }
+
+  .section { max-width: 1280px; margin: 0 auto 56px; }
+  .section-header { display:flex; align-items:baseline; gap:18px; margin-bottom: 20px; border-bottom: 1px dashed var(--line); padding-bottom: 10px; }
+  .section-num { font-family:'Kalam', cursive; font-weight:700; font-size: 22px; color: var(--accent); }
+  .section-title { font-family:'Caveat', cursive; font-weight:700; font-size: 30px; margin:0; }
+  .section-note { font-family:'Kalam', cursive; color: var(--ink-soft); font-size: 13px; margin-left:auto; max-width:420px; text-align:right; line-height:1.4; }
+
+  .grid-3 { display:grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+  @media (max-width: 1100px) { .grid-3 { grid-template-columns: 1fr; } }
+
+  .variant-label { display:flex; align-items:center; gap:10px; margin-bottom:10px; font-family:'Kalam', cursive; font-weight:700; font-size:18px; }
+  .variant-label .tag { font-family:'JetBrains Mono', monospace; font-size:10px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper-2); color: var(--ink-soft); font-weight:500; }
+  .variant-desc { font-family:'Kalam', cursive; color: var(--ink-soft); font-size:13px; line-height:1.45; margin: 0 0 18px; min-height: 36px; }
+
+  /* Stage: shows the popup anchored under the extension icon */
+  .stage {
+    position: relative;
+    border: 1.75px solid var(--line);
+    border-radius: 14px 10px 16px 8px / 10px 16px 10px 14px;
+    background: var(--paper-2);
+    padding: 16px 20px 32px;
+    min-height: 440px;
+    overflow: hidden;
+    box-shadow: 0 2px 0 rgba(0,0,0,.06), 4px 4px 0 rgba(0,0,0,.04);
+  }
+  .chrome-strip {
+    display:flex; align-items:center; gap:8px;
+    padding-bottom: 10px; border-bottom: 1.25px dashed var(--line);
+    margin-bottom: 24px;
+  }
+  .nav-btns { font-family:'Kalam', cursive; color: var(--muted); font-size: 13px; }
+  .url-bar {
+    flex:1; border:1.25px solid var(--line); background: var(--paper);
+    border-radius: 999px; padding: 4px 10px;
+    font-family:'JetBrains Mono', monospace; font-size: 10px; color: var(--ink-soft);
+  }
+  .ext-row { display:flex; gap:4px; }
+  .ext-icon {
+    width: 22px; height: 22px; border: 1.25px solid var(--line); border-radius: 6px;
+    display:grid; place-items:center; font-family:'Kalam', cursive; font-size:10px;
+    background: var(--paper);
+  }
+  .ext-icon.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight:700; }
+  .pointer-line {
+    position: absolute; top: 34px; right: 76px;
+    width: 1.5px; height: 20px; background: var(--line);
+  }
+
+  /* Popup frame (320x ~440) */
+  .popup {
+    position: absolute; top: 60px; right: 36px;
+    width: 320px;
+    border: 1.75px solid var(--line); border-radius: 12px;
+    background: var(--paper);
+    box-shadow: 4px 4px 0 rgba(0,0,0,.08);
+    overflow: hidden;
+  }
+  .popup-head {
+    display:flex; align-items:center; gap: 8px;
+    padding: 10px 12px; border-bottom: 1.25px dashed var(--line);
+    background: var(--paper-2);
+  }
+  .mini-logo {
+    width: 18px; height: 18px; border-radius: 5px;
+    background: var(--accent); color: #fff;
+    display:grid; place-items:center;
+    font-family:'JetBrains Mono', monospace; font-size: 9px; font-weight: 700;
+    position: relative;
+  }
+  .mini-logo::after {
+    content:''; position: absolute; left:50%; top:3px; bottom:3px; width:1px;
+    background: rgba(255,255,255,.55); transform: translateX(-50%);
+  }
+  .popup-title { font-family:'Kalam', cursive; font-weight:700; font-size:14px; }
+  .popup-settings-btn {
+    margin-left:auto;
+    font-family:'Kalam', cursive; color: var(--muted); font-size: 14px;
+    width: 24px; height: 24px; border-radius: 6px; display:grid; place-items:center;
+  }
+
+  .popup-body { padding: 14px; }
+  .line-row { height: 6px; background: var(--paper-2); border-radius: 3px; margin: 5px 0; border: 1px dashed transparent; }
+  .line-row.w-90 { width: 90%; } .line-row.w-70 { width: 70%; } .line-row.w-50 { width: 50%; } .line-row.w-40 { width: 40%; }
+
+  /* RSVP word widget shared */
+  .rsvp {
+    background: var(--paper-2); border: 1.25px dashed var(--line);
+    border-radius: 8px; padding: 16px 0;
+    text-align: center; font-family:'JetBrains Mono', monospace;
+    font-size: 26px; font-weight: 600; position: relative;
+    margin-bottom: 10px;
+  }
+  .rsvp .focus { color: var(--blue); font-weight: 700; }
+  .rsvp .tick-t, .rsvp .tick-b {
+    position: absolute; left:50%; transform: translateX(-50%);
+    width: 1.5px; background: var(--blue);
+  }
+  .rsvp .tick-t { top: 4px; height: 8px; }
+  .rsvp .tick-b { bottom: 4px; height: 8px; }
+
+  .btn {
+    padding: 7px 10px; border:1.25px solid var(--line); border-radius: 7px;
+    background: var(--paper); font-family:'Inter', sans-serif; font-size: 12px; font-weight: 500;
+    color: var(--ink); display:inline-flex; align-items:center; gap:6px; cursor:pointer;
+  }
+  .btn.primary { background: var(--accent); color:#fff; border-color: var(--accent); font-weight: 600; }
+  .btn.full { width: 100%; justify-content: center; }
+
+  .mini-btn {
+    width: 26px; height: 26px; border:1.25px solid var(--line); border-radius: 7px;
+    background: var(--paper); display:grid; place-items:center;
+    font-family:'Kalam', cursive; font-size: 12px; color: var(--ink-soft);
+  }
+  .mini-btn.primary { background: var(--accent); color:#fff; border-color: var(--accent); }
+
+  .progress {
+    height: 4px; background: var(--paper-2); border-radius: 999px; overflow:hidden;
+    border: 1px solid var(--line);
+  }
+  .progress .fill { height:100%; background: var(--accent); width: 38%; }
+
+  .meta { font-family:'JetBrains Mono', monospace; font-size: 9.5px; color: var(--muted); }
+  .hstack { display:flex; align-items:center; gap: 8px; }
+  .vstack { display:flex; flex-direction:column; gap: 10px; }
+  .between { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+
+  .section-label { font-family:'Kalam', cursive; font-weight:700; color: var(--ink-soft); font-size:11px; letter-spacing:.05em; text-transform: uppercase; margin: 10px 0 6px; }
+
+  .slider-ui {
+    width: 100%; height: 5px; background: var(--paper-2); border:1px solid var(--line); border-radius:999px; position:relative;
+  }
+  .slider-ui .t { position:absolute; top:50%; transform:translate(-50%,-50%); width:12px; height:12px; border-radius:50%; background:var(--accent); left: 52%; }
+  .slider-ui .f { position:absolute; left:0; top:0; bottom:0; background: var(--accent-soft); border-radius:999px; width: 52%; }
+
+  .seg { display:inline-flex; border:1.25px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg span { padding: 4px 9px; font-family:'Inter',sans-serif; font-size: 11px; color: var(--ink-soft); border-right:1px solid var(--line); }
+  .seg span:last-child { border-right:none; }
+  .seg span.sel { background: var(--ink); color: var(--paper); font-weight:600; }
+
+  .card-item {
+    border: 1.25px dashed var(--line); border-radius: 8px;
+    padding: 8px 10px; margin: 6px 0;
+    display:flex; gap: 10px; align-items:center;
+    font-family:'Inter', sans-serif; font-size: 12px;
+  }
+  .card-item .favi {
+    width: 18px; height: 18px; border-radius: 4px; background: var(--ink-soft);
+    flex-shrink: 0;
+  }
+  .card-item .title { color: var(--ink); font-weight: 500; }
+  .card-item .sub { color: var(--muted); font-size: 10px; margin-top: 2px; font-family:'JetBrains Mono', monospace; }
+  .card-item.active { border-color: var(--accent); background: rgba(214,56,56,.04); border-style: solid; }
+
+  .annotation {
+    position: absolute;
+    font-family: 'Caveat', cursive; color: var(--accent);
+    font-weight: 700; font-size: 16px; line-height: 1.2;
+    max-width: 180px;
+  }
+  .annotation .arrow { font-size: 22px; line-height: 1; }
+
+  .popup-foot {
+    padding: 8px 12px; border-top: 1.25px dashed var(--line);
+    background: var(--paper-2);
+    display:flex; align-items:center; justify-content:space-between;
+    font-family:'JetBrains Mono', monospace; font-size: 9.5px; color: var(--muted);
+  }
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <div>
+    <h1>Toolbar Popup — Wireframes</h1>
+    <div class="sub">What appears when the user clicks the SR icon in Chrome's toolbar. Three takes: live player, article picker, minimal launcher.</div>
+  </div>
+  <div class="meta">
+    v0.1 — popup pass<br/>
+    320 × ~420 px · fixed chrome popup size<br/>
+    anchored under extension icon
+  </div>
+</header>
+
+<section class="section">
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h2 class="section-title">Toolbar popup variations</h2>
+    <div class="section-note">Each shows the popup anchored to the extension icon with sketchy chrome above for context.</div>
+  </div>
+
+  <div class="grid-3">
+
+    <!-- VARIANT A: Compact live player -->
+    <div>
+      <div class="variant-label">A. Live player <span class="tag">default for "read this page"</span></div>
+      <p class="variant-desc">Click the icon → article gets extracted and starts playing right in the popup. Modal launches on "expand".</p>
+      <div class="stage">
+        <div class="chrome-strip">
+          <span class="nav-btns">← →</span>
+          <div class="url-bar">gutenberg.org/…/awful-german-language</div>
+          <div class="ext-row">
+            <div class="ext-icon">◇</div>
+            <div class="ext-icon active">SR</div>
+          </div>
+        </div>
+        <div class="pointer-line"></div>
+        <div class="popup">
+          <div class="popup-head">
+            <div class="mini-logo">SR</div>
+            <div class="popup-title">Reading this page</div>
+            <div class="popup-settings-btn">⚙</div>
+          </div>
+          <div class="popup-body">
+            <div style="font-family:'Inter',sans-serif; font-size: 12px; color: var(--ink-soft); margin-bottom: 8px;">
+              <div style="color: var(--ink); font-weight: 600; font-size: 13px; margin-bottom: 2px;">The Awful German Language</div>
+              <div class="meta">Mark Twain · 3,842 words · ~9 min</div>
+            </div>
+            <div class="rsvp">
+              <span class="tick-t"></span>
+              <span>perp<span class="focus">l</span>exing</span>
+              <span class="tick-b"></span>
+            </div>
+            <div class="between" style="margin: 8px 0;">
+              <span class="meta">04:12</span>
+              <div class="progress" style="flex:1; margin: 0 8px;"><div class="fill"></div></div>
+              <span class="meta">12:18</span>
+            </div>
+            <div class="hstack" style="justify-content: center; gap: 6px; margin-top: 10px;">
+              <div class="mini-btn">«</div>
+              <div class="mini-btn primary" style="width:36px; height:36px; font-size: 14px;">⏸</div>
+              <div class="mini-btn">»</div>
+            </div>
+            <div class="between" style="margin-top: 14px; gap: 8px;">
+              <div class="slider-ui" style="flex: 1;"><div class="f"></div><div class="t"></div></div>
+              <span class="meta" style="font-size: 10px; color: var(--ink);">420 wpm</span>
+            </div>
+            <div class="hstack" style="margin-top: 14px; gap: 6px;">
+              <div class="btn full primary">⛶ Expand to full reader</div>
+            </div>
+          </div>
+          <div class="popup-foot">
+            <span>⌘⇧R to start anywhere</span>
+            <span>✕ close</span>
+          </div>
+        </div>
+
+        <div class="annotation" style="top: 80px; left: 18px; text-align: right;">
+          plays right<br/>in the popup<br/>
+          <span class="arrow">→</span>
+        </div>
+        <div class="annotation" style="bottom: 20px; left: 18px;">
+          <span class="arrow">↗</span><br/>
+          expand opens<br/>the modal reader
+        </div>
+      </div>
+    </div>
+
+    <!-- VARIANT B: Article picker -->
+    <div>
+      <div class="variant-label">B. Article picker <span class="tag">library + launch</span></div>
+      <p class="variant-desc">Start on current page, pick a recent, or paste text. Power-user surface that doubles as reading history.</p>
+      <div class="stage">
+        <div class="chrome-strip">
+          <span class="nav-btns">← →</span>
+          <div class="url-bar">newtab</div>
+          <div class="ext-row">
+            <div class="ext-icon">◇</div>
+            <div class="ext-icon active">SR</div>
+          </div>
+        </div>
+        <div class="pointer-line"></div>
+        <div class="popup">
+          <div class="popup-head">
+            <div class="mini-logo">SR</div>
+            <div class="popup-title">SpeedReader</div>
+            <div class="popup-settings-btn">⚙</div>
+          </div>
+          <div class="popup-body">
+            <div class="btn primary full" style="padding: 10px 12px; font-size: 13px;">▶ Read this page</div>
+            <div class="meta" style="text-align: center; margin-top: 6px;">The Awful German Language · 9 min</div>
+
+            <div class="section-label">Recent</div>
+            <div class="card-item active">
+              <div class="favi" style="background: var(--accent);"></div>
+              <div style="flex:1;">
+                <div class="title">The Awful German Language</div>
+                <div class="sub">gutenberg.org · 34% read</div>
+              </div>
+              <span class="meta">resume</span>
+            </div>
+            <div class="card-item">
+              <div class="favi"></div>
+              <div style="flex:1;">
+                <div class="title">On doing one thing at a time</div>
+                <div class="sub">quarterly.example · yesterday</div>
+              </div>
+            </div>
+            <div class="card-item">
+              <div class="favi" style="background: var(--blue);"></div>
+              <div style="flex:1;">
+                <div class="title">Eye-tracking & the span of attention</div>
+                <div class="sub">arxiv-mirror · 2 days ago</div>
+              </div>
+            </div>
+
+            <div class="section-label">Or</div>
+            <div class="hstack" style="gap: 6px;">
+              <div class="btn" style="flex:1; justify-content:center;">📋 Paste text</div>
+              <div class="btn" style="flex:1; justify-content:center;">🔗 URL</div>
+            </div>
+          </div>
+          <div class="popup-foot">
+            <span>⌘⇧R starts reading</span>
+            <span>12 saved</span>
+          </div>
+        </div>
+
+        <div class="annotation" style="top: 100px; left: 18px; text-align:right;">
+          one-tap for<br/>the current tab<br/>
+          <span class="arrow">→</span>
+        </div>
+        <div class="annotation" style="bottom: 90px; left: 18px;">
+          <span class="arrow">↗</span><br/>
+          resume where<br/>you left off
+        </div>
+      </div>
+    </div>
+
+    <!-- VARIANT C: Minimal launcher -->
+    <div>
+      <div class="variant-label">C. Minimal launcher <span class="tag">fast, opinionated</span></div>
+      <p class="variant-desc">Tiny surface. One big button. Adjust speed, launch the modal. No in-popup playback.</p>
+      <div class="stage">
+        <div class="chrome-strip">
+          <span class="nav-btns">← →</span>
+          <div class="url-bar">example.com/article</div>
+          <div class="ext-row">
+            <div class="ext-icon">◇</div>
+            <div class="ext-icon active">SR</div>
+          </div>
+        </div>
+        <div class="pointer-line"></div>
+        <div class="popup" style="width: 260px;">
+          <div class="popup-head">
+            <div class="mini-logo">SR</div>
+            <div class="popup-title">SpeedReader</div>
+            <div class="popup-settings-btn">⚙</div>
+          </div>
+          <div class="popup-body">
+            <div style="text-align: center; padding: 6px 0 10px;">
+              <div style="font-family:'Inter',sans-serif; font-size: 12px; color: var(--ink); font-weight: 600;">Ready when you are.</div>
+              <div class="meta" style="margin-top: 3px;">3,842 words · ~9 min at 420 wpm</div>
+            </div>
+
+            <div class="btn primary full" style="padding: 12px; font-size: 14px; margin-bottom: 12px;">▶ Start reading</div>
+
+            <div class="between" style="margin-bottom: 8px;">
+              <span class="section-label" style="margin: 0;">Speed</span>
+              <span class="meta" style="color: var(--ink); font-size: 11px; font-weight: 600;">420 wpm</span>
+            </div>
+            <div class="slider-ui"><div class="f"></div><div class="t"></div></div>
+
+            <div class="section-label">Chunk</div>
+            <div class="seg" style="width:100%;">
+              <span style="flex:1; text-align:center;">1</span>
+              <span class="sel" style="flex:1; text-align:center;">2</span>
+              <span style="flex:1; text-align:center;">3</span>
+            </div>
+
+            <div class="hstack" style="justify-content: space-between; margin-top: 14px;">
+              <span class="meta">Theme</span>
+              <div class="seg">
+                <span class="sel">Light</span>
+                <span>Dark</span>
+                <span>Sepia</span>
+              </div>
+            </div>
+          </div>
+          <div class="popup-foot">
+            <span>⌘⇧R anywhere</span>
+            <span>v1.0</span>
+          </div>
+        </div>
+
+        <div class="annotation" style="top: 90px; left: 10px; text-align:right; max-width: 130px;">
+          one big button<br/>nothing to learn<br/>
+          <span class="arrow">→</span>
+        </div>
+        <div class="annotation" style="bottom: 60px; left: 14px; max-width: 160px;">
+          <span class="arrow">↗</span><br/>
+          quick speed tweak<br/>before launching
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-header">
+    <span class="section-num">—</span>
+    <h2 class="section-title">Tradeoffs</h2>
+  </div>
+  <div class="grid-3">
+    <div style="font-family:'Kalam', cursive; font-size: 14px; line-height: 1.5; color: var(--ink-soft);">
+      <b style="color:var(--ink);">A. Live player</b><br/>
+      ✓ instant gratification<br/>
+      ✓ works without ever opening the modal<br/>
+      ✗ popup closes if user clicks away — reading state has to persist<br/>
+      ✗ small RSVP word may feel cramped
+    </div>
+    <div style="font-family:'Kalam', cursive; font-size: 14px; line-height: 1.5; color: var(--ink-soft);">
+      <b style="color:var(--ink);">B. Article picker</b><br/>
+      ✓ handles paste / URL / resume in one place<br/>
+      ✓ useful without an article loaded<br/>
+      ✗ more UI to learn<br/>
+      ✗ history = more scope (storage, clearing, etc.)
+    </div>
+    <div style="font-family:'Kalam', cursive; font-size: 14px; line-height: 1.5; color: var(--ink-soft);">
+      <b style="color:var(--ink);">C. Minimal launcher</b><br/>
+      ✓ smallest, fastest to understand<br/>
+      ✓ pairs well with the keyboard shortcut<br/>
+      ✗ no in-popup reading<br/>
+      ✗ no paste/URL path without going to options
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,1180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Speed Reader — Wireframes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Kalam:wght@400;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1a1a1a;
+    --ink-soft: #3a3a3a;
+    --muted: #7a7a7a;
+    --line: #2a2a2a;
+    --paper: #fafaf7;
+    --paper-2: #f3f2ec;
+    --accent: #d63838;
+    --accent-soft: #f4c9c9;
+    --hl: #fff2a8;
+    --blue: #3a6ea8;
+    --shadow: 0 2px 0 rgba(0,0,0,.06);
+  }
+  [data-theme="dark"] {
+    --ink: #eae7df;
+    --ink-soft: #c9c5bb;
+    --muted: #8a877f;
+    --line: #d3cfc3;
+    --paper: #1b1b1a;
+    --paper-2: #242322;
+    --accent: #ff6a6a;
+    --accent-soft: #5a2a2a;
+    --hl: #5a4a14;
+    --blue: #87a8d6;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background: var(--paper); color: var(--ink); font-family: 'Inter', system-ui, sans-serif; }
+  body { padding: 56px 48px 120px; }
+
+  .doc-head {
+    max-width: 1280px; margin: 0 auto 40px;
+    display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap;
+    border-bottom: 1.5px solid var(--line); padding-bottom: 18px;
+  }
+  .doc-head h1 { font-family: 'Caveat', cursive; font-weight:700; font-size: 48px; margin:0 0 4px; letter-spacing:.5px; }
+  .doc-head .sub { font-family:'Kalam', cursive; color: var(--ink-soft); font-size: 16px; max-width: 640px; line-height:1.5; }
+  .doc-head .meta { font-family:'JetBrains Mono', monospace; font-size:11px; color: var(--muted); text-align:right; line-height:1.8; }
+
+  .section { max-width: 1280px; margin: 0 auto 72px; }
+  .section-header { display:flex; align-items:baseline; gap:18px; margin-bottom: 20px; border-bottom: 1px dashed var(--line); padding-bottom: 10px; }
+  .section-num { font-family:'Kalam', cursive; font-weight:700; font-size: 22px; color: var(--accent); }
+  .section-title { font-family:'Caveat', cursive; font-weight:700; font-size: 32px; margin:0; }
+  .section-note { font-family:'Kalam', cursive; color: var(--ink-soft); font-size: 14px; margin-left:auto; max-width:420px; text-align:right; line-height:1.4; }
+
+  .grid-3 { display:grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+  @media (max-width: 1100px) { .grid-3 { grid-template-columns: 1fr; } }
+
+  .variant { background: transparent; }
+  .variant-label {
+    display:flex; align-items:center; gap:10px; margin-bottom:10px;
+    font-family:'Kalam', cursive; font-weight:700; font-size:18px;
+  }
+  .variant-label .tag {
+    font-family:'JetBrains Mono', monospace; font-size:10px;
+    padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--paper-2); color: var(--ink-soft); font-weight:500;
+  }
+  .variant-desc { font-family:'Kalam', cursive; color: var(--ink-soft); font-size:13px; line-height:1.45; margin: 0 0 14px; min-height: 38px; }
+
+  /* Sketchy frame */
+  .frame {
+    position: relative;
+    border: 1.75px solid var(--line);
+    border-radius: 14px 10px 16px 8px / 10px 16px 10px 14px;
+    background: var(--paper);
+    padding: 0;
+    overflow: hidden;
+    box-shadow: var(--shadow), 4px 4px 0 rgba(0,0,0,.04);
+  }
+  .frame.tall { aspect-ratio: 3 / 4; }
+  .frame.browser { aspect-ratio: 4 / 3; }
+
+  /* Fake Chrome browser chrome */
+  .chrome {
+    background: var(--paper-2);
+    border-bottom: 1.5px solid var(--line);
+    padding: 8px 10px 0;
+  }
+  .chrome-top { display:flex; align-items:center; gap: 8px; padding-bottom: 6px; }
+  .tabs { display:flex; gap:4px; }
+  .tab {
+    padding: 6px 14px 8px; font-family:'Kalam', cursive; font-size:11px;
+    border: 1.25px solid var(--line); border-bottom: none;
+    border-radius: 10px 10px 0 0; background: var(--paper);
+    color: var(--ink-soft); max-width: 160px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .tab.active { color: var(--ink); font-weight:700; }
+  .tab.ghost { background: transparent; border-style: dashed; color: var(--muted); }
+  .tab-new { font-family:'Kalam', cursive; color: var(--muted); padding: 4px 8px; font-size: 14px; }
+  .chrome-bar {
+    display:flex; align-items:center; gap:8px; padding: 6px 0 8px;
+    border-top: 1.5px solid var(--line); margin-top: -1.5px;
+  }
+  .nav-btns { display:flex; gap:4px; color: var(--muted); font-family:'Kalam', cursive; font-size:14px; }
+  .url {
+    flex:1; border:1.25px solid var(--line); background: var(--paper);
+    border-radius: 999px; padding: 5px 12px;
+    font-family:'JetBrains Mono', monospace; font-size: 10.5px; color: var(--ink-soft);
+    display:flex; align-items:center; gap:6px;
+  }
+  .url .lock { color: var(--muted); }
+  .ext-strip { display:flex; gap:4px; align-items:center; }
+  .ext-icon {
+    width: 22px; height: 22px; border: 1.25px solid var(--line); border-radius: 6px;
+    display:grid; place-items:center; font-family:'Kalam', cursive; font-size:11px; background: var(--paper);
+  }
+  .ext-icon.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight:700; }
+
+  /* Page content skeleton */
+  .page { padding: 24px 36px; position: relative; height: calc(100% - 72px); overflow: hidden; }
+  .page h-title { display:block; font-family:'Kalam', cursive; font-weight:700; font-size: 22px; margin-bottom: 6px; color: var(--ink); }
+  .page .byline { font-family:'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); margin-bottom: 14px; }
+  .line { height: 8px; background: var(--paper-2); border-radius: 3px; margin: 7px 0; border: 1px dashed transparent; }
+  .line.w-95 { width: 95%; } .line.w-80 { width: 80%; } .line.w-60 { width: 60%; } .line.w-40 { width: 40%; } .line.w-70 { width: 70%; }
+  .img-ph {
+    height: 90px; background:
+      repeating-linear-gradient(45deg, var(--paper-2) 0 8px, transparent 8px 16px);
+    border: 1.25px solid var(--line); border-radius: 6px;
+    display:grid; place-items:center;
+    font-family:'JetBrains Mono', monospace; font-size: 10px; color: var(--muted);
+    margin: 12px 0;
+  }
+  .paragraph-gap { height: 12px; }
+
+  /* RSVP word widget — shared */
+  .rsvp-word {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    letter-spacing: .02em;
+    color: var(--ink);
+    position: relative;
+    display:inline-block;
+    white-space: nowrap;
+  }
+  .rsvp-word .focus {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .rsvp-guides {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    width: 1px; background: var(--accent); opacity:.55;
+  }
+
+  /* ====== OVERLAY VARIATIONS ====== */
+
+  /* V1: Floating pill top-center */
+  .ov-pill {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    background: var(--paper); border: 1.5px solid var(--line);
+    border-radius: 14px; padding: 10px 14px;
+    box-shadow: 3px 3px 0 rgba(0,0,0,.08);
+    display:flex; align-items:center; gap: 12px;
+    min-width: 340px;
+  }
+  .pill-word {
+    flex: 1;
+    background: var(--paper-2); border: 1px dashed var(--line);
+    border-radius: 8px; padding: 10px 0;
+    text-align:center; font-size: 22px;
+    position: relative;
+  }
+  .pill-word .tick-t, .pill-word .tick-b {
+    position:absolute; left:50%; transform:translateX(-50%);
+    width:1px; background: var(--accent); opacity:.6;
+  }
+  .pill-word .tick-t { top: 2px; height: 5px; }
+  .pill-word .tick-b { bottom: 2px; height: 5px; }
+  .pill-ctrls { display:flex; gap:8px; }
+  .btn-mini {
+    width: 28px; height: 28px; border-radius: 8px;
+    border: 1.25px solid var(--line); background: var(--paper);
+    display:grid; place-items:center; font-family:'Kalam', cursive; font-size: 13px;
+    color: var(--ink-soft); cursor: pointer;
+  }
+  .btn-mini.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .pill-close { font-family:'Kalam', cursive; color: var(--muted); font-size: 14px; padding-left: 4px; border-left: 1px dashed var(--line); }
+  .pill-progress {
+    position:absolute; left: 10px; right:10px; bottom: -1px; height: 2px;
+    background: var(--paper-2); border-radius: 2px; overflow:hidden;
+  }
+  .pill-progress .fill { width: 34%; height:100%; background: var(--accent); }
+  .pill-meta { font-family:'JetBrains Mono', monospace; font-size: 9.5px; color: var(--muted); text-align:center; margin-top: 4px; }
+  .pill-wrap { position:absolute; top:14px; left:50%; transform:translateX(-50%); }
+
+  /* V2: Centered modal */
+  .modal-scrim {
+    position:absolute; inset:0; background: rgba(20,20,20,.55);
+    display:grid; place-items:center;
+  }
+  [data-theme="dark"] .modal-scrim { background: rgba(0,0,0,.72); }
+  .modal {
+    width: 78%;
+    background: var(--paper); border:1.5px solid var(--line);
+    border-radius: 16px; padding: 24px 26px 18px;
+    box-shadow: 6px 6px 0 rgba(0,0,0,.12);
+    position:relative;
+  }
+  .modal-head {
+    display:flex; align-items:center; justify-content:space-between;
+    font-family:'JetBrains Mono', monospace; font-size:10px; color: var(--muted);
+    margin-bottom: 14px;
+  }
+  .modal-word {
+    text-align:center; padding: 24px 0 10px;
+    font-size: 38px; position:relative;
+  }
+  .focus-line-top, .focus-line-bot {
+    position:absolute; left:50%; transform:translateX(-50%);
+    width:1px; background: var(--accent);
+  }
+  .focus-line-top { top: 6px; height: 10px; }
+  .focus-line-bot { bottom: 6px; height: 10px; }
+  .modal-ctx {
+    font-family: 'Inter', sans-serif; font-size: 12px; color: var(--muted);
+    text-align:center; line-height: 1.5; margin-top: 6px;
+    border-top: 1px dashed var(--line); padding-top: 10px;
+  }
+  .modal-ctx em { font-style: normal; color: var(--ink); }
+  .modal-ctrls {
+    display:flex; align-items:center; justify-content:space-between; margin-top: 14px;
+    gap: 10px;
+  }
+  .modal-ctrls .left, .modal-ctrls .right { display:flex; gap:6px; }
+  .scrubber {
+    flex:1; height: 6px; background: var(--paper-2); border: 1px solid var(--line); border-radius: 999px;
+    position:relative; margin: 0 10px;
+  }
+  .scrubber .thumb { position:absolute; top:50%; left: 38%; transform:translate(-50%,-50%); width:10px; height:10px; border-radius:50%; background: var(--accent); }
+  .scrubber .done { position:absolute; left:0; top:0; bottom:0; width:38%; background: var(--accent-soft); border-radius:999px; }
+  .wpm-pill {
+    font-family:'JetBrains Mono', monospace; font-size:10px;
+    border:1px solid var(--line); border-radius:999px; padding: 3px 8px; color: var(--ink-soft);
+  }
+
+  /* V3: Bottom dock */
+  .dock {
+    position:absolute; left: 12px; right: 12px; bottom: 12px;
+    background: var(--paper); border: 1.5px solid var(--line); border-radius: 12px;
+    padding: 10px 14px;
+    display:grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center;
+    box-shadow: 0 -2px 0 rgba(0,0,0,.04), 3px 3px 0 rgba(0,0,0,.08);
+  }
+  .dock-left { display:flex; gap: 6px; align-items:center; }
+  .dock-word {
+    text-align:center; font-size: 22px;
+    padding: 6px 10px; border-left: 1px dashed var(--line); border-right: 1px dashed var(--line);
+    position:relative;
+  }
+  .dock-word .tick-t, .dock-word .tick-b {
+    position:absolute; left:50%; transform:translateX(-50%);
+    width:1px; background: var(--accent); opacity:.6;
+  }
+  .dock-word .tick-t { top: -2px; height: 6px; }
+  .dock-word .tick-b { bottom: -2px; height: 6px; }
+  .dock-right { display:flex; align-items:center; gap:8px; }
+  .dock-meta { font-family:'JetBrains Mono', monospace; font-size: 9.5px; color: var(--muted); }
+  .dock-bar {
+    position:absolute; left:0; right:0; top:-1.5px; height: 2px; background: var(--paper-2);
+  }
+  .dock-bar .fill { width: 52%; height:100%; background: var(--accent); }
+
+  /* ====== OPTIONS PAGE VARIATIONS ====== */
+  .opt-frame { aspect-ratio: 4/3.1; }
+  .opt-chrome-tab { background: var(--paper); border: 1.25px solid var(--line); border-bottom:none;
+    border-radius: 10px 10px 0 0; padding: 6px 12px; font-family:'Kalam', cursive; font-size: 11px;
+    display:inline-flex; align-items:center; gap:6px; max-width: 220px;
+  }
+  .opt-chrome-tab .dot { width: 10px; height:10px; background: var(--accent); border-radius: 2px; border:1px solid var(--line); }
+  .opt-page { padding: 24px 32px; height: calc(100% - 42px); overflow: hidden; position: relative; }
+  .opt-h1 { font-family:'Kalam', cursive; font-weight:700; font-size: 22px; margin: 0 0 4px; }
+  .opt-sub { font-family:'Kalam', cursive; color: var(--ink-soft); font-size: 13px; margin: 0 0 18px; }
+
+  /* V1 Options: sidebar */
+  .opt-layout-side { display:grid; grid-template-columns: 160px 1fr; gap: 18px; height: calc(100% - 52px); }
+  .opt-side-nav { border-right: 1.25px dashed var(--line); padding-right: 10px; display:flex; flex-direction:column; gap: 4px; }
+  .nav-item {
+    font-family:'Kalam', cursive; font-size: 13px; padding: 6px 10px; border-radius: 6px;
+    color: var(--ink-soft); border: 1.25px solid transparent;
+  }
+  .nav-item.active { background: var(--paper-2); border-color: var(--line); color: var(--ink); font-weight:700; }
+  .opt-panel { overflow:hidden; }
+
+  .setting-row {
+    display:grid; grid-template-columns: 1fr auto; gap: 12px; align-items:center;
+    padding: 10px 2px; border-bottom: 1px dashed var(--line);
+  }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-row .label { font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; color: var(--ink); }
+  .setting-row .hint { font-family: 'Inter', sans-serif; font-size: 11.5px; color: var(--muted); margin-top:2px; }
+  .toggle {
+    width: 34px; height: 18px; border-radius: 999px; background: var(--paper-2); border: 1.25px solid var(--line);
+    position:relative;
+  }
+  .toggle::after {
+    content:''; position:absolute; left:1px; top:1px; width:14px; height:14px; background: var(--ink-soft); border-radius:50%;
+  }
+  .toggle.on { background: var(--accent); border-color: var(--accent); }
+  .toggle.on::after { left: 17px; background: #fff; }
+  .slider-ui {
+    width: 140px; height: 6px; background: var(--paper-2); border:1px solid var(--line); border-radius:999px; position:relative;
+  }
+  .slider-ui .t { position:absolute; top:50%; transform:translate(-50%,-50%); width:12px; height:12px; border-radius:50%; background:var(--accent); left: 52%; }
+  .slider-ui .f { position:absolute; left:0; top:0; bottom:0; background: var(--accent-soft); border-radius:999px; width: 52%; }
+  .select-ui { border:1.25px solid var(--line); background: var(--paper); padding: 4px 10px; border-radius: 6px; font-family: 'Inter', sans-serif; font-size: 12px; color: var(--ink); font-weight:500; }
+  .seg { display:inline-flex; border:1.25px solid var(--line); border-radius: 8px; overflow:hidden; }
+  .seg span { padding: 4px 10px; font-family:'Inter',sans-serif; font-size: 11.5px; color: var(--ink-soft); border-right:1px solid var(--line); }
+  .seg span:last-child { border-right: none; }
+  .seg span.sel { background: var(--ink); color: var(--paper); font-weight:600; }
+
+  /* V2 Options: card stacked */
+  .card {
+    border: 1.25px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px;
+    background: var(--paper);
+  }
+  .card-title {
+    font-family:'Kalam', cursive; font-weight:700; font-size: 15px; margin: 0 0 8px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .card-title .n { font-family:'JetBrains Mono', monospace; font-size: 10px; color: var(--accent); }
+
+  /* V3 Options: preview split */
+  .opt-split { display:grid; grid-template-columns: 1.15fr 1fr; gap: 18px; height: calc(100% - 52px); }
+  .opt-preview {
+    border: 1.25px dashed var(--line); border-radius: 10px; background: var(--paper-2);
+    padding: 14px; display:flex; flex-direction:column; gap: 10px; position: relative;
+  }
+  .opt-preview .label-mini { font-family:'JetBrains Mono', monospace; font-size: 9.5px; color: var(--muted); letter-spacing:.1em; text-transform:uppercase; }
+  .preview-word {
+    background: var(--paper); border: 1.25px solid var(--line); border-radius: 8px;
+    padding: 22px 10px; text-align: center; font-size: 30px; position:relative;
+    flex: 1; display:grid; place-items:center;
+  }
+  .preview-word .tick-t, .preview-word .tick-b {
+    position:absolute; left:50%; transform:translateX(-50%);
+    width:1px; background: var(--accent); opacity:.6;
+  }
+  .preview-word .tick-t { top: 8px; height: 10px; }
+  .preview-word .tick-b { bottom: 8px; height: 10px; }
+  .opt-compact .setting-row { padding: 7px 2px; }
+
+  /* ====== ONBOARDING VARIATIONS ====== */
+  .ob-frame { aspect-ratio: 4/3; }
+  .ob-page { padding: 0; height: calc(100% - 72px); display:flex; flex-direction:column; align-items:stretch; }
+
+  /* V1 Single full welcome */
+  .ob-hero {
+    flex:1; display:grid; grid-template-columns: 1fr 1fr; gap: 0;
+    border-radius: 0;
+  }
+  .ob-hero .left { padding: 40px 40px; display:flex; flex-direction:column; justify-content:center; }
+  .ob-hero .right {
+    background: var(--paper-2); border-left: 1.25px dashed var(--line);
+    display:grid; place-items:center; padding: 24px;
+    position: relative;
+  }
+  .big-logo {
+    width: 56px; height: 56px; border-radius: 14px; background: var(--ink);
+    color: var(--paper); display:grid; place-items:center;
+    font-family:'Kalam', cursive; font-weight:700; font-size: 28px; margin-bottom: 14px;
+    position: relative;
+  }
+  .big-logo::after {
+    content: ''; position:absolute; left:50%; transform:translateX(-50%);
+    top: 10px; bottom: 10px; width: 1.5px; background: var(--accent);
+  }
+  .ob-title { font-family:'Kalam', cursive; font-weight:700; font-size: 34px; line-height: 1.15; margin: 0 0 10px; }
+  .ob-sub { font-family:'Inter', sans-serif; font-size: 14px; color: var(--ink-soft); line-height: 1.6; margin: 0 0 22px; }
+  .ob-cta {
+    display:inline-flex; align-items:center; gap:8px; padding: 10px 16px;
+    background: var(--accent); color: #fff; border-radius: 8px;
+    font-family:'Inter',sans-serif; font-size: 13px; font-weight: 600; border: 1.25px solid var(--accent);
+    box-shadow: 2px 2px 0 rgba(0,0,0,.12);
+  }
+  .ob-cta.ghost { background: transparent; color: var(--ink-soft); border-color: var(--line); box-shadow: none; }
+  .ob-ctas { display:flex; gap: 10px; }
+  .demo-word {
+    background: var(--paper); border: 1.25px solid var(--line); border-radius: 10px;
+    padding: 30px 20px; font-size: 36px; text-align:center;
+    width: 78%;
+    position:relative; box-shadow: 3px 3px 0 rgba(0,0,0,.1);
+  }
+  .demo-word .tick-t, .demo-word .tick-b {
+    position:absolute; left:50%; transform:translateX(-50%);
+    width:1px; background: var(--accent);
+  }
+  .demo-word .tick-t { top: 8px; height: 12px; }
+  .demo-word .tick-b { bottom: 8px; height: 12px; }
+  .demo-caption { font-family:'Kalam', cursive; color: var(--ink-soft); font-size: 13px; margin-top: 12px; text-align:center; }
+
+  /* V2 Stepper */
+  .step-head {
+    padding: 22px 32px 0; display:flex; align-items:center; gap: 10px;
+    font-family:'JetBrains Mono', monospace; font-size: 10px; color: var(--muted);
+  }
+  .dots { display:flex; gap: 6px; margin-left: auto; }
+  .dot {
+    width: 9px; height: 9px; border-radius: 50%; border: 1.25px solid var(--line); background: var(--paper);
+  }
+  .dot.on { background: var(--accent); border-color: var(--accent); }
+  .step-body { flex:1; display:grid; grid-template-columns: 1fr; padding: 14px 32px 20px; gap: 14px; }
+  .step-cols { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; flex:1; }
+  .step-col {
+    border: 1.25px dashed var(--line); border-radius: 10px; padding: 16px 14px;
+    display:flex; flex-direction:column; gap: 8px;
+  }
+  .step-col .n {
+    width: 22px; height: 22px; border-radius: 6px; background: var(--ink); color: var(--paper);
+    display:grid; place-items:center; font-family:'JetBrains Mono', monospace; font-size: 11px;
+  }
+  .step-col h4 { font-family:'Kalam', cursive; font-weight:700; font-size: 16px; margin: 2px 0 0; }
+  .step-col p { font-family:'Inter', sans-serif; font-size: 12px; color: var(--ink-soft); line-height:1.5; margin:0; }
+  .mini-sketch {
+    margin-top: auto; height: 72px; border: 1px dashed var(--line); border-radius: 6px;
+    background:
+      repeating-linear-gradient(45deg, var(--paper-2) 0 6px, transparent 6px 12px);
+    display:grid; place-items:center;
+    font-family:'JetBrains Mono', monospace; font-size: 9.5px; color: var(--muted);
+  }
+  .step-foot {
+    border-top: 1px dashed var(--line); padding: 14px 32px;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+
+  /* V3 Interactive first-read */
+  .ob-practice { flex:1; display:grid; grid-template-rows: auto 1fr auto; padding: 24px 32px; gap: 14px; }
+  .practice-head { display:flex; align-items:center; justify-content:space-between; }
+  .practice-stage {
+    border: 1.5px solid var(--line); border-radius: 14px; background: var(--paper-2);
+    display:grid; grid-template-rows: auto 1fr auto; gap: 10px;
+    padding: 20px; position:relative;
+  }
+  .practice-wpm-hud {
+    display:flex; align-items:center; justify-content:space-between;
+    font-family:'JetBrains Mono', monospace; font-size: 10px; color: var(--muted);
+  }
+  .practice-word {
+    display:grid; place-items:center; font-size: 52px; position:relative;
+  }
+  .practice-word .tick-t, .practice-word .tick-b {
+    position:absolute; left:50%; transform:translateX(-50%); width:1.5px; background: var(--accent);
+  }
+  .practice-word .tick-t { top: 12px; height: 14px; }
+  .practice-word .tick-b { bottom: 12px; height: 14px; }
+  .practice-controls {
+    display:flex; align-items:center; gap: 12px;
+  }
+  .practice-slider {
+    flex:1; height: 8px; background: var(--paper); border: 1px solid var(--line); border-radius: 999px; position: relative;
+  }
+  .practice-slider .fill { position:absolute; left:0; top:0; bottom:0; width: 44%; background: var(--accent-soft); border-radius: 999px; }
+  .practice-slider .thumb { position:absolute; left: 44%; top:50%; transform:translate(-50%,-50%); width: 14px; height:14px; border-radius:50%; background: var(--accent); box-shadow: 0 0 0 3px var(--paper); }
+  .practice-foot {
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .anno {
+    position:absolute;
+    font-family:'Caveat', cursive; color: var(--accent); font-size: 16px;
+    font-weight: 700;
+  }
+  .anno .arrow { display:block; font-size: 20px; }
+
+  /* Tweaks panel */
+  #tweaks {
+    position: fixed; right: 20px; bottom: 20px; z-index: 50;
+    width: 280px; background: var(--paper); border: 1.5px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; box-shadow: 4px 4px 0 rgba(0,0,0,.12);
+    display: none;
+    font-family: 'Inter', sans-serif;
+  }
+  #tweaks.on { display: block; }
+  #tweaks h3 { font-family: 'Caveat', cursive; font-size: 22px; margin: 0 0 10px; font-weight:700; }
+  .tw-row { display:flex; align-items:center; justify-content: space-between; gap: 10px; margin: 8px 0; font-size: 12.5px; }
+  .tw-row label { color: var(--ink-soft); }
+  .tw-row select, .tw-row input[type="range"] { font-family: inherit; font-size: 12px; }
+  .tw-seg { display:inline-flex; border:1.25px solid var(--line); border-radius: 8px; overflow:hidden; cursor:pointer; }
+  .tw-seg span { padding: 4px 9px; font-size: 11px; color: var(--ink-soft); border-right: 1px solid var(--line); }
+  .tw-seg span:last-child { border-right:none; }
+  .tw-seg span.sel { background: var(--ink); color: var(--paper); font-weight:600; }
+  .tw-small { font-family:'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); }
+
+  /* Sketchy scribble-underline */
+  .scribble { position:relative; }
+  .scribble::after {
+    content:''; position:absolute; left:-2px; right:-2px; bottom:-3px; height: 4px;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='4' viewBox='0 0 120 4'><path d='M0 2 Q 5 0, 10 2 T 20 2 T 30 2 T 40 2 T 50 2 T 60 2 T 70 2 T 80 2 T 90 2 T 100 2 T 110 2 T 120 2' fill='none' stroke='%23d63838' stroke-width='1.25'/></svg>") repeat-x;
+  }
+
+  /* Legend footer */
+  .legend {
+    max-width: 1280px; margin: 24px auto 0; padding: 18px 0 0;
+    border-top: 1px dashed var(--line);
+    display:grid; grid-template-columns: repeat(4, 1fr); gap: 18px;
+    font-family:'Kalam', cursive; font-size: 12px; color: var(--ink-soft);
+  }
+  .legend b { color: var(--ink); font-family: 'Inter', sans-serif; font-weight:600; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; display:block; margin-bottom: 4px; }
+
+  /* Focus-letter style variants (tweak-driven) */
+  body[data-focus="line"] .focus { color: var(--accent); font-weight: 700; }
+  body[data-focus="bold"] .focus { color: var(--ink); font-weight: 800; }
+  body[data-focus="underline"] .focus { color: var(--ink); font-weight: 700; text-decoration: underline 2px var(--accent); text-underline-offset: 3px; }
+  body[data-focus="highlight"] .focus { background: var(--hl); color: var(--ink); font-weight: 700; padding: 0 2px; border-radius: 2px; }
+  body[data-focus="line"] .tick-t, body[data-focus="line"] .tick-b,
+  body[data-focus="line"] .focus-line-top, body[data-focus="line"] .focus-line-bot { display: block; }
+  body:not([data-focus="line"]) .tick-t, body:not([data-focus="line"]) .tick-b,
+  body:not([data-focus="line"]) .focus-line-top, body:not([data-focus="line"]) .focus-line-bot { display: none; }
+
+</style>
+</head>
+<body data-theme="light" data-focus="line">
+
+<!-- ============ HEADER ============ -->
+<header class="doc-head">
+  <div>
+    <h1>SpeedReader — Chrome Extension Wireframes</h1>
+    <div class="sub">Low-fi exploration for the RSVP speed-reader port. Feels at home in Chrome, calm reader-app tone. Grayscale + single red accent marks the <span class="scribble">focus letter</span>.</div>
+  </div>
+  <div class="meta">
+    v0.1 — wireframe pass<br/>
+    3 overlays · 3 options · 3 onboardings<br/>
+    toggle Tweaks to cycle themes & focus style
+  </div>
+</header>
+
+<!-- ============ SECTION 1: IN-PAGE OVERLAY ============ -->
+<section class="section">
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h2 class="section-title">In-page reader overlay</h2>
+    <div class="section-note">Where does the RSVP widget appear while an article is playing? Three placements, from least to most immersive.</div>
+  </div>
+
+  <div class="grid-3">
+
+    <!-- OV-A: Floating pill -->
+    <div class="variant">
+      <div class="variant-label">A. Floating pill <span class="tag">least intrusive</span></div>
+      <p class="variant-desc">A compact toolbar anchors to the top of the page. Article stays visible behind so you can glance at context or scroll.</p>
+      <div class="frame browser">
+        <div class="chrome">
+          <div class="chrome-top">
+            <div class="tabs">
+              <div class="tab active">How to read faster — blog</div>
+              <div class="tab ghost">Docs</div>
+            </div>
+            <div class="tab-new">＋</div>
+          </div>
+          <div class="chrome-bar">
+            <div class="nav-btns">← → ↻</div>
+            <div class="url"><span class="lock">🔒</span> example.com/how-to-read-faster</div>
+            <div class="ext-strip">
+              <div class="ext-icon">◇</div>
+              <div class="ext-icon active">SR</div>
+            </div>
+          </div>
+        </div>
+        <div class="page">
+          <span class="h-title">How to read 3× faster without skimming</span>
+          <div class="byline">Essay · 8 min read · Jun 2025</div>
+          <div class="line w-95"></div>
+          <div class="line w-80"></div>
+          <div class="line w-95"></div>
+          <div class="line w-70"></div>
+          <div class="paragraph-gap"></div>
+          <div class="img-ph">[ hero illustration ]</div>
+          <div class="line w-95"></div>
+          <div class="line w-60"></div>
+          <div class="line w-80"></div>
+
+          <!-- The pill overlay -->
+          <div class="ov-pill">
+            <div class="btn-mini primary">▶</div>
+            <div class="pill-word">
+              <span class="tick-t"></span>
+              <span class="rsvp-word">rea<span class="focus">d</span>ing</span>
+              <span class="tick-b"></span>
+              <div class="pill-progress"><div class="fill"></div></div>
+            </div>
+            <div class="pill-ctrls">
+              <div class="btn-mini">«</div>
+              <div class="btn-mini">»</div>
+            </div>
+            <div class="pill-close">✕</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OV-B: Centered modal -->
+    <div class="variant">
+      <div class="variant-label">B. Centered modal <span class="tag">most focused</span></div>
+      <p class="variant-desc">Dims the page behind. Full controls + surrounding sentence context. Best for long-form deep reads.</p>
+      <div class="frame browser">
+        <div class="chrome">
+          <div class="chrome-top">
+            <div class="tabs">
+              <div class="tab active">Long read — Quarterly</div>
+              <div class="tab ghost">Inbox (3)</div>
+            </div>
+            <div class="tab-new">＋</div>
+          </div>
+          <div class="chrome-bar">
+            <div class="nav-btns">← → ↻</div>
+            <div class="url"><span class="lock">🔒</span> quarterly.example/deep-work</div>
+            <div class="ext-strip">
+              <div class="ext-icon">◇</div>
+              <div class="ext-icon active">SR</div>
+            </div>
+          </div>
+        </div>
+        <div class="page" style="filter: blur(.4px); opacity:.6;">
+          <span class="h-title">The quiet case for doing one thing</span>
+          <div class="byline">Essay · 14 min</div>
+          <div class="line w-95"></div>
+          <div class="line w-80"></div>
+          <div class="line w-95"></div>
+          <div class="line w-70"></div>
+          <div class="line w-60"></div>
+          <div class="line w-80"></div>
+        </div>
+        <div class="modal-scrim">
+          <div class="modal">
+            <div class="modal-head">
+              <span>SPEEDREADER · 480 wpm</span>
+              <span>04:12 / 11:38  ·  ✕</span>
+            </div>
+            <div class="modal-word">
+              <span class="focus-line-top"></span>
+              <span class="rsvp-word">atten<span class="focus">t</span>ion</span>
+              <span class="focus-line-bot"></span>
+            </div>
+            <div class="modal-ctx">
+              …the hard part isn't finding time, it's protecting <em>attention</em> once you have it…
+            </div>
+            <div class="modal-ctrls">
+              <div class="left">
+                <div class="btn-mini">⏮</div>
+                <div class="btn-mini">«</div>
+              </div>
+              <div class="scrubber">
+                <div class="done"></div>
+                <div class="thumb"></div>
+              </div>
+              <div class="right">
+                <div class="btn-mini">»</div>
+                <div class="btn-mini primary">⏸</div>
+                <div class="wpm-pill">480 wpm</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OV-C: Bottom dock -->
+    <div class="variant">
+      <div class="variant-label">C. Bottom dock <span class="tag">page + controls</span></div>
+      <p class="variant-desc">Docked strip across bottom like a mini media player. Scroll freely, peek at figures, keep reading.</p>
+      <div class="frame browser">
+        <div class="chrome">
+          <div class="chrome-top">
+            <div class="tabs">
+              <div class="tab active">Research paper (PDF)</div>
+              <div class="tab ghost">Slack</div>
+            </div>
+            <div class="tab-new">＋</div>
+          </div>
+          <div class="chrome-bar">
+            <div class="nav-btns">← → ↻</div>
+            <div class="url"><span class="lock">🔒</span> arxiv-mirror.example/paper.pdf</div>
+            <div class="ext-strip">
+              <div class="ext-icon">◇</div>
+              <div class="ext-icon active">SR</div>
+            </div>
+          </div>
+        </div>
+        <div class="page">
+          <span class="h-title">Eye-tracking and the span of attention</span>
+          <div class="byline">Paper · Cognitive Sci · 2024</div>
+          <div class="line w-95"></div>
+          <div class="line w-80"></div>
+          <div class="line w-95"></div>
+          <div class="line w-70"></div>
+          <div class="paragraph-gap"></div>
+          <div class="line w-80"></div>
+          <div class="line w-95"></div>
+          <div class="line w-60"></div>
+          <div class="line w-80"></div>
+          <div class="line w-95"></div>
+
+          <div class="dock">
+            <div class="dock-bar"><div class="fill"></div></div>
+            <div class="dock-left">
+              <div class="btn-mini primary">⏸</div>
+              <div class="btn-mini">«</div>
+              <div class="btn-mini">»</div>
+            </div>
+            <div class="dock-word">
+              <span class="tick-t"></span>
+              <span class="rsvp-word">sacc<span class="focus">a</span>de</span>
+              <span class="tick-b"></span>
+            </div>
+            <div class="dock-right">
+              <span class="dock-meta">06:01 / 14:22 · 520 wpm</span>
+              <div class="btn-mini">⚙</div>
+              <div class="btn-mini">✕</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- ============ SECTION 2: OPTIONS PAGE ============ -->
+<section class="section">
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <h2 class="section-title">Options / settings page</h2>
+    <div class="section-note">Opens in a tab. Three layouts for the same settings — sidebar, grouped cards, live preview split.</div>
+  </div>
+
+  <div class="grid-3">
+
+    <!-- OPT-A: Sidebar -->
+    <div class="variant">
+      <div class="variant-label">A. Sidebar nav <span class="tag">familiar</span></div>
+      <p class="variant-desc">chrome://settings-style sidebar on the left, grouped settings on the right. Scales as you add sections later.</p>
+      <div class="frame opt-frame">
+        <div style="padding: 8px 12px 0; background: var(--paper-2); border-bottom: 1.5px solid var(--line);">
+          <div class="opt-chrome-tab"><span class="dot"></span> SpeedReader · Settings</div>
+        </div>
+        <div class="opt-page">
+          <h3 class="opt-h1">SpeedReader settings</h3>
+          <p class="opt-sub">Make RSVP feel like yours. Changes save automatically.</p>
+          <div class="opt-layout-side">
+            <nav class="opt-side-nav">
+              <div class="nav-item active">Reading</div>
+              <div class="nav-item">Appearance</div>
+              <div class="nav-item">Shortcuts</div>
+              <div class="nav-item">Sites</div>
+              <div class="nav-item">About</div>
+            </nav>
+            <div class="opt-panel">
+              <div class="setting-row">
+                <div>
+                  <div class="label">Reading speed</div>
+                  <div class="hint">Words per minute. 250 is average; 500+ takes practice.</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                  <div class="slider-ui"><div class="f"></div><div class="t"></div></div>
+                  <span class="wpm-pill">480 wpm</span>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div>
+                  <div class="label">Chunk size</div>
+                  <div class="hint">Words shown together per tick.</div>
+                </div>
+                <div class="seg"><span>1</span><span class="sel">2</span><span>3</span></div>
+              </div>
+              <div class="setting-row">
+                <div>
+                  <div class="label">Pause on punctuation</div>
+                  <div class="hint">Extra beat after . , ; — for rhythm.</div>
+                </div>
+                <div class="toggle on"></div>
+              </div>
+              <div class="setting-row">
+                <div>
+                  <div class="label">Auto-extract article</div>
+                  <div class="hint">Skip menus and sidebars; read main content only.</div>
+                </div>
+                <div class="toggle on"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OPT-B: Grouped cards -->
+    <div class="variant">
+      <div class="variant-label">B. Grouped cards <span class="tag">scannable</span></div>
+      <p class="variant-desc">One long scroll of titled cards. Less navigation, easier to find everything at a glance.</p>
+      <div class="frame opt-frame">
+        <div style="padding: 8px 12px 0; background: var(--paper-2); border-bottom: 1.5px solid var(--line);">
+          <div class="opt-chrome-tab"><span class="dot"></span> SpeedReader · Settings</div>
+        </div>
+        <div class="opt-page">
+          <h3 class="opt-h1">Settings</h3>
+          <p class="opt-sub">Everything on one page.</p>
+
+          <div class="card">
+            <div class="card-title"><span class="n">01</span> Reading</div>
+            <div class="setting-row" style="padding: 6px 0;">
+              <div class="label">Speed <span class="hint" style="font-weight:400;">— 480 wpm</span></div>
+              <div class="slider-ui"><div class="f"></div><div class="t"></div></div>
+            </div>
+            <div class="setting-row" style="padding: 6px 0; border:none;">
+              <div class="label">Chunk size</div>
+              <div class="seg"><span>1</span><span class="sel">2</span><span>3</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><span class="n">02</span> Appearance</div>
+            <div class="setting-row" style="padding: 6px 0;">
+              <div class="label">Theme</div>
+              <div class="seg"><span class="sel">Light</span><span>Dark</span><span>Sepia</span></div>
+            </div>
+            <div class="setting-row" style="padding: 6px 0; border:none;">
+              <div class="label">Focus letter</div>
+              <div class="seg"><span class="sel">Line</span><span>Color</span><span>Highlight</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><span class="n">03</span> Shortcuts</div>
+            <div class="setting-row" style="padding: 6px 0; border:none;">
+              <div>
+                <div class="label">Start / pause reading</div>
+                <div class="hint">Trigger from any page.</div>
+              </div>
+              <span class="wpm-pill" style="font-family:'JetBrains Mono',monospace;">⌘ + Shift + R</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OPT-C: Live preview split -->
+    <div class="variant">
+      <div class="variant-label">C. Live preview split <span class="tag">see-as-you-tune</span></div>
+      <p class="variant-desc">Adjust on the right, the RSVP word animates on the left. Best for dialling in feel.</p>
+      <div class="frame opt-frame">
+        <div style="padding: 8px 12px 0; background: var(--paper-2); border-bottom: 1.5px solid var(--line);">
+          <div class="opt-chrome-tab"><span class="dot"></span> SpeedReader · Settings</div>
+        </div>
+        <div class="opt-page">
+          <h3 class="opt-h1">Tune your reader</h3>
+          <p class="opt-sub">Preview updates as you change settings.</p>
+          <div class="opt-split">
+            <div class="opt-preview">
+              <div class="label-mini">Preview · 480 wpm</div>
+              <div class="preview-word">
+                <span class="tick-t"></span>
+                <span class="rsvp-word">quie<span class="focus">t</span>ly</span>
+                <span class="tick-b"></span>
+              </div>
+              <div style="display:flex; align-items:center; justify-content:space-between;">
+                <span class="dock-meta">preview</span>
+                <div class="btn-mini primary" style="width:auto; padding: 0 10px;">▶ play sample</div>
+              </div>
+            </div>
+            <div class="opt-compact">
+              <div class="setting-row">
+                <div class="label">Speed</div>
+                <div class="slider-ui"><div class="f"></div><div class="t"></div></div>
+              </div>
+              <div class="setting-row">
+                <div class="label">Chunk</div>
+                <div class="seg"><span>1</span><span class="sel">2</span><span>3</span></div>
+              </div>
+              <div class="setting-row">
+                <div class="label">Theme</div>
+                <div class="seg"><span class="sel">Light</span><span>Dark</span></div>
+              </div>
+              <div class="setting-row">
+                <div class="label">Focus</div>
+                <div class="seg"><span class="sel">Line</span><span>Bold</span><span>H-light</span></div>
+              </div>
+              <div class="setting-row">
+                <div class="label">Pause on .,;</div>
+                <div class="toggle on"></div>
+              </div>
+              <div class="setting-row">
+                <div class="label">Auto-extract</div>
+                <div class="toggle on"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- ============ SECTION 3: ONBOARDING ============ -->
+<section class="section">
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <h2 class="section-title">Onboarding (first install)</h2>
+    <div class="section-note">What opens in the new tab right after install? Three tempos: one-screen welcome, a 3-step tour, and an interactive first read.</div>
+  </div>
+
+  <div class="grid-3">
+
+    <!-- OB-A: Single welcome -->
+    <div class="variant">
+      <div class="variant-label">A. Single welcome <span class="tag">fastest</span></div>
+      <p class="variant-desc">One screen. Explain the focus letter, invite the user to pin the extension, done.</p>
+      <div class="frame ob-frame">
+        <div class="chrome">
+          <div class="chrome-top">
+            <div class="tabs">
+              <div class="tab active">Welcome to SpeedReader</div>
+              <div class="tab ghost">New tab</div>
+            </div>
+          </div>
+          <div class="chrome-bar">
+            <div class="nav-btns">← → ↻</div>
+            <div class="url"><span class="lock">🔒</span> chrome-extension://…/welcome.html</div>
+            <div class="ext-strip">
+              <div class="ext-icon">◇</div>
+              <div class="ext-icon active">SR</div>
+            </div>
+          </div>
+        </div>
+        <div class="ob-page">
+          <div class="ob-hero">
+            <div class="left">
+              <div class="big-logo">SR</div>
+              <h2 class="ob-title">Read with <span class="scribble">one word</span> at a time.</h2>
+              <p class="ob-sub">SpeedReader flashes words where your eyes already are. The <b style="color:var(--accent);">red letter</b> is the focus point — stare at it, let the rest blur past.</p>
+              <div class="ob-ctas">
+                <div class="ob-cta">Pin the extension →</div>
+                <div class="ob-cta ghost">Try a sample</div>
+              </div>
+            </div>
+            <div class="right">
+              <div class="demo-word">
+                <span class="tick-t"></span>
+                <span class="rsvp-word">foc<span class="focus">u</span>s</span>
+                <span class="tick-b"></span>
+              </div>
+              <div class="demo-caption">↑ the red letter is where your eye lands</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OB-B: 3-step -->
+    <div class="variant">
+      <div class="variant-label">B. 3-step tour <span class="tag">guided</span></div>
+      <p class="variant-desc">Small cards explaining: how to start reading, how to control speed, and how settings work.</p>
+      <div class="frame ob-frame">
+        <div class="chrome">
+          <div class="chrome-top">
+            <div class="tabs">
+              <div class="tab active">Welcome · step 1 of 3</div>
+              <div class="tab ghost">New tab</div>
+            </div>
+          </div>
+          <div class="chrome-bar">
+            <div class="nav-btns">← → ↻</div>
+            <div class="url"><span class="lock">🔒</span> chrome-extension://…/tour.html</div>
+            <div class="ext-strip">
+              <div class="ext-icon">◇</div>
+              <div class="ext-icon active">SR</div>
+            </div>
+          </div>
+        </div>
+        <div class="ob-page" style="display:flex; flex-direction:column;">
+          <div class="step-head">
+            <span>SPEEDREADER</span>
+            <span>· GETTING STARTED</span>
+            <div class="dots"><div class="dot on"></div><div class="dot"></div><div class="dot"></div></div>
+          </div>
+          <div class="step-body">
+            <h2 class="ob-title" style="font-size:26px; margin: 0 0 4px;">Three things and you're off.</h2>
+            <p class="ob-sub" style="margin:0 0 6px;">Skim this, then try it on any article.</p>
+            <div class="step-cols">
+              <div class="step-col">
+                <div class="n">1</div>
+                <h4>Open an article</h4>
+                <p>Click the SR icon, or hit <b>⌘⇧R</b>. We'll extract the main text and start playing.</p>
+                <div class="mini-sketch">[ toolbar icon → popup ]</div>
+              </div>
+              <div class="step-col">
+                <div class="n">2</div>
+                <h4>Find your speed</h4>
+                <p>Drag the slider. Start ~300 wpm. Most people settle around 400–600.</p>
+                <div class="mini-sketch">[ slider + wpm ]</div>
+              </div>
+              <div class="step-col">
+                <div class="n">3</div>
+                <h4>Fix your gaze</h4>
+                <p>Stare at the <b style="color:var(--accent);">red letter</b>. Don't chase — let the words come to you.</p>
+                <div class="mini-sketch">[ red focus letter ]</div>
+              </div>
+            </div>
+          </div>
+          <div class="step-foot">
+            <div class="ob-cta ghost" style="padding:8px 12px;">Skip tour</div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="dock-meta">1 of 3</span>
+              <div class="ob-cta" style="padding:8px 14px;">Next →</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OB-C: Interactive first read -->
+    <div class="variant">
+      <div class="variant-label">C. Interactive first read <span class="tag">learn by doing</span></div>
+      <p class="variant-desc">User calibrates speed by actually reading a paragraph. Ends with "keep this speed?"</p>
+      <div class="frame ob-frame">
+        <div class="chrome">
+          <div class="chrome-top">
+            <div class="tabs">
+              <div class="tab active">Let's calibrate</div>
+              <div class="tab ghost">New tab</div>
+            </div>
+          </div>
+          <div class="chrome-bar">
+            <div class="nav-btns">← → ↻</div>
+            <div class="url"><span class="lock">🔒</span> chrome-extension://…/calibrate.html</div>
+            <div class="ext-strip">
+              <div class="ext-icon">◇</div>
+              <div class="ext-icon active">SR</div>
+            </div>
+          </div>
+        </div>
+        <div class="ob-page ob-practice">
+          <div class="practice-head">
+            <div>
+              <h2 class="ob-title" style="font-size:24px; margin:0;">Find your reading speed</h2>
+              <p class="ob-sub" style="margin:4px 0 0;">We'll play a short paragraph. Bump the slider up or down until it feels comfortable.</p>
+            </div>
+            <div class="ob-cta ghost" style="padding:6px 12px;">Skip</div>
+          </div>
+          <div class="practice-stage">
+            <div class="practice-wpm-hud">
+              <span>PARAGRAPH 1 / 3</span>
+              <span>SAMPLE · “THE SLOW REVOLUTION”</span>
+              <span>00:04 / 00:18</span>
+            </div>
+            <div class="practice-word">
+              <span class="tick-t"></span>
+              <span class="rsvp-word">revo<span class="focus">l</span>ution</span>
+              <span class="tick-b"></span>
+              <div class="anno" style="right: 16px; top: 18px;">
+                stare here →
+              </div>
+            </div>
+            <div class="practice-controls">
+              <div class="btn-mini primary">⏸</div>
+              <div class="practice-slider">
+                <div class="fill"></div>
+                <div class="thumb"></div>
+              </div>
+              <span class="wpm-pill">440 wpm</span>
+            </div>
+          </div>
+          <div class="practice-foot">
+            <div class="dock-meta">Tip · pinch fingers together behind the screen if letters blur — that means faster than your span.</div>
+            <div class="ob-cta">Keep this speed →</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============ LEGEND ============ -->
+<footer class="legend">
+  <div><b>Focus letter</b>The red letter marks where your eye should rest. We're showing the <i>Line</i> treatment by default (vertical guides top & bottom).</div>
+  <div><b>Grayscale + 1 accent</b>All reds mean the same thing: "this is the RSVP focus point." Keeps the UI quiet.</div>
+  <div><b>Chrome-native feel</b>Rounded tab chrome, sentence-case labels, settings that look at home next to chrome://settings.</div>
+  <div><b>Open questions</b>Keyboard shortcut default? Extraction fallback when auto-detect fails? PDF support?</div>
+</footer>
+
+
+<!-- ============ TWEAKS PANEL ============ -->
+<div id="tweaks">
+  <h3>Tweaks</h3>
+  <div class="tw-small" style="margin-bottom: 8px;">Live-cycle the visual options.</div>
+
+  <div class="tw-row">
+    <label>Theme</label>
+    <div class="tw-seg" data-group="theme">
+      <span data-v="light" class="sel">Light</span>
+      <span data-v="dark">Dark</span>
+    </div>
+  </div>
+
+  <div class="tw-row">
+    <label>Focus style</label>
+    <div class="tw-seg" data-group="focus">
+      <span data-v="line" class="sel">Line</span>
+      <span data-v="bold">Bold</span>
+      <span data-v="underline">U-line</span>
+      <span data-v="highlight">H-light</span>
+    </div>
+  </div>
+
+  <div class="tw-row">
+    <label>Accent hue</label>
+    <div class="tw-seg" data-group="accent">
+      <span data-v="red" class="sel">Red</span>
+      <span data-v="blue">Blue</span>
+      <span data-v="amber">Amber</span>
+    </div>
+  </div>
+
+  <div class="tw-small" style="margin-top:10px;">These are just for review — not shipped controls.</div>
+</div>
+
+<script>
+(function(){
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "theme": "light",
+    "focus": "line",
+    "accent": "red"
+  }/*EDITMODE-END*/;
+
+  const state = { ...TWEAK_DEFAULTS };
+
+  const accents = {
+    red:   { accent: '#d63838', soft: '#f4c9c9' },
+    blue:  { accent: '#2f6fc4', soft: '#c9daf4' },
+    amber: { accent: '#c8761a', soft: '#f1dbb6' }
+  };
+
+  function apply() {
+    document.body.setAttribute('data-theme', state.theme);
+    document.body.setAttribute('data-focus', state.focus);
+    const a = accents[state.accent] || accents.red;
+    document.documentElement.style.setProperty('--accent', a.accent);
+    document.documentElement.style.setProperty('--accent-soft', a.soft);
+    document.querySelectorAll('#tweaks .tw-seg').forEach(seg => {
+      const group = seg.getAttribute('data-group');
+      seg.querySelectorAll('span').forEach(s => {
+        s.classList.toggle('sel', s.getAttribute('data-v') === state[group]);
+      });
+    });
+  }
+
+  document.querySelectorAll('#tweaks .tw-seg span').forEach(span => {
+    span.addEventListener('click', () => {
+      const group = span.parentElement.getAttribute('data-group');
+      state[group] = span.getAttribute('data-v');
+      apply();
+      try {
+        window.parent.postMessage({type:'__edit_mode_set_keys', edits: { [group]: state[group] }}, '*');
+      } catch(e) {}
+    });
+  });
+
+  // Edit-mode protocol
+  window.addEventListener('message', (e) => {
+    const d = e.data || {};
+    if (d.type === '__activate_edit_mode') document.getElementById('tweaks').classList.add('on');
+    else if (d.type === '__deactivate_edit_mode') document.getElementById('tweaks').classList.remove('on');
+  });
+  try { window.parent.postMessage({type:'__edit_mode_available'}, '*'); } catch(e) {}
+
+  apply();
+})();
+</script>
+
+</body>
+</html>
