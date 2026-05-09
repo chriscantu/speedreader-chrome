@@ -22,8 +22,14 @@
 // influence word boundaries:
 //   U+0000 NUL, U+200B zero-width space, U+200C ZWNJ, U+200D ZWJ,
 //   U+FEFF BOM, U+00AD soft hyphen.
-// eslint-disable-next-line no-control-regex -- NUL stripped from input before serving as PARAGRAPH_SENTINEL.
-const INVISIBLE_CHARS_RE = /\u0000|\u200B|\u200C|\u200D|\uFEFF|\u00AD/gu;
+//
+// Built programmatically so source stays plain ASCII — avoids
+// eslint no-control-regex / no-irregular-whitespace fires when editors
+// transparently normalize \uXXXX escapes into literal codepoints.
+const INVISIBLE_CHARS_RE = new RegExp(
+  ['\\u0000', '\\u200B', '\\u200C', '\\u200D', '\\uFEFF', '\\u00AD'].join('|'),
+  'gu',
+);
 
 // Em/en-dash promoted to standalone tokens — dashes are pause markers, and
 // date ranges (2024–2026) split for consistency with prose dashes.
@@ -32,7 +38,7 @@ const DASH_RE = /[—–]/gu;
 const PARAGRAPH_RUN_RE = /[ \t]*\n[ \t]*(?:\n[ \t]*)+/gu;
 // NUL sentinel: cannot collide with input because INVISIBLE_CHARS_RE strips
 // any user-supplied NUL before this substitution runs.
-const PARAGRAPH_SENTINEL = '\u0000';
+const PARAGRAPH_SENTINEL = String.fromCharCode(0);
 
 const WHITESPACE_RE = /\s+/u;
 
