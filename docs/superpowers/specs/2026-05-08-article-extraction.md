@@ -79,7 +79,7 @@ export function tokenize(text: string): string[];
 - Split on Unicode whitespace (`\p{White_Space}` regex with `u` flag).
 - Punctuation stays attached to the adjacent word — RSVP punctuation pacing (#15) inspects trailing chars to add micro-dwell on `.`, `,`, `;`, `:`, `!`, `?`, `—`, `…`.
 - Hyphenated words (`well-being`, `state-of-the-art`) are one token.
-- Em/en dashes between words (`life — death`) split into surrounding tokens; the dash itself is dropped.
+- Em-dashes (`—`, U+2014) and en-dashes (`–`, U+2013) emit as their own tokens. They split surrounding words AND appear as standalone tokens in the output array, regardless of whether they had surrounding spaces in the input (`life — death`, `life—death`, and `2024–2026` all split). Rationale: dashes are sentence-internal pause markers; emitting them as tokens lets #15 punctuation pacing attach a pause multiplier rather than losing the pacing signal entirely.
 - Contractions (`don't`, `it's`) are one token.
 - Ellipses (`...`, `…`) attach to the preceding word.
 - Strip zero-width characters (`U+200B`, `U+200C`, `U+200D`, `U+FEFF`).
