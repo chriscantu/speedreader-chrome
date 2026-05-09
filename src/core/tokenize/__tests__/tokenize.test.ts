@@ -95,10 +95,34 @@ describe('tokenize', () => {
       expect(tokenize('pages 12–15')).toEqual(['pages', '12', '–', '15']);
     });
 
-    // Date ranges split, mirroring em-dash. Consistency for #15 punctuation
-    // pacing — every dash is a pause marker — beats keeping `2024–2026` whole.
+    // Date ranges split, mirroring em-dash. Every dash is a pause marker —
+    // beats keeping `2024–2026` whole.
     it('splits date-range en-dash into its own token', () => {
       expect(tokenize('2024–2026 era')).toEqual(['2024', '–', '2026', 'era']);
+    });
+  });
+
+  describe('paragraph-sentinel placeholder collision (regression)', () => {
+    it('preserves bareword "PB" as a token at edges', () => {
+      expect(tokenize('PB')).toEqual(['PB']);
+    });
+
+    it('preserves bareword "PB" mid-sentence', () => {
+      expect(tokenize('PB and J')).toEqual(['PB', 'and', 'J']);
+    });
+
+    it('preserves bareword "PB" alongside paragraph break', () => {
+      expect(tokenize('hello\n\nPB sandwich')).toEqual(['hello', '\n\n', 'PB', 'sandwich']);
+    });
+
+    it('preserves multiple bareword "PB" occurrences', () => {
+      expect(tokenize('foo PB bar PB baz')).toEqual(['foo', 'PB', 'bar', 'PB', 'baz']);
+    });
+  });
+
+  describe('em-dash adjacent to paragraph break', () => {
+    it('preserves em-dash and paragraph break as distinct ordered tokens', () => {
+      expect(tokenize('a—\n\nb')).toEqual(['a', '—', '\n\n', 'b']);
     });
   });
 
