@@ -38,3 +38,6 @@ Thumbs.db
 
 # Local state for issue-creation scripts
 scripts/.milestone-numbers.tsv
+
+# Local session-bridge handoff notes (not load-bearing decisions)
+_handoff*.md
