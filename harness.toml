@@ -1,0 +1,30 @@
+# Harness v4 Configuration
+# Edit this file, then run `harness sync` to generate CC plugin files.
+
+[project]
+name = "speedreader-chrome"
+version = "0.1.0"
+description = "Chrome MV3 port of speed-reader RSVP extension for neurodivergent readers"
+
+[agent]
+# default = "security-reviewer"
+
+[env]
+# CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1"
+
+[safety.permissions]
+deny = [
+  "Bash(sudo:*)",
+]
+ask = [
+  "Bash(rm -r:*)",
+  "Bash(git push --force:*)",
+]
+
+[safety.sandbox]
+failIfUnavailable = false
+
+[safety.sandbox.filesystem]
+# denyRead = [".env", "secrets/**"]
+# allowRead = [".env.example"]
+
