@@ -196,4 +196,67 @@ describe('createRsvpEngine', () => {
       expect(() => createRsvpEngine({ words: [], wpm: Infinity })).toThrow(RangeError);
     });
   });
+
+  // Spirit-port of Safari `state-machine.test.js` `init` block (WPM clamping)
+  // and `togglePlayPause` block. Chrome's engine deliberately diverges:
+  //
+  //   - Safari clamps wpm into [100, 600] inside the state machine
+  //     (`init('Hello world.', { wpm: 50 })` → `sm.wpm === 100`). Chrome
+  //     keeps the engine permissive — any positive finite number is
+  //     accepted — and enforces the [100, 600] product range at the
+  //     persistence layer via `SettingsSchemaV1`. This separates
+  //     control-surface validation from engine cadence math.
+  //
+  //   - Safari ships a `togglePlayPause()` helper on the state machine.
+  //     Chrome's engine intentionally omits it; callers compose
+  //     `pause()` / `resume()` against the public `state` getter.
+  describe('Safari parity / divergence', () => {
+    it('engine accepts wpm below Safari clamp floor (100); clamping is a settings concern', () => {
+      // Equivalent Safari case: `init('Hello world.', { wpm: 50 })` clamps to 100.
+      // Chrome accepts 50 and emits words at 60000/50 = 1200ms cadence.
+      const engine = createRsvpEngine({ words: ['a', 'b'], wpm: 50 });
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start();
+      // 'a' emits synchronously.
+      expect(events).toHaveLength(1);
+      vi.advanceTimersByTime(1199);
+      expect(events).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      expect(events).toHaveLength(2);
+    });
+
+    it('engine accepts wpm above Safari clamp ceiling (600); clamping is a settings concern', () => {
+      // Equivalent Safari case: `init('Hello world.', { wpm: 999 })` clamps to 600.
+      // Chrome accepts 999 and emits at 60000/999 ≈ 60.06ms.
+      const engine = createRsvpEngine({ words: ['a', 'b'], wpm: 999 });
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start();
+      expect(events).toHaveLength(1);
+      vi.advanceTimersByTime(61);
+      expect(events).toHaveLength(2);
+    });
+
+    it('pause/resume cycles compose into a togglePlayPause equivalent', () => {
+      // Equivalent Safari cases: `togglePlayPause` (plays when paused, pauses
+      // when playing). Chrome composes `pause()` / `resume()` against the
+      // exposed state.
+      const engine = createRsvpEngine({ words: ['a', 'b', 'c'], wpm: 300 });
+      engine.start();
+      expect(engine.state).toBe('playing');
+
+      // First toggle: playing → paused
+      if (engine.state === 'playing') engine.pause();
+      expect(engine.state).toBe('paused');
+
+      // Second toggle: paused → playing
+      if (engine.state === 'paused') engine.resume();
+      expect(engine.state).toBe('playing');
+
+      // Third toggle round-trip
+      if (engine.state === 'playing') engine.pause();
+      expect(engine.state).toBe('paused');
+    });
+  });
 });
