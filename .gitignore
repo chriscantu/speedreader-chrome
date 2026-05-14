@@ -41,3 +41,12 @@ scripts/.milestone-numbers.tsv
 
 # Local session-bridge handoff notes (not load-bearing decisions)
 _handoff*.md
+
+# Harness runtime state (per-machine)
+.claude/memory/
+.claude/sessions/
+.claude/state/
+
+# Coverage / profiling
+default.profraw
+out/
