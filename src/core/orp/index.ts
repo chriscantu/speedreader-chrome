@@ -1,1 +1,1 @@
-export { orp } from './orp';
+export { orp, splitWordAtFocus } from './orp';
