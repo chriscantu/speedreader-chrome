@@ -33,3 +33,32 @@ export function orp(word: string): number {
   if (stripped.length <= 3) return 0;
   return Math.floor(stripped.length * 0.3);
 }
+
+/**
+ * Splits a word at its ORP into three parts so the overlay can render the
+ * focus character in a contrasting color while preserving the rest of the
+ * word around it.
+ *
+ * Ported for parity from the Safari reference implementation:
+ *   chriscantu/speed-reader →
+ *   SpeedReader/SpeedReaderExtension/Resources/rsvp/focus-point.js
+ *   (splitWordAtFocus).
+ *
+ * The split uses the ORP index from {@link orp} against the ORIGINAL word
+ * (not the punctuation-stripped form), so trailing punctuation remains in
+ * the `after` part. Empty input is treated as a degenerate case and all
+ * three parts are empty strings.
+ */
+export function splitWordAtFocus(word: string): {
+  before: string;
+  focus: string;
+  after: string;
+} {
+  if (word === '') return { before: '', focus: '', after: '' };
+  const idx = orp(word);
+  return {
+    before: word.slice(0, idx),
+    focus: word.charAt(idx),
+    after: word.slice(idx + 1),
+  };
+}

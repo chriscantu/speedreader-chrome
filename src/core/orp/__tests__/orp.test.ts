@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { orp } from '../orp';
+import { orp, splitWordAtFocus } from '../orp';
 
 // ORP heuristic ported from Safari reference:
 //   chriscantu/speed-reader →
@@ -109,5 +109,57 @@ describe('orp', () => {
   it('strips multiple trailing punctuation chars: "really?!"', () => {
     // "really?!" → strip → "really" length 6 → floor(6*0.3)=1
     expect(orp('really?!')).toBe(1);
+  });
+});
+
+// Mirrors Safari `splitWordAtFocus` describe block in
+// chriscantu/speed-reader → tests/js/focus-point.test.js (lines 47-90).
+// The splitter divides a word into the substring before the ORP, the ORP
+// character itself, and the substring after it — used by the overlay to
+// render the focus character in a contrasting color.
+describe('splitWordAtFocus', () => {
+  it('splits "comprehension" into before/focus/after (Safari parity)', () => {
+    // focus-point.test.js line 48: orp=3 → 'com' | 'p' | 'rehension'
+    expect(splitWordAtFocus('comprehension')).toEqual({
+      before: 'com',
+      focus: 'p',
+      after: 'rehension',
+    });
+  });
+
+  it('splits single-char "I" with empty before/after (Safari parity)', () => {
+    // focus-point.test.js line 57
+    expect(splitWordAtFocus('I')).toEqual({
+      before: '',
+      focus: 'I',
+      after: '',
+    });
+  });
+
+  it('splits short word "the" (Safari parity)', () => {
+    // focus-point.test.js line 66: orp=0 → '' | 't' | 'he'
+    expect(splitWordAtFocus('the')).toEqual({
+      before: '',
+      focus: 't',
+      after: 'he',
+    });
+  });
+
+  it('preserves trailing punctuation in after part: "hello," (Safari parity)', () => {
+    // focus-point.test.js line 75: orp=1 → 'h' | 'e' | 'llo,'
+    expect(splitWordAtFocus('hello,')).toEqual({
+      before: 'h',
+      focus: 'e',
+      after: 'llo,',
+    });
+  });
+
+  it('returns empty parts for empty string (Safari parity)', () => {
+    // focus-point.test.js line 84
+    expect(splitWordAtFocus('')).toEqual({
+      before: '',
+      focus: '',
+      after: '',
+    });
   });
 });
