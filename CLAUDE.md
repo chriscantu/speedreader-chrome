@@ -21,7 +21,7 @@ The source tree is split along the platform boundary:
 - `src/chrome/` — Chrome-specific glue: service worker (`background/`), content script (`content/`), popup, options page, and `manifest.ts`. May depend on `src/core/`; the reverse is forbidden.
 - `icons/` (repo root) — platform-agnostic icon assets referenced by the manifest.
 
-`src/core/` is currently a placeholder — engine, extraction, and overlay land in later issues. STRUCTURE.md (issue #41) will expand this orientation into a standalone reference.
+For a fuller repo-layout reference (every directory and its role), see [`STRUCTURE.md`](STRUCTURE.md).
 
 ## Key references
 
