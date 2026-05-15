@@ -10,6 +10,25 @@
  * No DOM, no `chrome.*` / `browser.*` — safe for `src/core/`.
  */
 
+/**
+ * A token from `tokenize` with sentence-boundary metadata overlaid.
+ *
+ * Structural invariants (encoded in the discriminant):
+ * - `sentenceStart` and `sentenceEnd` live ONLY on `kind: 'word'` tokens.
+ * - `paragraph.text` is always the literal `'\n\n'`.
+ * - `dash.text` is always `'—'` (em) or `'–'` (en).
+ *
+ * Sequential invariants (NOT encoded in the type; held by
+ * `markSentenceBoundaries` and verified by tests):
+ * - The first `kind: 'word'` token in non-empty input has `sentenceStart: true`.
+ * - The first `kind: 'word'` token after a `kind: 'paragraph'` has `sentenceStart: true`.
+ * - The next `kind: 'word'` after a word with `sentenceEnd: true` has `sentenceStart: true`.
+ * - `markSentenceBoundaries(tokens).length === tokens.length` — the helper is a 1:1 mapping.
+ *
+ * Encoding the sequential invariants in the type would require dependent-type
+ * shapes (non-empty-list witnesses, etc.) that burden every consumer with
+ * destructuring. The producer + tests carry those invariants instead.
+ */
 export type MarkedToken =
   | { kind: 'word'; text: string; sentenceStart: boolean; sentenceEnd: boolean }
   | { kind: 'paragraph'; text: '\n\n' }
@@ -33,6 +52,10 @@ const SENTENCE_END_RE = /[.!?…。！？](?:\[[^\]]*\]|\([^)]*\)|["'”’)\]])
 // but should NOT close a sentence even when matched by SENTENCE_END_RE.
 // Same trailing-artifact tail so `Dr.[Smith]` matches the exemption (not
 // just bare `Dr.`).
+//
+// Set is deliberately small. Expanding to `No.`/`e.g.`/`i.e.`/`Inc.`/`Ph.D.`/etc.
+// trades correct exemptions for false negatives (e.g., `No.` at end of a
+// sentence). Read spec §"Looks like an abbreviation" before adding to this set.
 const ABBREVIATION_RE = /\b(?:Dr|Mr|Mrs|Ms|St|Prof|Sr|Jr)\.(?:\[[^\]]*\]|\([^)]*\)|["'”’)\]])*$/u;
 
 function endsSentence(word: string): boolean {

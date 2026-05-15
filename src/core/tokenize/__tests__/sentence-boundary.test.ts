@@ -166,6 +166,46 @@ describe('markSentenceBoundaries — Chrome-side cases', () => {
   });
 });
 
+describe('markSentenceBoundaries — regression guards', () => {
+  // Spec §"Looks like an abbreviation" enumerates 8 honorifics. Only case 16
+  // exercises `Dr.`; this parametrized check catches both silent CONTRACTION
+  // of the exemption set (someone refactors the regex to drop entries) and
+  // silent EXPANSION (someone adds a new entry without spec coverage).
+  it.each(['Dr.', 'Mr.', 'Mrs.', 'Ms.', 'St.', 'Prof.', 'Sr.', 'Jr.'])(
+    'honorific exemption: %s does not end a sentence',
+    (honorific) => {
+      const marks = markSentenceBoundaries(tokenize(`${honorific} Smith arrived.`));
+      // The honorific token (index 0) must NOT have sentenceEnd: true.
+      expect(ends(marks)[0]).toBe(false);
+      // `Smith` (index 1) must NOT be flagged as starting a new sentence.
+      expect(starts(marks)[1]).toBe(false);
+    },
+  );
+
+  // Spec types `dash.text` as `'—' | '–'`. Only the em-dash is exercised
+  // above; this case pins en-dash so a future refactor that drops EN_DASH
+  // handling fails loudly.
+  it('en-dash (–) is emitted as a dash sentinel and leaves state unchanged', () => {
+    const marks = markSentenceBoundaries(tokenize('pages 12 – 15'));
+    const dashes = marks.filter((m) => m.kind === 'dash');
+    expect(dashes).toEqual([{ kind: 'dash', text: '–' }]);
+    // Words around the en-dash: 'pages'(start:true), '12'(start:false),
+    // '–'(dash), '15'(start:false). State carries through the dash.
+    expect(starts(marks)).toEqual([true, false, false]);
+    expect(ends(marks)).toEqual([false, false, false]);
+  });
+
+  // Spec §"What the regex does NOT match" lists `U.S.:` (colon) as a negative
+  // case. Case 14 covers `e.g.,` (comma); this one pins the colon variant so
+  // adding `:` to the closing-char set would fail loudly.
+  it('mid-word period followed by colon does NOT end a sentence (U.S.:)', () => {
+    const marks = markSentenceBoundaries(tokenize('visit the U.S.: it is nice.'));
+    // tokens: ['visit', 'the', 'U.S.:', 'it', 'is', 'nice.']
+    expect(ends(marks)).toEqual([false, false, false, false, false, true]);
+    expect(starts(marks)).toEqual([true, false, false, false, false, false]);
+  });
+});
+
 describe('markSentenceBoundaries — invariants', () => {
   it('preserves input length and order', () => {
     const tokens = tokenize('Hello world. Foo bar baz.');
