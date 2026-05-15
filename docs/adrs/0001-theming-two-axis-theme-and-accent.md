@@ -20,7 +20,9 @@ POC
 
 ## Status
 
-Proposed
+Superseded by [ADR #0002](./0002-theming-single-enum-aligned-with-design-pack.md)
+
+> **Why superseded** (added 2026-05-14, same day as initial merge): a post-merge review of #50 and #74 surfaced that `docs/superpowers/specs/2026-05-08-settings-schema.md` already adjudicates a 7-value single-enum `theme` field, and `docs/design/Speed Reader Hi-Fi.html` defines fully-designed CSS tokensets for those 7 themes. This ADR's two-axis design was based on the current shipped `src/core/settings/schema.ts` (3-value enum) — code state, not spec state. Per repo memory ("specs ship as PR first"), the spec is the SSOT and this ADR inverted that. See ADR #0002 for the aligned decision. The reasoning in this ADR (reversibility asymmetry, combinatorial discipline, abort-trigger structure) survives as the *form* of how the decision was made; the *content* was wrong because the input baseline was the drifted code, not the spec.
 
 ## Context
 
