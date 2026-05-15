@@ -40,7 +40,7 @@ A new exported function lives in `src/core/tokenize/` (alongside `tokenize.ts`) 
 // src/core/tokenize/sentence-boundary.ts
 
 export type MarkedToken =
-  | { kind: 'word'; text: string; sentenceStart: boolean }
+  | { kind: 'word'; text: string; sentenceStart: boolean; sentenceEnd: boolean }
   | { kind: 'paragraph'; text: '\n\n' }
   | { kind: 'dash'; text: '—' | '–' };
 
@@ -49,9 +49,15 @@ export function markSentenceBoundaries(tokens: string[]): MarkedToken[];
 
 Re-exported from `src/core/tokenize/index.ts` alongside `tokenize`.
 
+### Why both `sentenceStart` AND `sentenceEnd`
+
+A naive design would emit only `sentenceStart` and ask consumers to derive "does the current word end a sentence" via lookahead (`tokens[i+1]?.sentenceStart`). That breaks down across sentinels: a word followed by `kind: 'dash'` then a word doesn't have a clean `sentenceStart` answer, and `kind: 'paragraph'` carries no flag at all. Pacing (#15) — "1.5× delay after a sentence-ending word" — would have to re-implement the regex per call site.
+
+Emitting both flags during the same single-pass walk costs zero extra state (the algorithm already computes "does this word end a sentence" to update `nextWordStartsSentence`) and removes the derivation footgun from every consumer.
+
 ### Why a discriminated union and not `Array<string | {text, sentenceStart}>`
 
-Consumers (rsvp-engine for pacing, overlay for context preview, future chunk builder) all need to differentiate words from structural tokens. A discriminated union with `kind` makes that switch ergonomic in TypeScript without `typeof === 'string'` checks and gives `sentenceStart` a single typed home (only on `kind: 'word'`). Sentinels do not carry `sentenceStart` because the next word does.
+Consumers (rsvp-engine for pacing, overlay for context preview, future chunk builder) all need to differentiate words from structural tokens. A discriminated union with `kind` makes that switch ergonomic in TypeScript without `typeof === 'string'` checks and keeps the flag fields on `kind: 'word'` only. Sentinels do not carry either flag — they delimit but do not contain.
 
 ### Detection algorithm
 
@@ -61,34 +67,62 @@ Walk the input array left-to-right, carrying one piece of state: `nextWordStarts
 2. **For each token:**
    - If the token is `'\n\n'` → emit `{kind: 'paragraph', text: '\n\n'}`; set `nextWordStartsSentence = true`. Paragraph breaks implicitly end a sentence regardless of the previous word's punctuation.
    - If the token is `'—'` or `'–'` → emit `{kind: 'dash', text}`; **do not change** `nextWordStartsSentence`. Dashes are intra-sentence pause markers.
-   - Otherwise (word) → emit `{kind: 'word', text, sentenceStart: nextWordStartsSentence}`. Then compute whether this word ends a sentence (rule below); set `nextWordStartsSentence` to that result.
+   - Otherwise (word) →
+     a. Compute `endsSentence = SENTENCE_END_RE.test(text) && !ABBREVIATION_RE.test(text)` (rules below).
+     b. Emit `{kind: 'word', text, sentenceStart: nextWordStartsSentence, sentenceEnd: endsSentence}`.
+     c. Set `nextWordStartsSentence = endsSentence`. Paragraph sentinel may override on the next iteration.
 
 ### "Word ends a sentence" — the regex
 
-A word ends a sentence iff it matches:
+A word ends a sentence iff it matches the terminator regex AND does NOT match the small abbreviation exemption:
 
 ```ts
-const SENTENCE_END_RE = /[.!?](?:\[[^\]]*\]|\([^)]*\)|["'”’)\]])*$/u;
+const SENTENCE_END_RE =
+  /[.!?…。！？](?:\[[^\]]*\]|\([^)]*\)|["'”’)\]])*$/u;
+
+const ABBREVIATION_RE =
+  /\b(?:Dr|Mr|Mrs|Ms|St|Prof|Sr|Jr)\.(?:\[[^\]]*\]|\([^)]*\)|["'”’)\]])*$/u;
 ```
 
-Breakdown:
+`SENTENCE_END_RE` breakdown:
 
-- `[.!?]` — a sentence-terminating punctuation mark
-- `(?: ... )*` — followed by zero or more trailing artifacts:
-  - `\[[^\]]*\]` — a complete `[...]` group (footnote refs, e.g., `[10]`, `[Smith]`)
+- `[.!?…。！？]` — a sentence-terminating punctuation mark, including:
+  - Latin: `. ! ?`
+  - Unicode horizontal ellipsis: `…` (U+2026; common in dialog and modern web prose)
+  - CJK fullwidth terminators: `。` (U+3002), `！` (U+FF01), `？` (U+FF1F)
+- `(?: ... )*` — followed by zero or more trailing closing artifacts:
+  - `\[[^\]]*\]` — a complete `[...]` group (footnote refs like `[10]`, `[Smith]`)
   - `\([^)]*\)` — a complete `(...)` group (closing parens after a parenthetical)
   - `["'”’)\]]` — a single closing quote or bracket / paren / square-bracket
 - `$` — the word must end here
 
-This matches Safari's behavior on all 8 sentence-boundary test cases (see §Test Cases below), including the documented `Dr.[Smith]` quirk.
+The three trailing-artifact branches start with distinct characters (`[`, `(`, or a literal closing char), so the alternation does not backtrack. The repetition `*` is bounded by word length — no catastrophic-backtracking surface.
 
-### Why this regex catches `Dr.[Smith]`
+**Interleaving is intentional.** The trailing-artifact group accepts `[..]` groups, `(...)` groups, and single closing chars in any order and quantity. Real-world prose has all of:
 
-`Dr.[Smith]` contains a `.` followed by `[Smith]` (a complete `[...]` group). The regex's `(?:\[[^\]]*\])*` arm consumes `[Smith]` as one bracket group; `$` then asserts end-of-string. The `.` qualifies as a sentence terminator, so the regex matches.
+- `said.[note]"` — bracket then quote
+- `wow!"]` — quote then bracket
+- `right?")` — quote then paren
 
-This is a known Safari quirk: an abbreviation like `Dr.` immediately followed by a bracketed annotation is mis-detected as a sentence boundary. We inherit it for parity. The cost is rare (`Dr.[Smith]`-style constructions are unusual in long-form reading material); the alternative — diverging from Safari to fix the quirk — adds complexity to the algorithm and would make porting the 8 Safari tests harder.
+All match. See §Test cases #18–#20.
 
-A future ADR may revisit if user-visible defects accumulate.
+### "Looks like an abbreviation, not a sentence end" — the exemption
+
+`ABBREVIATION_RE` keeps a small bounded set of period-bearing abbreviations off the sentence-boundary path, with the same trailing-artifact tail so `Dr.[Smith]` matches the exemption (not just bare `Dr.`):
+
+- `Dr Mr Mrs Ms St Prof Sr Jr` — common English honorifics
+
+The set is deliberately small — adding more (`No.` for Number, `e.g.` for "for example", `i.e.`, `Inc.`, `Ph.D.`, etc.) widens both correct exemptions and false negatives (e.g., `No.` at end of sentence) and is out of scope for v1. Expanding the set is a follow-up ADR.
+
+### Chrome divergence from Safari — what and why
+
+Three of the regex's choices diverge from the Safari reference (`chriscantu/speed-reader/Resources/rsvp/word-processor.js`). All are documented here so future supersession decisions have an audit trail:
+
+| Item | Safari | Chrome | Why |
+|---|---|---|---|
+| Ellipsis `…` as terminator | Not handled (no test exists; behavior unverified) | Treated as a sentence terminator | Modern web prose uses ellipsis as a soft full-stop. The cost is one codepoint in the char class. |
+| CJK terminators `。！？` | Not handled | Treated as sentence terminators | Audience includes non-English neurodivergent readers per `CLAUDE.md`. tokenize already preserves CJK terminators when authors space-separate; adding them costs three codepoints. The non-spaced CJK case (one giant token per line) is out of scope — see Non-goals. |
+| `Dr.[Smith]` and other honorific+bracket constructions | Mis-detected as sentence boundary (Safari quirk) | Honorific exemption avoids the quirk | Per `CLAUDE.md` memory "parity is floor, not ceiling." The cost is one regex and a small abbreviation set. The benefit is correct pacing on every "Dr. Smith arrived." / "Dr.[1] noted that..." construction — a non-trivial fraction of long-form reading material. Diverges from Safari test case #7. |
 
 ### What the regex does NOT match (negative cases)
 
@@ -126,37 +160,47 @@ For any input `tokens: string[]`:
 | **#23 Previous / next sentence** (controls) | At engine construction, once. The result is held as a sidecar index. | `sentenceStart === true` positions form the index of seekable boundaries. `nextSentence` advances to the next `true`; `prevSentence` walks back. |
 | **#20 Context preview on pause** (overlay) | When the user pauses, called on the slice around `currentIndex`. | Uses both `sentenceStart === true` boundaries and paragraph sentinels to delimit the displayed sentence. |
 | **#97 contextSentence API** (rsvp-engine) | Builds on #20's slicing logic; exposed as an engine method. | Same as #20. |
-| **#51 Chunks** (future) | Chunk builder respects sentence boundaries — chunks never cross a sentence end. | Reads sentenceStart on the next token while filling a chunk; closes the chunk before crossing. |
+| **#51 Chunks** (future) | Chunk builder respects sentence boundaries — chunks never cross a sentence end. | Reads `sentenceEnd` while filling a chunk; closes the chunk on the word whose `sentenceEnd === true`. |
+| **#30 Options page preview** (transitive) | If the Options page renders sample RSVP playback through `createRsvpEngine`, it inherits whatever consumers above the engine call. Pacing's use of `sentenceEnd` makes this a transitive consumer. | No direct read; rides on rsvp-engine's apply. |
 
-The flag is computed once per input stream (cheap — single linear pass). Consumers that derive sub-indices from it cache them; the helper itself does no caching.
+The flags are computed once per input stream (cheap — single linear pass). Consumers that derive sub-indices from `sentenceStart` (#23 boundary list, #20 slice anchors) cache them; the helper itself does no caching.
 
 ## Test cases
 
 The implementation PR (separate; see DoD below) must port all 8 Safari `processText` sentence-boundary cases from `chriscantu/speed-reader/tests/js/word-processor.test.js` (lines 35-87), expressed against the new `markSentenceBoundaries` API.
 
-### Safari parity cases
+Each row lists both `sentenceStart` and `sentenceEnd` arrays for the word tokens only. Sentinels are noted inline.
 
-| # | Input text | `tokenize` output | `sentenceStart` array (word tokens only) |
-|---|---|---|---|
-| 1 | `'First sentence. Second sentence.'` | `['First', 'sentence.', 'Second', 'sentence.']` | `[true, false, true, false]` |
-| 2 | `'Is this right? Yes it is.'` | `['Is', 'this', 'right?', 'Yes', 'it', 'is.']` | `[true, false, false, true, false, false]` |
-| 3 | `'Wow! That is great.'` | `['Wow!', 'That', 'is', 'great.']` | `[true, true, false, false]` |
-| 4 | `'increase retention.[10][11][2] There are three types'` | `['increase', 'retention.[10][11][2]', 'There', 'are', 'three', 'types']` | `[true, false, true, false, false, false]` |
-| 5 | `'(see footnote.) The next'` | `['(see', 'footnote.)', 'The', 'next']` | `[true, false, true, false]` |
-| 6 | `'she said." He left.'` | `['she', 'said."', 'He', 'left.']` | `[true, false, true, false]` |
-| 7 | `'Dr.[Smith] gave'` | `['Dr.[Smith]', 'gave']` | `[true, true]` (documented quirk) |
-| 8 | `'see [10] for details'` | `['see', '[10]', 'for', 'details']` | `[true, false, false, false]` (negative: bare brackets without preceding punctuation do NOT end a sentence) |
+### Safari parity cases (cases 1–6 + 8 match Safari; case 7 deliberately diverges)
 
-### Additional Chrome-side cases (the spec pins these)
+| # | Input text | `tokenize` output | `sentenceStart` (words) | `sentenceEnd` (words) |
+|---|---|---|---|---|
+| 1 | `'First sentence. Second sentence.'` | `['First', 'sentence.', 'Second', 'sentence.']` | `[true, false, true, false]` | `[false, true, false, true]` |
+| 2 | `'Is this right? Yes it is.'` | `['Is', 'this', 'right?', 'Yes', 'it', 'is.']` | `[true, false, false, true, false, false]` | `[false, false, true, false, false, true]` |
+| 3 | `'Wow! That is great.'` | `['Wow!', 'That', 'is', 'great.']` | `[true, true, false, false]` | `[true, false, false, true]` |
+| 4 | `'increase retention.[10][11][2] There are three types'` | `['increase', 'retention.[10][11][2]', 'There', 'are', 'three', 'types']` | `[true, false, true, false, false, false]` | `[false, true, false, false, false, false]` |
+| 5 | `'(see footnote.) The next'` | `['(see', 'footnote.)', 'The', 'next']` | `[true, false, true, false]` | `[false, true, false, false]` |
+| 6 | `'she said." He left.'` | `['she', 'said."', 'He', 'left.']` | `[true, false, true, false]` | `[false, true, false, true]` |
+| 7 | `'Dr.[Smith] gave'` | `['Dr.[Smith]', 'gave']` | `[true, false]` ⚠️ **Chrome diverges from Safari** (Safari emits `[true, true]`) | `[false, false]` |
+| 8 | `'see [10] for details'` | `['see', '[10]', 'for', 'details']` | `[true, false, false, false]` | `[false, false, false, false]` (negative: bare brackets without preceding punctuation do NOT end a sentence) |
+
+### Additional Chrome-side cases (this spec pins them)
 
 | # | Input text | Notes |
 |---|---|---|
 | 9 | `''` | Empty input → empty output. |
-| 10 | `'one'` | Single-word input → `[{kind:'word', text:'one', sentenceStart: true}]`. |
-| 11 | `'hello\n\nworld'` | Paragraph break ends a sentence even without `.!?`. Expected: `word(true)`, `paragraph`, `word(true)`. |
-| 12 | `'a — b'` | Em-dash does NOT end a sentence. Expected: `word(true)`, `dash`, `word(false)`. |
-| 13 | `'first.\n\nsecond.'` | Sentence end + paragraph break stay consistent: `word(true)`, `paragraph`, `word(true)`. |
-| 14 | `'e.g., for example'` | Mid-word `.` followed by `,` does NOT end a sentence. Expected: `word(true)`, `word(false)`, `word(false)`. |
+| 10 | `'one'` | Single word → `[{kind:'word', text:'one', sentenceStart: true, sentenceEnd: false}]`. |
+| 11 | `'hello\n\nworld'` | Paragraph break ends a sentence even without `.!?`. Expected: `word(start:true,end:false)`, `paragraph`, `word(start:true,end:false)`. |
+| 12 | `'a — b'` | Em-dash does NOT end a sentence. Expected: `word(true,false)`, `dash`, `word(false,false)`. |
+| 13 | `'first.\n\nsecond.'` | Sentence-end then paragraph stay consistent. Expected: `word(true,true)`, `paragraph`, `word(true,true)`. |
+| 14 | `'e.g., for example'` | Mid-word `.` followed by `,` does NOT end a sentence. Expected: `word(true,false)`, `word(false,false)`, `word(false,false)`. |
+| 15 | `'a — \n\nb'` (em-dash before paragraph) | Dash leaves state unchanged; paragraph forces start. Tokenize output: `['a', '—', '\n\n', 'b']`. Expected: `word(true,false)`, `dash`, `paragraph`, `word(true,false)`. Pins behavior for cutoff-utterance prose. |
+| 16 | `'Dr. Smith arrived. He left.'` | Honorific exemption: `Dr.` does NOT end a sentence even though it ends in `.`. Tokenize output: `['Dr.', 'Smith', 'arrived.', 'He', 'left.']`. Expected starts: `[true, false, false, true, false]`. Expected ends: `[false, false, true, false, true]`. |
+| 17 | `'Wait… what?'` | Ellipsis terminator. Tokenize output: `['Wait…', 'what?']`. Expected starts: `[true, true]`. Expected ends: `[true, true]`. |
+| 18 | `'said.[note]" he wrote.'` | Mixed trailing artifacts: bracket then quote. Tokenize: `['said.[note]"', 'he', 'wrote.']`. Expected starts: `[true, true, false]`. Expected ends: `[true, false, true]`. |
+| 19 | `'wow!"] The end.'` | Mixed trailing: quote then bracket. Tokenize: `['wow!"]', 'The', 'end.']`. Expected starts: `[true, true, false]`. Expected ends: `[true, false, true]`. |
+| 20 | `'wow?! Really.'` | Adjacent terminators. Tokenize: `['wow?!', 'Really.']`. Expected starts: `[true, true]`. Expected ends: `[true, true]`. The regex matches `?!`$ via `[.!?]` (greedy `?`) followed by `[.!?]` (greedy `!`) — actually `[.!?](?:...)*$` matches starting at the `!`, since `[.!?]` greedily matches `!` then `$`. Either anchor position matches; result is the same. |
+| 21 | `'中文。 한글？'` | CJK terminators. Tokenize: `['中文。', '한글？']`. Expected starts: `[true, true]`. Expected ends: `[true, true]`. |
 
 The implementation PR adds these as vitest cases under `src/core/tokenize/__tests__/sentence-boundary.test.ts`.
 
@@ -186,10 +230,10 @@ Out of scope (lives in the follow-on implementation PR):
 
 ## Non-goals
 
-- **Locale-aware sentence detection.** This spec is for English-with-Latin-punctuation text, matching Safari's heuristic. CJK sentence-final punctuation (`。`, `！`, `？`) is NOT in this v1; if it's needed, it lands in a follow-up.
-- **NLP-style sentence segmentation.** No ML, no statistical models. The regex-based heuristic is the contract.
-- **Sentence END flag.** The spec emits `sentenceStart` only; "ends a sentence" is derived by consumers via lookahead (`tokens[i+1].sentenceStart`). One flag, one direction; consumer-derived inverse.
-- **Abbreviation handling beyond Safari parity.** `Dr.[Smith]` is treated as a boundary per Safari; we do NOT add an abbreviation dictionary to fix the quirk.
+- **Locale-aware sentence detection at the tokenize layer.** CJK terminator codepoints (`。！？`) ARE recognized by the regex (see §"Chrome divergence from Safari"). What is NOT in scope is CJK *segmentation* — tokenize splits on whitespace, so non-spaced CJK prose comes through as one giant token per line and the helper's per-token detection cannot subdivide it. Real CJK support requires a separate segmenter, tracked as a follow-up.
+- **NLP-style sentence segmentation.** No ML, no statistical models. The regex-based heuristic + small abbreviation set is the contract.
+- **Large abbreviation dictionary.** Only common English honorifics are exempted (`Dr Mr Mrs Ms St Prof Sr Jr`). Expanding to `No.`, `e.g.`, `i.e.`, `Inc.`, `Ph.D.`, etc. is a follow-up ADR — each addition trades off correct exemption against false negatives (e.g., `No.` at end of sentence).
+- **File-organization growth.** If `sentence-boundary.ts` exceeds ~150 LOC or grows non-sentence-boundary helpers, extract to `src/core/sentence/`. This spec co-locates with tokenize as the right call *while the helper stays small*; the threshold is a guardrail against the file becoming a dumping ground.
 
 ## References
 
