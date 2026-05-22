@@ -1,7 +1,7 @@
 # SW Lifecycle + Activation-Trigger Spec
 
 **Date:** 2026-05-22
-**Status:** Proposed
+**Status:** Accepted (2026-05-22)
 **Issue:** [#105 — Design: SW lifecycle + unified activation-trigger architecture (unblocks #34 + #72)](https://github.com/chriscantu/speedreader-chrome/issues/105)
 **Milestone:** M1 (MVP parity)
 **Scope:** Pin the SW lifecycle + activation-dispatch layer beneath the existing messaging-contract spec. Defines registration discipline, the unified `dispatchActivation` funnel, the `activate-reader` RPC, restricted-URL guard, state-recovery contract, and sender-provenance validation.
@@ -454,7 +454,11 @@ These are bounds, not invariants — a well-behaved user never hits the 4h cap, 
 
 ## Empirical Precondition — `activeTab` + `commands` Reproducer
 
-The ADR ships **Proposed**, not **Accepted**, until the following test passes:
+**Status: RESOLVED (2026-05-22, PASS).** Maintainer ran the manual T4 path (real `Ctrl+Shift+Y` keystroke on `https://example.com`) and reported `chrome.scripting.executeScript` succeeded without `host_permissions`. Verbal confirmation; no console-line citation captured. Automated regression coverage for T1–T3 (manifest shape, listener registration, SW boot) lives at `experiments/activeTab-commands-check/tests/d10.spec.ts` and runs via `npm run test:d10`. ADR promoted from Proposed to Accepted on the same date.
+
+T4 stays manual by design — Chromium's gesture grant is tied to real user input dispatch in the browser process; Playwright `serviceWorker.evaluate()` lacks gesture provenance. Re-run T4 manually on Chrome major-version bumps.
+
+### Original reproducer scope (retained for re-run protocol)
 
 ```
 experiments/activeTab-commands-check/

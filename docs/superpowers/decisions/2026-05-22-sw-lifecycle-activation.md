@@ -1,7 +1,7 @@
 # ADR: SW lifecycle + unified activation-trigger architecture
 
 **Date:** 2026-05-22
-**Status:** Proposed
+**Status:** Accepted (2026-05-22)
 **Issue:** [#105 — Design: SW lifecycle + unified activation-trigger architecture (unblocks #34 + #72)](https://github.com/chriscantu/speedreader-chrome/issues/105)
 **Related:** [#34](https://github.com/chriscantu/speedreader-chrome/issues/34), [#72](https://github.com/chriscantu/speedreader-chrome/issues/72), [Lazy-injection ADR (2026-05-08)](2026-05-08-lazy-injection-manifest.md), [Messaging contract spec (2026-05-08)](../specs/2026-05-08-messaging-contract.md), [Article extraction spec (2026-05-08)](../specs/2026-05-08-article-extraction.md)
 
@@ -34,7 +34,7 @@ What does NOT exist yet: a written contract for how the three activation sources
 - **Positive — no spec churn.** The messaging-contract spec, the article-extraction spec, and the lazy-injection ADR all stand unchanged. The activation layer composes by reference.
 - **Positive — single guard, four call sites.** The restricted-URL list lives in `src/core/`, reused by activation dispatch, context-menu registration (`documentUrlPatterns`), defense-in-depth `executeScript` rejection conversion, and CS-side hotkey early-return.
 - **Positive — security baseline.** Three independent reviewers (arch critic, security overlay, domain survey vs approved specs) converged on the same four BLOCKER-grade defects in the initial proposal; all four are closed in this design. See [`.ring-output/arbiter-verdict.md`](#) for the ring trace (workspace-local).
-- **Trade-off — verification before promotion.** This ADR ships **Proposed**, not **Accepted**. The `activeTab` + `commands` reproducer (D10 in the arbiter verdict) is an empirical precondition. Without it, the design is a hope; with it, the design is a contract.
+- **Empirical precondition resolved.** The `activeTab` + `commands` reproducer at `experiments/activeTab-commands-check/` was exercised on 2026-05-22; maintainer reported the manual T4 path (real `Ctrl+Shift+Y` keystroke → `chrome.scripting.executeScript` succeeds on `https://example.com` without `host_permissions`) as PASS via verbal confirmation. Automated regression coverage for the adjacent plumbing (T1–T3: manifest shape, listener registration, SW boot) lives at `experiments/activeTab-commands-check/tests/d10.spec.ts` and runs via `npm run test:d10`. T4 stays manual by design — Chromium's gesture-grant is tied to real user input in the browser process, which Playwright cannot synthesize. Re-run T4 on Chrome major-version bumps; T1–T3 catch regressions on every test pass.
 - **Trade-off — minimum Chrome floor.** The Port-keepalive model is sensitive to Chrome's enforcement of `runtime.connect` lifetime (tightened in Chrome 110+, strict idle in 116+). The spec declares `minimum_chrome_version` in the manifest; no conditional fallback for older Chrome.
 - **Forward-compatibility.** Future activation sources (e.g., omnibox keyword, post-MVP) extend `ActivationIntent` without touching the dispatch funnel.
 
