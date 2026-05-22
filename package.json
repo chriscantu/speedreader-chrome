@@ -12,11 +12,13 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:d10": "playwright test --config experiments/activeTab-commands-check/playwright.config.ts",
     "preview": "vite preview"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.0-beta.28",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.60.0",
     "@types/chrome": "^0.0.287",
     "@types/sinon-chrome": "^2.2.16",
     "@typescript-eslint/eslint-plugin": "^8.58.2",

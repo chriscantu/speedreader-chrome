@@ -52,6 +52,14 @@ _handoff*.md
 .claude/commands/
 .claude/helpers/
 
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Harness state inside nested workspaces (root .claude/ is partially tracked; nested ones are runtime-only)
+experiments/**/.claude/
+
 # Ruflo runtime state
 .claude-flow/
 .claude/memory.db

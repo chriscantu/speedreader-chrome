@@ -96,6 +96,48 @@ If PASS: ADR promotes from `Status: Proposed` → `Status: Accepted`.
 If FAIL: open a follow-up issue, link from the ADR, and pivot the spec to the
 `chrome.action.openPopup()` path before merging the spec PR.
 
+## Automation scope
+
+`tests/d10.spec.ts` is a Playwright suite that runs Chrome with the
+extension loaded (via `--load-extension`) and verifies the adjacent
+plumbing. It does NOT replace the manual T4 hotkey test — see
+"Why T4 stays manual" below.
+
+| Test | What it verifies | Coverage |
+|------|------------------|----------|
+| **T1** | Manifest declares `_toggle_reader` + `action` entry, has `activeTab` + `scripting` permissions | Full |
+| **T2** | SW registers `chrome.action.onClicked` listener; `executeScript` API surface is present | Plumbing only |
+| **T3** | SW boots cleanly past top-level synchronous listener registration (the load-bearing MV3 invariant) | Full |
+| **T4** | The actual D10 question: `commands` invocation grants `activeTab` for `executeScript` | **Manual** |
+
+Run the suite:
+
+```
+npm run test:d10
+```
+
+(Wraps `npx playwright test` rooted at `experiments/activeTab-commands-check/`.)
+
+## Why T4 stays manual
+
+`activeTab` is granted only when a real user gesture is dispatched
+inside the browser process — toolbar click, hotkey press, context-menu
+click. Playwright's `serviceWorker.evaluate()` runs in the SW context
+but **lacks gesture provenance**. Chromium rejects `executeScript`
+with `"Cannot access contents of the page. Extension manifest must
+request permission to access the respective host."` when called from
+an evaluate context.
+
+This is the correct, expected Chromium behavior and does NOT disprove
+D10 — it confirms that the gesture-bearing path is the load-bearing
+distinction. The PASS/FAIL signal for D10 can only come from a real
+keystroke into Chrome's command dispatcher.
+
+T1–T3 give regression coverage for everything around the gesture
+path: if the manifest decays, if the SW stops booting, if the action
+listener disappears, automation catches it. The gesture grant itself
+needs one manual smoke per Chrome major-version bump.
+
 ## Why this experiment lives in-repo
 
 Per ADR directive D10 + spec AC #12, the test result must be cited in the

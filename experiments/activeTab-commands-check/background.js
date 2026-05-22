@@ -28,4 +28,24 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
   }
 });
 
-console.log('[D10] background.js loaded — press Ctrl+Shift+Y on a non-restricted page.');
+// T2 path — chrome.action.onClicked is a known-good gesture source for activeTab.
+// Same executeScript chain as the commands path, but triggerable from Playwright.
+// Used by the automated suite at tests/d10.spec.ts.
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab?.id) {
+    console.error('[D10] FAIL (action): no active tab on click:', { tab });
+    return;
+  }
+  console.log('[D10] action fired:', { tabId: tab.id, url: tab.url });
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => ({ href: location.href, title: document.title }),
+    });
+    console.log('[D10] PASS (action): executeScript succeeded:', result.result);
+  } catch (err) {
+    console.error('[D10] FAIL (action): executeScript rejected:', err);
+  }
+});
+
+console.log('[D10] background.js loaded — press Ctrl+Shift+Y on a non-restricted page, OR click the toolbar action.');
