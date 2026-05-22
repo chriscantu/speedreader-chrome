@@ -18,6 +18,38 @@ export default ts.config(
     },
   },
   {
-    ignores: ["node_modules/**", "dist/**", "coverage/**"],
+    // D10 reproducer + future experiments/ MV3 sandbox scripts.
+    // These are real Chrome extensions loaded unpacked, not project source —
+    // they need WebExtension + browser globals available to the linter.
+    files: ["experiments/**/*.js", "experiments/**/*.ts"],
+    languageOptions: {
+      globals: {
+        chrome: "readonly",
+        console: "readonly",
+        document: "readonly",
+        location: "readonly",
+        window: "readonly",
+        self: "readonly",
+        globalThis: "readonly",
+        HTMLElement: "readonly",
+        HTMLInputElement: "readonly",
+        HTMLIFrameElement: "readonly",
+        Element: "readonly",
+        crypto: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+      },
+    },
+  },
+  {
+    ignores: [
+      "node_modules/**",
+      "dist/**",
+      "coverage/**",
+      "test-results/**",
+      "playwright-report/**",
+      ".claude/**",
+      ".claude-flow/**",
+    ],
   }
 );
