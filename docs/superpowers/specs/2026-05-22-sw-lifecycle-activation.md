@@ -96,8 +96,8 @@ export async function dispatchActivation(
   if (!intent) return;                                       // unknown command / no tab — drop silently
 
   const url = await getTabUrl(intent.tabId);
-  if (isRestrictedUrl(url)) {
-    await surfaceRestricted(intent);                         // see §Restricted-URL guard
+  if (isRestrictedUrl(url, chrome.runtime.id)) {             // §Restricted-URL Guard — 2-arg shape
+    await surfaceRestricted(intent);
     return;
   }
 
@@ -114,13 +114,20 @@ export async function dispatchActivation(
 Added to `src/core/messaging/types.ts` as one new entry in the existing `Msg` union; all other entries unchanged:
 
 ```ts
-// New in this spec — activation handoff from SW to CS
-| { type: 'activate-reader'; scope: 'selection' | 'full' }
+// New in this spec — activation handoff from SW to CS.
+// `resume` is present iff the SW rehydrated a prior session from
+// chrome.storage.session (see §sourceHash resume gate). Cold-start
+// activations omit it.
+| {
+    type: 'activate-reader';
+    scope: 'selection' | 'full';
+    resume?: { sourceHash: string; positionIndex: number };
+  }
 ```
 
-| Type              | Source | Target | Transport     | Payload                        | Response                           |
-| ----------------- | ------ | ------ | ------------- | ------------------------------ | ---------------------------------- |
-| `activate-reader` | SW     | CS     | `sendMessage` | `{ scope }`                    | `Result<{ openedFresh: boolean }>` |
+| Type              | Source | Target | Transport     | Payload                | Response                           |
+| ----------------- | ------ | ------ | ------------- | ---------------------- | ---------------------------------- |
+| `activate-reader` | SW     | CS     | `sendMessage` | `{ scope, resume? }`   | `Result<{ openedFresh: boolean }>` |
 
 **Semantics:**
 
@@ -172,18 +179,23 @@ export function handleSwMessage(
     return;
   }
   // Per-type sender-shape assertions:
+  const isPopupShape =
+    sender.tab === undefined &&
+    sender.url?.startsWith(chrome.runtime.getURL('')) === true;
+  const isCsShape =
+    sender.tab?.id !== undefined && sender.frameId === 0;
+
   switch (validated.data.type) {
     case 'extract-summary':
     case 'restricted-url-probe':
-      // popup-originated: sender.tab undefined, sender.url is extension URL
-      if (sender.tab !== undefined ||
-          !sender.url?.startsWith(chrome.runtime.getURL(''))) {
+    case 'activate-reader':                                    // new RPC; popup-originated when reaching SW
+      if (!isPopupShape) {
         sendResponse({ ok: false, reason: 'sender-shape-mismatch' });
         return;
       }
       break;
-    // CS-originated messages (e.g., post-MVP CS→SW signals) MUST require
-    // sender.tab?.id and sender.frameId === 0 (for full-page scope).
+    // CS-originated messages (post-MVP CS→SW signals) require isCsShape.
+    // Add cases above and dispatch on isCsShape as they're added.
   }
   routeMsg(validated.data, sender, sendResponse);
 }
@@ -199,16 +211,24 @@ Same provenance rules, applied to `port.sender`:
 
 ```ts
 export function handleRsvpSessionConnect(port: chrome.runtime.Port): void {
-  if (port.name !== 'rsvp-session-v1') { port.disconnect(); return; }   // closed allowlist
+  if (port.name !== 'rsvp-session') { port.disconnect(); return; }        // closed allowlist; matches messaging-contract spec verbatim
   if (port.sender?.id !== chrome.runtime.id) { port.disconnect(); return; }
-  if (port.sender.tab?.id === undefined) { port.disconnect(); return; }
-  if (port.sender.frameId !== 0) { port.disconnect(); return; }         // top-frame only
-  enforcePortLimits(port);                                              // max 1 per tab; max 4h duration
-  routeRsvpPort(port);                                                  // hand off to messaging-contract spec's session router
+
+  // Port may originate from popup (extension page; sender.tab === undefined)
+  // OR from content script (sender.tab.id present, top-frame only).
+  const fromPopup =
+    port.sender.tab === undefined &&
+    port.sender.url?.startsWith(chrome.runtime.getURL('')) === true;
+  const fromCs =
+    port.sender.tab?.id !== undefined && port.sender.frameId === 0;
+  if (!fromPopup && !fromCs) { port.disconnect(); return; }
+
+  enforcePortLimits(port);                                                // max 1 per tab; max 4h duration
+  routeRsvpPort(port);                                                    // hand off to messaging-contract spec's session router
 }
 ```
 
-Port `name` is bumped from the messaging-contract spec's `'rsvp-session'` to `'rsvp-session-v1'` to reserve a versioned allowlist for future protocol changes. **This is the only change to the messaging-contract spec's wire**, and it is a name-only change — frame vocabulary is unchanged. Spec PR cross-references this in the messaging-contract spec via a "See also" footnote, not a body edit.
+Port `name` matches the messaging-contract spec's pinned `'rsvp-session'` verbatim — no rename. Future wire changes use a new name (e.g., `'rsvp-session-v2'`) and a new ADR. The closed-allowlist gate + sender-shape table already version the wire effectively; renaming today adds no implementation value within this spec's scope.
 
 ## Restricted-URL Guard
 
@@ -243,7 +263,7 @@ export function isRestrictedUrl(rawUrl: string | undefined, ownExtensionId: stri
 **Call sites (four):**
 
 1. `dispatchActivation` — gate before any `executeScript` attempt.
-2. `chrome.contextMenus.create({documentUrlPatterns})` — derived from the inverse of `RESTRICTED_SCHEMES`, so the menu doesn't render on restricted pages. Defense in depth.
+2. `chrome.contextMenus.create({documentUrlPatterns: ['http://*/*', 'https://*/*']})` — a positive scheme allowlist; Chrome's match-pattern grammar has no negation operator, so `RESTRICTED_SCHEMES` cannot literally be inverted. The two patterns cover every non-restricted scheme that ever hosts user-readable content; restricted schemes (`chrome:`, `data:`, `view-source:`, etc.) are excluded automatically because they aren't in the allowlist. RESTRICTED_HOSTS (Web Store) cannot be excluded via `documentUrlPatterns` and is enforced exclusively by the runtime `isRestrictedUrl()` check in call site #1, which is the authoritative gate. The context-menu pattern provides scheme-level defense in depth only.
 3. `chrome.scripting.executeScript` rejection conversion — catches the case where a URL changes between guard check and inject (TOCTOU); converts the rejection to `Result<{ok: false, reason: 'restricted-page'}>`.
 4. CS-side activation handler — early-returns when `document.activeElement` is in a focused input (see §Focused-input guard) OR when `location.href` passes the guard (subframe self-check for selection-scope activations from non-top frames).
 
@@ -304,10 +324,11 @@ sourceHash = sha1(document.title + '|' + location.href + '|' + tokenCount).slice
 
 (SHA-1 via `crypto.subtle.digest`; 16 hex chars sufficient for collision protection at this scale.)
 
-On resume, the SW sends the persisted `sourceHash` in the `activate-reader` payload. The CS compares against its freshly-computed hash:
+On resume, the SW sends both `sourceHash` and `positionIndex` in the `activate-reader` payload's `resume` field (see §`activate-reader` schema). The CS compares the received `sourceHash` against its freshly-computed hash:
 
-- Match → CS resumes at `positionIndex`.
-- Mismatch → CS starts fresh (`positionIndex: 0`), SW updates `chrome.storage.session` with the new hash. User sees a fresh read; their old position on the old content is dropped (the content moved out from under them anyway).
+- Match → CS resumes at `resume.positionIndex`.
+- Mismatch → CS starts fresh (`positionIndex: 0` internally); ack carries `openedFresh: true` so the SW updates `chrome.storage.session` with the new hash. User sees a fresh read; their old position on the old content is dropped (the content moved out from under them anyway).
+- Cold start (no `resume` field) → CS starts at `positionIndex: 0`; ack carries `openedFresh: true`.
 
 ## Concurrent-Rehydrate Race
 
@@ -328,12 +349,17 @@ export function rehydrateOnce(tabId: number): Promise<ReaderSession | undefined>
 }
 
 export function persistSession(tabId: number, session: ReaderSession): Promise<void> {
-  // Per-tab serialized queue; chain on previous write
+  // Per-tab serialized queue; chain on previous write.
+  // `wrapped` is what gets stored AND what the cleanup compares against —
+  // `next.finally(...)` returns a NEW promise, so storing the unwrapped `next`
+  // and comparing against it would never delete (`writeLocks.get(tabId)` would
+  // return the wrapper, not `next`).
   const prev = writeLocks.get(tabId) ?? Promise.resolve();
   const next = prev.then(() => doPersistWithCas(tabId, session));
-  writeLocks.set(tabId, next.finally(() => {
-    if (writeLocks.get(tabId) === next) writeLocks.delete(tabId);
-  }));
+  const wrapped: Promise<void> = next.finally(() => {
+    if (writeLocks.get(tabId) === wrapped) writeLocks.delete(tabId);
+  });
+  writeLocks.set(tabId, wrapped);
   return next;
 }
 
@@ -412,7 +438,7 @@ Both layers are required: the SW map handles same-wake double-dispatch; the wind
 2. The actual selection text is read in the CS via `window.getSelection().toString()` AFTER `activate-reader` arrives.
 3. The CS length-caps at 100k chars before tokenize.
 4. The CS strips zero-width (`U+200B`–`U+200D`, `U+FEFF`) and bidi controls (`U+202A`–`U+202E`) via the existing tokenizer (`src/core/extraction/tokenize.ts`).
-5. Context-menu registration sets `documentUrlPatterns` to non-restricted URL patterns (derived from the inverse of `RESTRICTED_SCHEMES`) so the menu does not render on restricted pages.
+5. Context-menu registration sets `documentUrlPatterns: ['http://*/*', 'https://*/*']` — a positive scheme allowlist that excludes restricted schemes by omission; see §Restricted-URL Guard call site #2 for why inverting the scheme set isn't expressible in Chrome's match-pattern grammar.
 
 `ActivationIntent` carries NO `selectionHint` / `selectionText` field. The wire is selection-content-free.
 
@@ -422,7 +448,30 @@ The CS-side handler for `activate-reader` early-returns when the user's focus is
 
 ```ts
 function isFocusedSensitiveInput(): boolean {
-  const el = document.activeElement;
+  let el: Element | null = document.activeElement;
+
+  // Pierce open shadow roots — focus inside <md-outlined-text-field>,
+  // <sl-input>, custom Lit/Stencil components is exposed only via
+  // shadowRoot.activeElement chains. Closed shadow roots remain opaque
+  // and are accepted as a known limitation.
+  while (el && (el as HTMLElement).shadowRoot?.activeElement) {
+    el = (el as HTMLElement).shadowRoot!.activeElement;
+  }
+
+  // Descend into same-origin iframes (best-effort; cross-origin throws
+  // and we move on — that branch is documented below).
+  if (el instanceof HTMLIFrameElement) {
+    try {
+      let inner = el.contentDocument?.activeElement ?? null;
+      while (inner && (inner as HTMLElement).shadowRoot?.activeElement) {
+        inner = (inner as HTMLElement).shadowRoot!.activeElement;
+      }
+      if (inner) el = inner;
+    } catch {
+      // Cross-origin iframe — out of reach from the top frame.
+    }
+  }
+
   if (!(el instanceof HTMLElement)) return false;
   if (el.tagName === 'INPUT') {
     const type = (el as HTMLInputElement).type;
@@ -433,6 +482,11 @@ function isFocusedSensitiveInput(): boolean {
   return false;
 }
 ```
+
+**Known limitations (documented, not bugs):**
+
+- **Cross-origin iframes** (Stripe Elements, Braintree Hosted Fields, Square payments, etc.) are unreachable from the top-frame guard. The spec's injection model is top-frame only (no `allFrames: true` in `chrome.scripting.executeScript`), so per-frame guards never run. Accepting this gap is a deliberate trade-off — the alternative (`allFrames: true` + per-frame guard) substantially widens the spec surface (permission implications, dispatch model, per-frame Port routing) for a payment-form edge case that the user can avoid by clicking away from the field before invoking the hotkey. Re-evaluate if the user-reported false-positive rate is non-trivial after M1.
+- **Closed shadow roots** — the loop terminates at the shadow host when the root is closed. Closed roots are rare in modern design systems (Material Web, Lit, Shoelace, FAST all default to open) and a contributor running a closed-root design system can re-test the guard against their components.
 
 If `isFocusedSensitiveInput()`, the CS returns `Result<{ok: false, reason: 'focused-sensitive-input'}>` from the `activate-reader` handler and does NOT mount the overlay. Surfacing:
 
@@ -446,9 +500,9 @@ The manifest `commands` entry uses `global: false` (the default) — hotkeys nev
 
 Composing with the messaging-contract spec's Port use, the SW enforces:
 
-- **Max 1 Port per tab.** Second `connect` with the same `port.sender.tab.id` is rejected (`port.disconnect()`).
+- **Max 1 Port per tab.** Second `connect` with the same `port.sender.tab.id` is rejected (`port.disconnect()`). Popup-originated Ports (no `sender.tab`) count against the per-tab cap by the resolved-target `tabId` carried in the preceding `activate-reader` round-trip.
 - **Max session duration 4h.** `setTimeout` set on Port open; on expiry, `port.disconnect()`. User must reactivate.
-- **Port `name` from closed allowlist.** Only `'rsvp-session-v1'` is accepted; unknown names disconnect immediately.
+- **Port `name` from closed allowlist.** Only `'rsvp-session'` is accepted; unknown names disconnect immediately.
 
 These are bounds, not invariants — a well-behaved user never hits the 4h cap, and bug-induced Port leaks are caught by the per-tab cap.
 
@@ -478,15 +532,15 @@ Outcome cited in the ADR. If the test FAILS (i.e., `commands` invocation does no
 2. The unified `onMessage` handler rejects messages with `sender.id !== chrome.runtime.id`. Verified by integration test using `sinon-chrome` with a mocked foreign sender.
 3. Payload validation: `validateMsg` correctly narrows every variant of the `Msg` discriminated union; CI grep confirms `src/core/messaging/**/*.ts` contains no `as Msg` or `as unknown as`.
 4. `isRestrictedUrl` returns `true` for every URL in the test fixture set (`chrome://settings`, `chrome-extension://other-id/x`, `view-source:https://example.com`, `about:blank`, `data:text/html,<p>x</p>`, `javascript:void(0)`, `file:///tmp/x.html`, `blob:https://example.com/abc`, `https://chromewebstore.google.com/`, `https://chrome.google.com/webstore/`); returns `false` for `https://example.com`, `https://en.wikipedia.org/wiki/RSVP`, and `chrome-extension://<ownExtensionId>/popup.html`.
-5. `chrome.contextMenus.create` is called with `documentUrlPatterns` derived from the inverse of `RESTRICTED_SCHEMES`. The context menu does not appear on `chrome://settings` in a manual smoke test.
+5. `chrome.contextMenus.create` is called with `documentUrlPatterns: ['http://*/*', 'https://*/*']` (positive scheme allowlist; see §Restricted-URL Guard call site #2 for why inversion isn't expressible). The context menu does not appear on `chrome://settings` in a manual smoke test; runtime `isRestrictedUrl()` remains the authoritative host-level gate.
 6. State rehydration: a session persisted at `positionIndex: 47, sourceHash: 'abc'` and read back via `rehydrateOnce` is rejected if the CS reports `sourceHash: 'def'`; CS receives `positionIndex: 0`.
 7. CAS write: `persistSession({positionIndex: 47})` followed in-flight by `persistSession({positionIndex: 52})` resolves with `52` as the persisted value; a later `persistSession({positionIndex: 47})` (regression) does NOT overwrite `52`.
 8. Idempotent injection: two `dispatchActivation` calls within 50ms for the same `tabId` produce exactly ONE `chrome.scripting.executeScript` call; the second reuses the in-flight promise. CS sentinel prevents re-registration on a second forced `executeScript`.
 9. PING timeout: a mocked 2500ms-delayed CS receives a retry with the 3000ms budget; `positionIndex` is preserved across the slow window.
 10. Focused-input guard: a CS-side test with `document.activeElement = <input type="password">` returns `{ok: false, reason: 'focused-sensitive-input'}` from `activate-reader`.
-11. Port limits: a second `chrome.runtime.connect({name: 'rsvp-session-v1'})` for the same tab disconnects with `{reason: 'port-already-open'}`. A Port held >4h is force-disconnected.
+11. Port limits: a second `chrome.runtime.connect({name: 'rsvp-session'})` for the same tab disconnects with `{reason: 'port-already-open'}`. A Port held >4h is force-disconnected. Popup-originated Ports (no `sender.tab`) are accepted; CS-originated Ports require `sender.frameId === 0`.
 12. Empirical precondition (D10): the `experiments/activeTab-commands-check/` reproducer runs cleanly in a manual smoke test; ADR cites the outcome.
-13. Build-path verification: `npm run build && grep "type=\"module\"" dist/manifest.json` exits 0 — the SW is emitted as an ES module per the manifest.
+13. Build-path verification: `npm run build && grep -E '"type"[[:space:]]*:[[:space:]]*"module"' dist/manifest.json` exits 0 — the SW is emitted as an ES module per the manifest. (JSON serializes the field with a colon, not an equals sign; the regex tolerates whitespace and minification variants.)
 14. No-supersession: `git diff` of the spec PR shows no modifications to `docs/superpowers/specs/2026-05-08-messaging-contract.md`, `docs/superpowers/specs/2026-05-08-article-extraction.md`, or `docs/superpowers/decisions/2026-05-08-lazy-injection-manifest.md`.
 
 ## Code Layout
@@ -530,8 +584,8 @@ src/chrome/
 
 ### Integration (Vitest + `sinon-chrome`)
 
-- `dispatchActivation`: each source shape → `chrome.tabs.sendMessage` with the expected `activate-reader` payload.
-- Sender-provenance: foreign `sender.id` → rejected; valid popup → accepted; valid CS → accepted; CS spoofing popup shape → rejected.
+- `dispatchActivation`: each source shape → `chrome.tabs.sendMessage` with the expected `activate-reader` payload, including the `resume` field when rehydrating a prior session and omitting it on cold start.
+- Sender-provenance: foreign `sender.id` → rejected; popup `activate-reader` → accepted; CS-shape `activate-reader` → rejected; popup Port (`sender.tab === undefined`, extension URL) → accepted; CS-shape Port (`frameId === 0`) → accepted; subframe Port (`frameId !== 0`) → rejected.
 - Concurrent-rehydrate race: two parallel rehydrate calls observe one storage read; CAS regression rejected.
 - Idempotent injection: parallel `dispatchActivation` calls produce one `executeScript`.
 - Port limits: second connect rejected; 4h timer enforced.
@@ -543,7 +597,7 @@ Deferred to Playwright (#38). Smoke: load unpacked, fire hotkey on `https://exam
 
 ## Out of Scope
 
-- **Read-session wire changes** — owned by `2026-05-08-messaging-contract.md`. This spec only adds `activate-reader` and the Port `name` versioning (`rsvp-session-v1`).
+- **Read-session wire changes** — owned by `2026-05-08-messaging-contract.md`. This spec only adds `activate-reader`; the Port `name` stays `'rsvp-session'` per the messaging-contract spec, no rename.
 - **Settings broadcast** — owned by the messaging-contract spec (`settings-changed`). Unchanged.
 - **Extraction** — owned by `2026-05-08-article-extraction.md`. Unchanged.
 - **Omnibox keyword activation, action.onClicked** — future; design extends `ActivationSource` without touching the dispatch funnel.

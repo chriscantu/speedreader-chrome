@@ -52,6 +52,12 @@ _handoff*.md
 .claude/commands/
 .claude/helpers/
 
+# Ruflo-generated Claude Code settings — depends on .claude/helpers/ which is
+# regenerable per-machine via `ruflo init`. Committing it pins the maintainer's
+# platform (claudeFlow.platform: darwin/arm64/zsh) onto every cloner and breaks
+# fresh-clone hooks when the helpers haven't been generated yet.
+.claude/settings.json
+
 # Playwright
 test-results/
 playwright-report/
