@@ -58,6 +58,7 @@ _handoff*.md
 .swarm/
 ruvector.db
 .harness-mem/
+.ring-output/
 
 # Coverage / profiling
 default.profraw
