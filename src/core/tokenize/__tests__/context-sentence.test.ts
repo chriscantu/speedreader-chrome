@@ -104,4 +104,26 @@ describe('contextSentence — Chrome additions', () => {
     expect(ctx.words).toEqual(['No', 'period', 'here']);
     expect(ctx.highlightIndex).toBe(1);
   });
+
+  it('does not fragment on abbreviation (Dr.)', () => {
+    // Integration assertion: markSentenceBoundaries (#90) owns the abbreviation
+    // whitelist, but contextSentence is what the overlay actually calls. If a
+    // regression in the abbreviation logic re-promoted `Dr.` to a sentence end,
+    // the preview line would silently fragment to `['Dr.']` — this test pins
+    // the consumer-side contract so the overlay can't drift unnoticed.
+    const marks = markSentenceBoundaries(tokenize('Dr. Smith arrived. He left.'));
+    const ctx = contextSentence(marks, 0);
+    expect(ctx.words).toEqual(['Dr.', 'Smith', 'arrived.']);
+    expect(ctx.highlightIndex).toBe(0);
+  });
+
+  it('returns empty for fractional index', () => {
+    // Implementation rejects non-integers via Number.isInteger; pin the
+    // contract so a future "loose coerce to int" refactor can't silently
+    // misalign the highlight.
+    const marks = markSentenceBoundaries(tokenize('Hello world.'));
+    const ctx = contextSentence(marks, 1.5);
+    expect(ctx.words).toEqual([]);
+    expect(ctx.highlightIndex).toBe(-1);
+  });
 });
