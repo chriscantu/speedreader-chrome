@@ -32,7 +32,10 @@ export interface ContextSentence {
   highlightIndex: number;
 }
 
-const EMPTY: ContextSentence = Object.freeze({ words: [] as string[], highlightIndex: -1 });
+// Empty-result sentinel. Returned as a fresh literal at each call site so the
+// caller can't mutate a shared instance (reviewer nit on PR #108 — cheaper
+// than rippling `readonly` through the public `ContextSentence` interface).
+const empty = (): ContextSentence => ({ words: [], highlightIndex: -1 });
 
 export function contextSentence(
   marks: readonly MarkedToken[],
@@ -41,7 +44,7 @@ export function contextSentence(
   // Reject non-integer / negative / NaN early — these map to "no current word"
   // (matches Safari behavior of returning empty when index is past end).
   if (!Number.isInteger(currentWordIndex) || currentWordIndex < 0) {
-    return EMPTY;
+    return empty();
   }
 
   // Single linear pass. Track sentence boundaries on the fly so we can
@@ -88,5 +91,5 @@ export function contextSentence(
   if (foundHighlight !== -1) {
     return { words: sentenceWords, highlightIndex: foundHighlight };
   }
-  return EMPTY;
+  return empty();
 }
