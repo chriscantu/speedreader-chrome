@@ -1,4 +1,4 @@
-export { createRsvpEngine } from './rsvp-engine';
+export { createRsvpEngine, wpmToDelay } from './rsvp-engine';
 export type {
   RsvpEngine,
   RsvpEngineOptions,

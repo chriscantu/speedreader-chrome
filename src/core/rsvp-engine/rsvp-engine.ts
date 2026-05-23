@@ -43,6 +43,18 @@ function assertValidWpm(wpm: number): void {
   }
 }
 
+/**
+ * Convert a words-per-minute rate to the per-word display delay in milliseconds.
+ *
+ * Pure helper extracted so callers (and tests) can reason about cadence without
+ * instantiating the engine. Mirrors the Safari reference helper of the same
+ * name (chriscantu/speed-reader tests/js/word-processor.test.js:158-170).
+ */
+export function wpmToDelay(wpm: number): number {
+  assertValidWpm(wpm);
+  return 60000 / wpm;
+}
+
 // words must be an array of strings. Guards against null/undefined and
 // non-string elements at the engine's API boundary so callers from JS
 // or corrupt-data paths get a clear TypeError rather than a downstream
@@ -76,7 +88,7 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
     }
   };
 
-  const msPerWord = (): number => 60000 / wpm;
+  const msPerWord = (): number => wpmToDelay(wpm);
 
   const clearPending = (): void => {
     if (timerId !== null) {
