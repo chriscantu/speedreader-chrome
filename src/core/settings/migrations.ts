@@ -1,17 +1,22 @@
-import { SettingsSchemaV1, CURRENT_VERSION, type SettingsV1 } from './schema';
+import { SettingsSchemaV2, CURRENT_VERSION, type SettingsV2 } from './schema';
 import { DEFAULT_SETTINGS } from './defaults';
 
 type Migrator = (raw: Record<string, unknown>) => Record<string, unknown>;
 
 /**
- * Sequential migrators keyed by source version. To add a 1->2 migration in
- * the future, drop in `1: m1to2` and bump `CURRENT_VERSION` in `schema.ts`.
+ * Sequential migrators keyed by source version. Forward-only chain:
+ * `0 -> 1 -> 2 -> ...`. To add a 2->3 migration in the future (e.g., the
+ * theme enum widening tracked in #101), drop in `2: m2to3` and bump
+ * `CURRENT_VERSION` in `schema.ts`.
  *
- * Identity hook for v0->v1 keeps the composition path exercised in tests
- * even while v1 is current.
+ * Spread order is load-bearing: `...raw` first, then literals. New
+ * payloads get the literal `alignment: 'orp'` stamp; V2-already-present
+ * payloads bypass this map entirely because the `while (v < CURRENT_VERSION)`
+ * loop in `migrate()` short-circuits when `v === 2`.
  */
 const MIGRATIONS: Record<number, Migrator> = {
   0: (raw) => ({ ...raw, version: 1 }),
+  1: (raw) => ({ ...raw, alignment: 'orp', version: 2 }),
 };
 
 /**
@@ -19,7 +24,7 @@ const MIGRATIONS: Record<number, Migrator> = {
  * falls back to a fresh copy of `DEFAULT_SETTINGS` so a malformed payload
  * cannot crash the service worker on cold start.
  */
-export function migrate(rawValue: unknown): SettingsV1 {
+export function migrate(rawValue: unknown): SettingsV2 {
   if (rawValue == null || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
     return { ...DEFAULT_SETTINGS };
   }
@@ -35,7 +40,7 @@ export function migrate(rawValue: unknown): SettingsV1 {
   }
 
   const merged = { ...DEFAULT_SETTINGS, ...value, version: CURRENT_VERSION };
-  const parsed = SettingsSchemaV1.safeParse(merged);
+  const parsed = SettingsSchemaV2.safeParse(merged);
   if (!parsed.success) {
     console.warn(
       '[speedreader] settings failed validation, falling back to defaults',
