@@ -204,7 +204,7 @@ describe('createRsvpEngine', () => {
   //     (`init('Hello world.', { wpm: 50 })` → `sm.wpm === 100`). Chrome
   //     keeps the engine permissive — any positive finite number is
   //     accepted — and enforces the [100, 600] product range at the
-  //     persistence layer via `SettingsSchemaV1`. This separates
+  //     persistence layer via `SettingsSchemaV2`. This separates
   //     control-surface validation from engine cadence math.
   //
   //   - Safari ships a `togglePlayPause()` helper on the state machine.
