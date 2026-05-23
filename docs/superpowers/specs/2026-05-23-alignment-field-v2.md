@@ -54,7 +54,11 @@ export type SettingsV2 = z.infer<typeof SettingsSchemaV2>;
 export const CURRENT_VERSION = 2 as const;
 ```
 
-The previous `SettingsSchemaV1` / `SettingsV1` exports are retired in favor of `V2` — there is no install base of v1 payloads outside developer machines yet (the extension has not shipped to the Web Store). Keeping a `V1` export around indefinitely would invite consumers to import the wrong one. The migrator handles old payloads at load time; in-code consumers always read the current version.
+The impl PR will **remove `SettingsSchemaV1` and `SettingsV1` exports from `src/core/settings/schema.ts`; rename to `SettingsSchemaV2` / `SettingsV2`.** There is no install base of v1 payloads outside developer machines yet (the extension has not shipped to the Web Store). Keeping a `V1` export around indefinitely would invite consumers to import the wrong one. The migrator handles old payloads at load time; in-code consumers always read the current version.
+
+**Zod strictness:** `SettingsSchemaV2` uses the **default Zod object mode** (passthrough-then-strip on `.parse`), NOT `.strict()`. This matches the current `SettingsSchemaV1` behavior — unknown keys in stored blobs are silently dropped, not rejected. Switching to `.strict()` would convert any forward-compat field (e.g., a dev-channel V3 blob loaded by a V2 build) into a full `DEFAULT_SETTINGS` fallback, losing user data on downgrade. Default mode is the safer compatibility posture; revisit only if an unknown-key class of bugs forces it.
+
+**Feature flag:** No feature flag for the alignment field — it ships as a single atomic schema bump. Flagging a persisted field shape would require dual-write/dual-read paths, doubling the surface area for a two-value enum.
 
 ### Default: `'orp'`
 
@@ -112,6 +116,10 @@ const MIGRATIONS: Record<number, Migrator> = {
 
 The V2→V3 migrator is an identity-with-version-bump because the theme enum _widens_ (every V2 value `'light' | 'dark' | 'system'` is also a valid V3 value). If #101 instead renames or removes a theme, the migrator gains a mapping step. The spec for #101 should pin this when it lands.
 
+### Abort signal
+
+If the impl PR's migration tests show >1% fallback-to-`DEFAULT_SETTINGS` rate in dev-load fixtures, OR if #101 ends up needing a non-identity V2→V3 mapping, revisit the standalone-vs-batched strategy before tagging the spec `Accepted`. V2 is forward-only once shipped to any non-dev channel — there is no retreat path that does not orphan stored blobs.
+
 ## Out of Scope
 
 - **Options-page UI for alignment.** Lives wherever the alignment-control issue lands (likely a follow-up to #30). This spec does not cover the radio group, label copy, or interaction.
@@ -121,27 +129,39 @@ The V2→V3 migrator is an identity-with-version-bump because the theme enum _wi
 
 ## Test Plan
 
-Implementation PR adds these as vitest cases under `src/core/settings/__tests__/`.
+Implementation PR adds these as vitest cases under `src/core/settings/__tests__/`. **Target: ~13 test cases** (7 schema + 4 migration + 2 defaults). Counting them up front gives the impl PR a numeric gate; missing cases surface immediately in PR review rather than landing as silent test-coverage drift.
 
-### Zod validation (5 cases ported from Safari `validateAlignment`)
+### Zod validation — 7 cases (Safari `validateAlignment` parity)
+
+Accept cases (2):
 
 - [ ] `SettingsSchemaV2.parse` ACCEPTS a valid V2 blob with `alignment: 'orp'`.
 - [ ] `SettingsSchemaV2.parse` ACCEPTS a valid V2 blob with `alignment: 'center'`.
-- [ ] `SettingsSchemaV2.safeParse` REJECTS a blob with `alignment: 'left'` (invalid enum value).
+
+Reject cases (5) — full Safari `validateAlignment` parity rejects every non-enum value, regardless of JS type:
+
+- [ ] `SettingsSchemaV2.safeParse` REJECTS a blob with `alignment: 'left'` (invalid enum value — string outside enum).
 - [ ] `SettingsSchemaV2.safeParse` REJECTS a blob with `alignment: ''` (empty string).
 - [ ] `SettingsSchemaV2.safeParse` REJECTS a blob with `alignment: undefined` (missing key — Zod treats absent required field as undefined).
+- [ ] `SettingsSchemaV2.safeParse` REJECTS a blob with `alignment: null` (null is not a valid enum member).
+- [ ] `SettingsSchemaV2.safeParse` REJECTS a blob with `alignment: 42` (numeric — type mismatch).
+- [ ] `SettingsSchemaV2.safeParse` REJECTS a blob with `alignment: true` (boolean — type mismatch).
 
-### Migration round-trips
+> Note: list shows 6 reject bullets; pair the two type-mismatch cases (`42`, `true`) into a single parameterized `it.each` or count as 5 in the suite tally — adjust to whichever the impl PR's vitest convention prefers, but cover every value explicitly.
 
-- [ ] `migrate({ version: 1, wpm: 300, theme: 'dark', font: 'system-ui', fontSize: 20, openDyslexic: false, punctuationPacing: true })` returns a value satisfying `SettingsSchemaV2` with `version === 2` AND `alignment === 'orp'` AND preserved `wpm === 300`, `theme === 'dark'`.
-- [ ] `migrate({ version: 0 })` (V0 payload) chains through both migrators and returns a value satisfying `SettingsSchemaV2` with `version === 2` AND `alignment === 'orp'` (default acquired via shallow-merge with `DEFAULT_SETTINGS`).
-- [ ] `migrate(undefined)`, `migrate(null)`, `migrate('garbage')`, `migrate([])` each return a value deep-equal to `DEFAULT_SETTINGS` (now V2) with `alignment === 'orp'` — corrupt-data resilience preserved across the version bump.
-- [ ] `migrate({ version: 1, wpm: 'not-a-number' })` falls back to `DEFAULT_SETTINGS` (V2) — invalid V1 field still triggers the schema-fail fallback path, not a partial V2.
+### Migration round-trips — 4 cases
 
-### Defaults
+The post-migrator Zod re-validation (the step that turns invalid V1/V2 payloads into a `DEFAULT_SETTINGS` fallback) lives inside `migrate()` in `src/core/settings/migrations.ts`. Tests for the fallback contract belong against that module, not against a separate `loadSettings` symbol.
 
-- [ ] `DEFAULT_SETTINGS.alignment === 'orp'`.
-- [ ] `DEFAULT_SETTINGS.version === 2`.
+- [ ] **V0 chain.** `migrate({ version: 0 })` chains through both migrators and returns a value satisfying `SettingsSchemaV2` with `version === 2` AND `alignment === 'orp'` (default acquired via shallow-merge with `DEFAULT_SETTINGS`). Covers the corrupt-data branch — `migrate(undefined)`, `migrate(null)`, `migrate('garbage')`, `migrate([])` each return a value deep-equal to `DEFAULT_SETTINGS` (now V2) with `alignment === 'orp'`.
+- [ ] **V1 → V2 stamp.** `migrate({ version: 1, wpm: 300, theme: 'dark', font: 'system-ui', fontSize: 20, openDyslexic: false, punctuationPacing: true })` returns a value satisfying `SettingsSchemaV2` with `version === 2` AND `alignment === 'orp'` AND preserved `wpm === 300`, `theme === 'dark'`.
+- [ ] **V2 idempotency** (critical — prevents the user's chosen `'center'` from being clobbered on reload). `migrate({ version: 2, wpm: 300, theme: 'dark', font: 'system-ui', fontSize: 20, openDyslexic: false, punctuationPacing: true, alignment: 'center' })` returns input untouched; `alignment` MUST NOT be overwritten to `'orp'`. The migrator chain has no entry for source-version `2`, so the chain short-circuits and the post-migrator Zod parse accepts the input as-is.
+- [ ] **V2 with invalid alignment falls back.** `migrate({ version: 2, wpm: 300, theme: 'dark', font: 'system-ui', fontSize: 20, openDyslexic: false, punctuationPacing: true, alignment: 'left' })` returns a value deep-equal to `DEFAULT_SETTINGS` (post-migrator Zod parse fails on the invalid enum value, triggering the schema-fail fallback path). Pins the contract so future migrator-chain changes do not silently drift the fallback semantics. The existing `migrate({ version: 1, wpm: 'not-a-number' })` invalid-V1 case is the V1 analogue.
+
+### Defaults — 2 cases
+
+- [ ] `DEFAULT_SETTINGS.alignment === 'orp'` AND `DEFAULT_SETTINGS.version === 2`.
+- [ ] `VALID_ALIGNMENTS.length === 2` — cardinality invariant. Catches accidental enum widening that would silently pass Safari parity until #101/#74-style work formally expands the enum. Pair this with an `expect(VALID_ALIGNMENTS).toEqual(['orp', 'center'])` for full Safari mirror.
 
 ## Open Questions
 
