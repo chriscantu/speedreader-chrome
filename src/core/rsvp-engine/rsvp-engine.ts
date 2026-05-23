@@ -48,7 +48,8 @@ function assertValidWpm(wpm: number): void {
  *
  * Pure helper extracted so callers (and tests) can reason about cadence without
  * instantiating the engine. Mirrors the Safari reference helper of the same
- * name (chriscantu/speed-reader tests/js/word-processor.test.js:158-170).
+ * name (see the `wpmToDelay` describe block in chriscantu/speed-reader's
+ * tests/js/word-processor.test.js).
  */
 export function wpmToDelay(wpm: number): number {
   assertValidWpm(wpm);

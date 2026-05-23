@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { wpmToDelay } from '../rsvp-engine';
 
 // Cases ported from chriscantu/speed-reader Safari reference:
-// tests/js/word-processor.test.js lines 158-170.
+// the `wpmToDelay` describe block in tests/js/word-processor.test.js.
 describe('wpmToDelay', () => {
   it('returns 240 ms for 250 WPM', () => {
     expect(wpmToDelay(250)).toBe(240);
