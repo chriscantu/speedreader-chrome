@@ -26,6 +26,18 @@ export interface RsvpEngineOptions {
   wpm: number;
 }
 
+/**
+ * Snapshot of where the engine is in the word stream. `index` is the count of
+ * words already emitted (== `nextIndex`), so `index === 0` means "not started",
+ * `index === total` means "done". `ratio = index / total`; when `total === 0`
+ * the ratio is `0` by convention.
+ */
+export interface RsvpProgress {
+  index: number;
+  total: number;
+  ratio: number;
+}
+
 export interface RsvpEngine {
   readonly state: RsvpState;
   start(): void;
@@ -34,6 +46,38 @@ export interface RsvpEngine {
   stop(): void;
   setWpm(wpm: number): void;
   subscribe(listener: RsvpListener): () => void;
+  /**
+   * Reposition the engine to `index`. State semantics:
+   *
+   *   - `playing` → stays playing; emits replacement `word` event for the new
+   *     index and reschedules the next tick at the current cadence.
+   *   - `paused` → stays paused; emits replacement `word` event so subscribers
+   *     redraw, but does NOT schedule a tick.
+   *   - `idle` → silent reposition; the next `start()` will emit from the new
+   *     index. (Idle = nothing displayed yet, so no replacement to emit.)
+   *   - past-end (`index >= total`) → state becomes `done`, emits `done`.
+   *   - negative `index` → clamped to `0`.
+   *   - non-finite or non-integer `index` (NaN, Infinity, 2.7) → no-op.
+   *   - `done` → no-op.
+   */
+  seekTo(index: number, options?: { snapToSentence?: boolean }): void;
+  /**
+   * Snapshot of word-stream progress at the current call site. Live getter —
+   * each call reflects the engine's current state.
+   */
+  progress(): RsvpProgress;
+  /**
+   * Milliseconds equivalent to `index * msPerWord` at the CURRENT wpm. Live
+   * getter; changes in `setWpm` are reflected on the next read.
+   */
+  timeElapsed(): number;
+  /**
+   * Milliseconds equivalent to `(total - index) * msPerWord` at the CURRENT
+   * wpm. Live getter. NOTE: post-`stop()` mid-stream this returns the
+   * milliseconds for the unread tail; the engine does not special-case
+   * `stop` here.
+   */
+  timeRemaining(): number;
 }
 
 // wpm must be a positive finite number; 0, negative, NaN, Infinity all invalid.
@@ -60,6 +104,18 @@ export function wpmToDelay(wpm: number): number {
 // non-string elements at the engine's API boundary so callers from JS
 // or corrupt-data paths get a clear TypeError rather than a downstream
 // "Cannot read properties of null" surprise.
+// Walk backward from `target - 1` to find the nearest preceding word ending in
+// sentence-final punctuation. Sentence-start = the word immediately after that
+// boundary. If no such boundary exists, snap to 0. Naive — does not handle
+// abbreviations like "Dr." or "U.S.A."; documented in PR self-weakness #1.
+const SENTENCE_END = /[.!?]$/;
+function snapToSentenceStart(words: string[], target: number): number {
+  for (let i = target - 1; i >= 0; i--) {
+    if (SENTENCE_END.test(words[i])) return i + 1;
+  }
+  return 0;
+}
+
 function assertValidWords(words: unknown): asserts words is string[] {
   if (!Array.isArray(words)) {
     throw new TypeError(`Invalid words: expected an array, got ${typeof words}.`);
@@ -80,6 +136,7 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
   let state: RsvpState = RSVP_STATE.IDLE;
   let nextIndex = 0;
   let timerId: ReturnType<typeof setTimeout> | null = null;
+  let seekInFlight = false;
   const listeners = new Set<RsvpListener>();
 
   const emit = (event: RsvpEvent): void => {
@@ -167,6 +224,67 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
       return () => {
         listeners.delete(listener);
       };
+    },
+    seekTo(index: number, options?: { snapToSentence?: boolean }): void {
+      if (state === RSVP_STATE.DONE) return;
+      // Finite-integer guard: NaN, Infinity, fractional inputs would corrupt
+      // nextIndex and emit `words[NaN] === undefined` downstream.
+      if (!Number.isInteger(index)) return;
+      // Re-entrancy guard: prevent recursive seekTo invocations from inside a
+      // subscriber's word-event handler. Inner call would clearPending() + tick()
+      // and the outer would then schedule a stale setTimeout.
+      if (seekInFlight) return;
+
+      const total = words.length;
+      let target = index < 0 ? 0 : index;
+      if (options?.snapToSentence === true && target < total) {
+        target = snapToSentenceStart(words, target);
+      }
+
+      if (target >= total) {
+        nextIndex = total;
+        state = RSVP_STATE.DONE;
+        clearPending();
+        seekInFlight = true;
+        try {
+          emit({ type: 'done' });
+        } finally {
+          seekInFlight = false;
+        }
+        return;
+      }
+
+      nextIndex = target;
+      seekInFlight = true;
+      try {
+        if (state === RSVP_STATE.PLAYING) {
+          clearPending();
+          tick();
+        } else if (state === RSVP_STATE.PAUSED) {
+          emit({ type: 'word', index: target, word: words[target] });
+          nextIndex = target + 1;
+        }
+        // idle: silent reposition; first start() will tick from new nextIndex.
+      } finally {
+        seekInFlight = false;
+      }
+    },
+    progress(): RsvpProgress {
+      const total = words.length;
+      if (total === 0) {
+        return { index: 0, total: 0, ratio: 0 };
+      }
+      return { index: nextIndex, total, ratio: nextIndex / total };
+    },
+    timeElapsed(): number {
+      if (words.length === 0) return 0;
+      return nextIndex * msPerWord();
+    },
+    timeRemaining(): number {
+      if (words.length === 0) return 0;
+      const remaining = words.length - nextIndex;
+      if (remaining <= 0) return 0;
+      return remaining * msPerWord();
     },
   };
 }
