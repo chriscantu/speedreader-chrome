@@ -29,6 +29,22 @@ const MIGRATIONS: Record<number, Migrator> = {
  * Best-effort migration. Never throws — corrupt or schema-incompatible input
  * falls back to a fresh copy of `DEFAULT_SETTINGS` so a malformed payload
  * cannot crash the service worker on cold start.
+ *
+ * Signature is intentionally one-arg (#66): the migrator owns version detection
+ * by reading `rawValue.version`, and the sole caller (`loadSettings` in
+ * `src/chrome/settings/storage.ts`) does not know — and should not have to know
+ * — the source version. If a second caller ever needs to assert `fromVersion`
+ * (e.g. a future export/import flow rejecting forward-incompat blobs), revisit
+ * by adding an optional second arg rather than overloading; do not break the
+ * existing single-caller contract.
+ *
+ * Missing-field repair is intentional forward-compat (#67): after the
+ * version-chain loop runs, the result is shallow-merged onto `DEFAULT_SETTINGS`
+ * before `safeParse`, so a stored payload missing a field added in a later
+ * schema revision (or one truncated by a partial sync) acquires the default
+ * value instead of failing validation. The test pinning this behavior is
+ * `'migrates v3 blob with missing field by filling defaults (explicit repair
+ * behavior)'` in `__tests__/migrations.test.ts`.
  */
 export function migrate(rawValue: unknown): SettingsV3 {
   if (rawValue == null || typeof rawValue !== 'object' || Array.isArray(rawValue)) {

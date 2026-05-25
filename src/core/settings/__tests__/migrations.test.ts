@@ -60,6 +60,32 @@ describe('migrate', () => {
     expect(result.theme).toBe(DEFAULT_SETTINGS.theme);
     expect(result.fontSize).toBe(DEFAULT_SETTINGS.fontSize);
   });
+
+  // Canonical missing-field repair pin (#67). Other tests cover repair as a
+  // side effect of version-chain migration; this one isolates the v3-with-
+  // missing-field case so the policy is explicit: missing fields in an
+  // already-current-version blob acquire defaults rather than failing parse.
+  it('migrates v3 blob with missing field by filling defaults (explicit repair behavior)', () => {
+    // Valid v3 in every respect except `punctuationPacing` is absent — e.g.
+    // a partial sync payload, or a future schema revision where this field
+    // was added and an older device's blob lacks it.
+    const v3MissingField = {
+      version: 3,
+      wpm: 300,
+      theme: 'dark' as const,
+      font: 'system-ui',
+      fontSize: 20,
+      openDyslexic: false,
+      alignment: 'orp' as const,
+      // punctuationPacing intentionally omitted
+    };
+    const result = migrate(v3MissingField);
+    expect(result.punctuationPacing).toBe(DEFAULT_SETTINGS.punctuationPacing);
+    // And the rest of the user's values survive the repair.
+    expect(result.version).toBe(3);
+    expect(result.wpm).toBe(300);
+    expect(result.theme).toBe('dark');
+  });
 });
 
 // V1 -> V2 alignment migration — issue #93,

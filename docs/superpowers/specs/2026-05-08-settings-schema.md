@@ -108,6 +108,36 @@ Behavior:
 
 Adding a v2 later: drop a migrator into the `MIGRATIONS` table keyed by `1`, bump `CURRENT_VERSION` in `schema.ts`, ship a new `SettingsSchemaV2`. The hook ships now so v2 lands cheap later.
 
+#### Signature: one-arg is canonical (#66)
+
+`migrate` takes a single `rawValue: unknown` argument. The migrator owns version
+detection by reading `rawValue.version`; the sole caller (`loadSettings` in
+`src/chrome/settings/storage.ts`) does not need to — and should not have to —
+know the source version. A `fromVersion` second argument was considered and
+explicitly rejected: it would split the contract across the call site and
+duplicate the version-detection logic. If a second caller ever lands needing to
+assert `fromVersion` (e.g. a future export/import flow that rejects
+forward-incompat blobs), add an _optional_ second argument rather than
+overloading; do not break the existing single-caller contract.
+
+#### Missing-field repair (#67)
+
+A shallow-merge `{ ...DEFAULT_SETTINGS, ...value, version: CURRENT_VERSION }`
+runs immediately before `safeParse`. The merge is intentional forward-compat:
+
+- A stored payload that is current-version but missing a field (e.g. a partial
+  sync payload, or a schema revision that adds a non-required field) acquires
+  the default for the missing field instead of failing validation.
+- The merge is shallow, not deep — nested objects (none today, but possible in
+  a future schema) are replaced wholesale, not merged. If a future revision
+  introduces nested settings, the migration step is the place to deep-merge;
+  the repair step stays shallow.
+- The canonical pin is the test
+  `'migrates v3 blob with missing field by filling defaults (explicit repair
+behavior)'` in `src/core/settings/__tests__/migrations.test.ts`. A future
+  policy change to reject-missing-fields instead of repair must update that
+  test as an intentional surface.
+
 ### Read/write/subscribe API
 
 Source of truth: `src/chrome/settings/storage.ts`. This is the only file in the project that imports `chrome.storage.*` for settings.
@@ -115,6 +145,7 @@ Source of truth: `src/chrome/settings/storage.ts`. This is the only file in the 
 ```ts
 export async function loadSettings(): Promise<SettingsV1>;
 export function saveSettings(partial: Partial<SettingsV1>): Promise<void>;
+export function flushSettings(): Promise<void>;
 export function subscribeSettings(listener: (s: SettingsV1) => void): () => void;
 ```
 
@@ -123,6 +154,37 @@ Behavior:
 - `loadSettings` reads `speedreader.settings` from `chrome.storage.sync`. **On first install (`raw === undefined`) it seeds `DEFAULT_SETTINGS` and writes the canonical seed back** so the next read is a fast pass-through. It also writes back when migration reshapes the stored value (version bump or partial-payload repair). The seed write is unconditional on `raw === undefined` — there is no falsy short-circuit.
 - `saveSettings(partial)` coalesces calls within a **300 ms trailing-edge** window into one write. Sliders that fire at 60 Hz produce one write, not 60. Each call returns a Promise that resolves when its containing flush completes.
 - `subscribeSettings(listener)` wires `chrome.storage.onChanged`, filters to area `'sync'` and key `speedreader.settings`, runs the new value through `migrate`, and forwards. Live updates from a sibling tab, the options page, or a different signed-in device all flow through the same path. Returns an unsubscribe function.
+
+#### Debounce window resolution contract (#68)
+
+`saveSettings` returns a Promise tied to the **current debounce window**, not
+to a unique underlying `set`:
+
+- All `saveSettings` calls that arrive within one 300 ms window share the
+  resolution of that window's single `chrome.storage.sync.set`. Their Promises
+  resolve (or reject) together when that set completes.
+- A late `saveSettings` call that lands **during an in-flight flush** (after
+  the timer fired but before `chrome.storage.sync.set` completed) does NOT
+  join the in-flight write — its window's pending state was already cleared at
+  the top of `flushPendingSave`. The late call starts a fresh 300 ms window
+  and resolves on a different, later set. Two distinct resolutions, two
+  distinct underlying sets.
+- Consumers that need to deterministically `await` the persisted write (e.g.
+  an options-page "Save" button followed by navigation) should call
+  `flushSettings()` after their last `saveSettings` to collapse the pending
+  window into an immediate flush.
+
+`flushSettings()` semantics:
+
+- No pending save (no timer scheduled, no buffered partial) → resolves
+  immediately.
+- Pending timer scheduled → cancels the timer and calls the flush path
+  synchronously (no `setTimeout`). Returns a Promise that resolves when the
+  underlying `chrome.storage.sync.set` completes. The pending state is cleared
+  at the top of the flush, so any `saveSettings` call that lands while the
+  forced flush is in-flight starts a fresh window — there is no double-flush
+  path. Callers that need to await that subsequent window must call
+  `flushSettings()` again.
 
 ### File layout
 

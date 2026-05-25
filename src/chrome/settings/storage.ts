@@ -62,6 +62,21 @@ async function flushPendingSave(): Promise<void> {
  * Save a partial settings update. Calls within 300 ms are coalesced into a
  * single trailing-edge write to stay under `chrome.storage.sync`'s 120
  * writes/minute rate limit when wired to slider-style controls.
+ *
+ * Debounce resolution semantics (#68):
+ * - A 300 ms trailing-edge debounce coalesces calls. The timer is reset on
+ *   every call within the window.
+ * - All callers within ONE debounce window share the resolution of that
+ *   window's `chrome.storage.sync.set`: the returned Promises resolve (or
+ *   reject) together when that single set completes.
+ * - A late call that lands during an in-flight flush (after the timer has
+ *   fired and `flushPendingSave` is mid-`await`) starts a NEW window. Its
+ *   Promise resolves on a different set than the in-flight one — two distinct
+ *   resolutions, not coalesced into the in-flight write.
+ * - Consumers that need to deterministically `await` the write (e.g. an
+ *   options-page "Save" click followed by a navigation) should call
+ *   `flushSettings()` which collapses the pending window into an immediate
+ *   flush.
  */
 export function saveSettings(partial: SaveSettingsInput): Promise<void> {
   pendingPartial = { ...(pendingPartial ?? {}), ...partial };
@@ -72,6 +87,30 @@ export function saveSettings(partial: SaveSettingsInput): Promise<void> {
     pendingTimer = setTimeout(() => {
       void flushPendingSave();
     }, DEBOUNCE_MS);
+  });
+}
+
+/**
+ * Force any pending `saveSettings` window to flush immediately and resolve
+ * once the underlying `chrome.storage.sync.set` completes.
+ *
+ * - No pending save: resolves immediately on a microtask.
+ * - Pending timer scheduled: cancels the timer and calls `flushPendingSave`
+ *   directly (no `setTimeout`). The returned Promise awaits that flush.
+ *
+ * The pending state is cleared at the top of `flushPendingSave`, so any
+ * `saveSettings` call that lands while the forced flush is in-flight starts a
+ * fresh window — there is no double-flush path. Callers that need to await
+ * THAT subsequent window must call `flushSettings()` again.
+ */
+export function flushSettings(): Promise<void> {
+  if (pendingTimer === null) return Promise.resolve();
+  clearTimeout(pendingTimer);
+  pendingTimer = null;
+  return new Promise<void>((resolve, reject) => {
+    pendingResolvers.push(resolve);
+    pendingRejectors.push(reject);
+    void flushPendingSave();
   });
 }
 
