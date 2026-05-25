@@ -235,7 +235,11 @@ describe('chrome settings storage adapter', () => {
     expect(stub.storage.sync.set).not.toHaveBeenCalled();
 
     // flushSettings before the 300ms timer would fire on its own.
+    let flushPromiseResolved = false;
     const flushPromise = flushSettings();
+    void flushPromise.then(() => {
+      flushPromiseResolved = true;
+    });
 
     // The flush itself awaits chrome.storage.sync.get + .set, which under the
     // default stub resolve in microtasks. Await both and confirm the write
@@ -243,6 +247,7 @@ describe('chrome settings storage adapter', () => {
     await flushPromise;
     await p;
 
+    expect(flushPromiseResolved).toBe(true);
     expect(savePromiseResolved).toBe(true);
     expect(stub.storage.sync.set).toHaveBeenCalledTimes(1);
     expect((storedRaw as SettingsV3).wpm).toBe(410);
