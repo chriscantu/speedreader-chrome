@@ -4,5 +4,6 @@ export type {
   RsvpEngineOptions,
   RsvpEvent,
   RsvpListener,
+  RsvpProgress,
   RsvpState,
 } from './rsvp-engine';
