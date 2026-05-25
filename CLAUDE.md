@@ -23,6 +23,21 @@ The source tree is split along the platform boundary:
 
 For a fuller repo-layout reference (every directory and its role), see [`STRUCTURE.md`](STRUCTURE.md).
 
+## Agent routing (for Claude / swarm dispatch)
+
+Hierarchical swarm, max 6, specialized strategy. Queen: `extension-architect`.
+
+| Task | Specialist |
+|---|---|
+| MV3 service worker, content script, popup, manifest | `chrome-extension-engineer` |
+| `src/core/` portable engine (no `chrome.*`) | `coder` |
+| RSVP overlay UX, neurodivergent reading, WCAG | `a11y-extension-designer` |
+| Playwright extension loading, axe a11y scans | `extension-quality-engineer` |
+| Cross-cutting design, Safari↔Chrome boundary | `extension-architect` |
+| Final pass before merge | `reviewer` |
+
+Spawn on-demand; do not preallocate. Reap idle agents after task completion.
+
 ## Key references
 
 - [`docs/superpowers/specs/2026-04-19-chrome-port-backlog-design.md`](docs/superpowers/specs/2026-04-19-chrome-port-backlog-design.md) — approved design for this initial phase.
