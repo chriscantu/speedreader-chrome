@@ -1,14 +1,61 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { THEME_IDS, THEME_TOKENS, TOKEN_KEYS, isThemeId, type ThemeId } from '../tokens';
+import { THEME_IDS, THEME_TOKENS } from '../tokens';
 
 const HEX_PATTERN = /^#[0-9a-f]{6}$/i;
+const TOKEN_KEYS = ['bg', 'surface', 'text', 'accent', 'accentSoft'] as const;
+
+// Parse the design-pack HTML to extract per-theme root tokens. The applier
+// only writes 5 slots; we pin those against the Hi-Fi source so a typo in
+// THEME_TOKENS is caught at test time. ADR #0002 names this file as the
+// source of truth.
+function parseHiFiTokens(): Record<string, Record<string, string>> {
+  const html = readFileSync(
+    resolve(__dirname, '../../../../docs/design/Speed Reader Hi-Fi.html'),
+    'utf8',
+  );
+
+  const themes: Record<string, Record<string, string>> = {};
+
+  // light comes from :root (no data-theme selector)
+  const lightBlock = html.match(/:root\s*\{([^}]+)\}/);
+  if (lightBlock) themes.light = extractVars(lightBlock[1]);
+
+  for (const id of ['dark', 'sepia', 'paper', 'cream', 'nord']) {
+    const re = new RegExp(`\\[data-theme="${id}"\\]\\s*\\{([^}]+)\\}`);
+    const block = html.match(re);
+    if (block) themes[id] = extractVars(block[1]);
+  }
+
+  return themes;
+}
+
+function extractVars(body: string): Record<string, string> {
+  const vars: Record<string, string> = {};
+  const re = /--([\w-]+)\s*:\s*([^;]+);/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    vars[m[1].trim()] = m[2].trim();
+  }
+  return vars;
+}
+
+// Mapping from our slot names to the Hi-Fi CSS custom-property names.
+const SLOT_TO_VAR: Record<(typeof TOKEN_KEYS)[number], string> = {
+  bg: 'bg',
+  surface: 'surface',
+  text: 'text',
+  accent: 'accent',
+  accentSoft: 'accent-soft',
+};
 
 describe('THEME_TOKENS', () => {
   it('lists all 6 themes adjudicated in ADR #0002', () => {
     expect(THEME_IDS).toEqual(['light', 'dark', 'sepia', 'paper', 'cream', 'nord']);
   });
 
-  it.each(THEME_IDS)('theme "%s" defines all 5 token slots', (theme) => {
+  it.each(THEME_IDS)('theme "%s" defines all 5 token slots as hex', (theme) => {
     const tokens = THEME_TOKENS[theme];
     for (const key of TOKEN_KEYS) {
       expect(tokens[key], `${theme}.${key}`).toMatch(HEX_PATTERN);
@@ -26,17 +73,34 @@ describe('THEME_TOKENS', () => {
       expect(Object.keys(THEME_TOKENS[theme]).sort()).toEqual(lightKeys);
     }
   });
+
+  describe('hex values match docs/design/Speed Reader Hi-Fi.html (single source of truth)', () => {
+    const hiFi = parseHiFiTokens();
+    it.each(THEME_IDS)('theme "%s" tokens match Hi-Fi source', (theme) => {
+      const source = hiFi[theme];
+      expect(source, `Hi-Fi block for theme "${theme}"`).toBeTruthy();
+      for (const slot of TOKEN_KEYS) {
+        const sourceKey = SLOT_TO_VAR[slot];
+        const sourceValue = source[sourceKey]?.toLowerCase();
+        expect(sourceValue, `Hi-Fi --${sourceKey} for ${theme}`).toBeTruthy();
+        expect(THEME_TOKENS[theme][slot].toLowerCase()).toBe(sourceValue);
+      }
+    });
+  });
 });
 
-describe('isThemeId', () => {
-  it.each(THEME_IDS)('accepts known theme "%s"', (theme: ThemeId) => {
-    expect(isThemeId(theme)).toBe(true);
+describe('THEME_TOKENS immutability', () => {
+  it('is deeply frozen — typo-poisoning protection', () => {
+    expect(Object.isFrozen(THEME_TOKENS)).toBe(true);
+    for (const theme of THEME_IDS) {
+      expect(Object.isFrozen(THEME_TOKENS[theme])).toBe(true);
+    }
   });
 
-  it.each([null, undefined, 0, '', 'LIGHT', 'unknown', {}])(
-    'rejects non-theme value %p',
-    (value) => {
-      expect(isThemeId(value)).toBe(false);
-    },
-  );
+  it('throws in strict mode when a downstream tries to mutate a token', () => {
+    expect(() => {
+      // @ts-expect-error — testing runtime guard against frozen mutation
+      THEME_TOKENS.dark.bg = '#000000';
+    }).toThrow();
+  });
 });

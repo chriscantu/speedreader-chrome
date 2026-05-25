@@ -26,59 +26,47 @@ export interface ThemeTokens {
   accentSoft: string;
 }
 
-export const THEME_TOKENS: Record<ThemeId, ThemeTokens> = {
-  light: {
+export const THEME_TOKENS: Readonly<Record<ThemeId, Readonly<ThemeTokens>>> = Object.freeze({
+  light: Object.freeze({
     bg: '#ffffff',
     surface: '#ffffff',
     text: '#202124',
     accent: '#1a73e8',
     accentSoft: '#e8f0fe',
-  },
-  dark: {
+  }),
+  dark: Object.freeze({
     bg: '#202124',
     surface: '#292a2d',
     text: '#e8eaed',
     accent: '#8ab4f8',
     accentSoft: '#1e3a5f',
-  },
-  sepia: {
+  }),
+  sepia: Object.freeze({
     bg: '#f6efdd',
     surface: '#faf3e0',
     text: '#3a2f1a',
     accent: '#1558b0',
     accentSoft: '#dce8f5',
-  },
-  paper: {
+  }),
+  paper: Object.freeze({
     bg: '#f5f1ea',
     surface: '#faf7f1',
     text: '#2a2621',
     accent: '#1a73e8',
     accentSoft: '#e3edfa',
-  },
-  cream: {
+  }),
+  cream: Object.freeze({
     bg: '#fbf9f4',
     surface: '#ffffff',
     text: '#1f1d19',
     accent: '#1a73e8',
     accentSoft: '#e8f0fe',
-  },
-  nord: {
+  }),
+  nord: Object.freeze({
     bg: '#eceff4',
     surface: '#f4f6fa',
     text: '#2e3440',
     accent: '#5e81ac',
     accentSoft: '#dde4ee',
-  },
-};
-
-export const TOKEN_KEYS: ReadonlyArray<keyof ThemeTokens> = [
-  'bg',
-  'surface',
-  'text',
-  'accent',
-  'accentSoft',
-];
-
-export function isThemeId(value: unknown): value is ThemeId {
-  return typeof value === 'string' && (THEME_IDS as readonly string[]).includes(value);
-}
+  }),
+});
