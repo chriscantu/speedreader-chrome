@@ -29,8 +29,8 @@ export interface RsvpEngineOptions {
 /**
  * Snapshot of where the engine is in the word stream. `index` is the count of
  * words already emitted (== `nextIndex`), so `index === 0` means "not started",
- * `index === total` means "done". `ratio` is `index / total` clamped to
- * `[0, 1]`; when `total === 0` the ratio is `0` by convention.
+ * `index === total` means "done". `ratio = index / total`; when `total === 0`
+ * the ratio is `0` by convention.
  */
 export interface RsvpProgress {
   index: number;
@@ -60,7 +60,7 @@ export interface RsvpEngine {
    * Milliseconds equivalent to `(total - index) * msPerWord` at the CURRENT
    * wpm. Live getter. NOTE: post-`stop()` mid-stream this returns the
    * milliseconds for the unread tail; the engine does not special-case
-   * `stop` here (see SELF_WEAKNESSES.md, weakness 2).
+   * `stop` here.
    */
   timeRemaining(): number;
 }
@@ -202,10 +202,7 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
       if (total === 0) {
         return { index: 0, total: 0, ratio: 0 };
       }
-      const raw = nextIndex / total;
-      // Clamp defensively even though nextIndex is engine-controlled.
-      const ratio = raw < 0 ? 0 : raw > 1 ? 1 : raw;
-      return { index: nextIndex, total, ratio };
+      return { index: nextIndex, total, ratio: nextIndex / total };
     },
     timeElapsed(): number {
       if (words.length === 0) return 0;

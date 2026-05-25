@@ -8,8 +8,7 @@ import { createRsvpEngine } from '../rsvp-engine';
 //   - `progress().ratio` (0..1 float) instead of `progress().percent` (0..100).
 //   - `timeElapsed()` / `timeRemaining()` return MILLISECONDS, not seconds.
 //
-// See SELF_WEAKNESSES.md (weakness 3) for why this issue's spec wins over
-// literal Safari porting.
+// This issue's spec wins over literal Safari porting (ratio + ms shape).
 
 describe('progress()', () => {
   beforeEach(() => {
@@ -72,14 +71,26 @@ describe('progress()', () => {
     expect(p.ratio).toBe(0);
   });
 
-  it('ratio is clamped to [0, 1]', () => {
-    // Construct an engine and drain it; ratio should never exceed 1.
-    const engine = createRsvpEngine({ words: ['a'], wpm: 300 });
+  it('pins ratio as 0..1 (NOT Safari percent 0..100) — divergence assertion', () => {
+    const engine = createRsvpEngine({ words: ['a', 'b', 'c', 'd'], wpm: 300 });
     engine.start();
     vi.advanceTimersByTime(200);
+    expect(engine.progress().ratio).toBeLessThan(1.01);
+    expect(engine.progress().ratio).toBeGreaterThan(0);
+  });
+
+  it('preserves mid-stream index after stop() (no special-case zeroing)', () => {
+    const engine = createRsvpEngine({ words: ['a', 'b', 'c', 'd', 'e', 'f'], wpm: 300 });
+    engine.start();
+    vi.advanceTimersByTime(200);
+    engine.stop();
+    expect(engine.state).toBe('done');
     const p = engine.progress();
-    expect(p.ratio).toBeGreaterThanOrEqual(0);
-    expect(p.ratio).toBeLessThanOrEqual(1);
+    expect(p.index).toBe(2);
+    expect(p.total).toBe(6);
+    expect(p.ratio).toBeCloseTo(2 / 6);
+    expect(engine.timeElapsed()).toBe(400);
+    expect(engine.timeRemaining()).toBe(800);
   });
 });
 
@@ -137,6 +148,20 @@ describe('timeElapsed() and timeRemaining()', () => {
     engine.setWpm(600);
     expect(engine.timeRemaining()).toBe(1000);
     expect(engine.timeElapsed()).toBe(0);
+  });
+
+  it('setWpm while paused is reflected on next time-getter read (live getter across PAUSED)', () => {
+    const engine = createRsvpEngine({ words: ['a', 'b', 'c', 'd'], wpm: 300 });
+    engine.start();
+    vi.advanceTimersByTime(200);
+    engine.pause();
+    expect(engine.state).toBe('paused');
+    expect(engine.timeRemaining()).toBe(400);
+
+    engine.setWpm(60);
+    expect(engine.state).toBe('paused');
+    expect(engine.timeRemaining()).toBe(2000);
+    expect(engine.timeElapsed()).toBe(2000);
   });
 
   it('elapsed at various wpms reflects the current cadence (live getter semantics)', () => {
