@@ -72,14 +72,25 @@ describe('progress()', () => {
   });
 
   it('pins ratio as 0..1 (NOT Safari percent 0..100) — divergence assertion', () => {
+    // After 1 of 4 emissions: ratio should be 0.25, NOT 25. Tight bound (<1)
+    // distinguishes the 0..1 contract from a hypothetical 0..100 regression
+    // that would return 25 and pass any loose 0..N upper bound.
     const engine = createRsvpEngine({ words: ['a', 'b', 'c', 'd'], wpm: 300 });
     engine.start();
     vi.advanceTimersByTime(200);
-    expect(engine.progress().ratio).toBeLessThan(1.01);
-    expect(engine.progress().ratio).toBeGreaterThan(0);
+    const ratio = engine.progress().ratio;
+    expect(ratio).toBeGreaterThan(0);
+    expect(ratio).toBeLessThan(1);
+    expect(ratio).toBeCloseTo(0.5);
   });
 
   it('preserves mid-stream index after stop() (no special-case zeroing)', () => {
+    // POLICY (not invariant): post-stop() mid-stream, timeRemaining returns
+    // the math for the unread tail rather than clamping to 0. The engine
+    // does NOT special-case stop here; the JSDoc on timeRemaining names this
+    // explicitly. A future spec change to zero on DONE-via-stop is a policy
+    // flip, not a regression — this test will fail intentionally and the
+    // change should be deliberate, not silent.
     const engine = createRsvpEngine({ words: ['a', 'b', 'c', 'd', 'e', 'f'], wpm: 300 });
     engine.start();
     vi.advanceTimersByTime(200);
@@ -89,6 +100,7 @@ describe('progress()', () => {
     expect(p.index).toBe(2);
     expect(p.total).toBe(6);
     expect(p.ratio).toBeCloseTo(2 / 6);
+    // Tail math continues — engine does NOT clamp timeRemaining to 0 on stop.
     expect(engine.timeElapsed()).toBe(400);
     expect(engine.timeRemaining()).toBe(800);
   });
@@ -162,6 +174,28 @@ describe('timeElapsed() and timeRemaining()', () => {
     expect(engine.state).toBe('paused');
     expect(engine.timeRemaining()).toBe(2000);
     expect(engine.timeElapsed()).toBe(2000);
+  });
+
+  it('resume after paused setWpm emits at the new cadence (scheduler reads live wpm)', () => {
+    // Guards against a regression where paused setWpm updates the getter math
+    // but the scheduler retains a stale msPerWord on resume.
+    const engine = createRsvpEngine({ words: ['a', 'b', 'c', 'd', 'e'], wpm: 300 });
+    const indices: number[] = [];
+    engine.subscribe((e) => {
+      if (e.type === 'word') indices.push(e.index);
+    });
+    engine.start(); // emits index 0
+    vi.advanceTimersByTime(200); // emits index 1 → nextIndex=2
+    engine.pause();
+    engine.setWpm(60); // 1000ms/word
+    engine.resume();
+
+    // Old cadence (200ms) should NOT emit anything.
+    vi.advanceTimersByTime(999);
+    expect(indices[indices.length - 1]).toBe(1);
+    // New cadence (1000ms) emits index 2 on the next ms.
+    vi.advanceTimersByTime(1);
+    expect(indices[indices.length - 1]).toBe(2);
   });
 
   it('elapsed at various wpms reflects the current cadence (live getter semantics)', () => {
