@@ -26,6 +26,18 @@ export interface RsvpEngineOptions {
   wpm: number;
 }
 
+/**
+ * Snapshot of where the engine is in the word stream. `index` is the count of
+ * words already emitted (== `nextIndex`), so `index === 0` means "not started",
+ * `index === total` means "done". `ratio = index / total`; when `total === 0`
+ * the ratio is `0` by convention.
+ */
+export interface RsvpProgress {
+  index: number;
+  total: number;
+  ratio: number;
+}
+
 export interface RsvpEngine {
   readonly state: RsvpState;
   start(): void;
@@ -34,6 +46,23 @@ export interface RsvpEngine {
   stop(): void;
   setWpm(wpm: number): void;
   subscribe(listener: RsvpListener): () => void;
+  /**
+   * Snapshot of word-stream progress at the current call site. Live getter —
+   * each call reflects the engine's current state.
+   */
+  progress(): RsvpProgress;
+  /**
+   * Milliseconds equivalent to `index * msPerWord` at the CURRENT wpm. Live
+   * getter; changes in `setWpm` are reflected on the next read.
+   */
+  timeElapsed(): number;
+  /**
+   * Milliseconds equivalent to `(total - index) * msPerWord` at the CURRENT
+   * wpm. Live getter. NOTE: post-`stop()` mid-stream this returns the
+   * milliseconds for the unread tail; the engine does not special-case
+   * `stop` here.
+   */
+  timeRemaining(): number;
 }
 
 // wpm must be a positive finite number; 0, negative, NaN, Infinity all invalid.
@@ -167,6 +196,23 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
       return () => {
         listeners.delete(listener);
       };
+    },
+    progress(): RsvpProgress {
+      const total = words.length;
+      if (total === 0) {
+        return { index: 0, total: 0, ratio: 0 };
+      }
+      return { index: nextIndex, total, ratio: nextIndex / total };
+    },
+    timeElapsed(): number {
+      if (words.length === 0) return 0;
+      return nextIndex * msPerWord();
+    },
+    timeRemaining(): number {
+      if (words.length === 0) return 0;
+      const remaining = words.length - nextIndex;
+      if (remaining <= 0) return 0;
+      return remaining * msPerWord();
     },
   };
 }
