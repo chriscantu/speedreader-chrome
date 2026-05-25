@@ -36,8 +36,20 @@ export const CURRENT_VERSION = 3 as const;
 export const VALID_ALIGNMENTS = ['orp', 'center'] as const;
 
 /**
- * Cardinality-pinned constant for the 7-value theme enum landed in V3.
- * Mirrors ADR #0002's adjudicated set. Widening the enum is a future
- * ADR — keep this in lockstep with the `theme` field above.
+ * Legacy V2 schema preserved for migration consumers per issue #101 AC
+ * ("keep prior schema exported"). V2 has the 3-value theme set and
+ * `version: 2`. The V2 → V3 migrator only stamps the version literal,
+ * so this schema is what raw payloads look like BEFORE migration.
  */
-export const VALID_THEMES = ['system', 'light', 'dark', 'sepia', 'paper', 'cream', 'nord'] as const;
+export const SettingsSchemaV2 = z.object({
+  version: z.literal(2),
+  wpm: z.number().int().min(100).max(600).multipleOf(10),
+  theme: z.enum(['light', 'dark', 'system']),
+  font: z.string(),
+  fontSize: z.number().int().min(12).max(48),
+  openDyslexic: z.boolean(),
+  punctuationPacing: z.boolean(),
+  alignment: z.enum(['orp', 'center']),
+});
+
+export type SettingsV2 = z.infer<typeof SettingsSchemaV2>;

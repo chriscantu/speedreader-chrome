@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { SettingsSchemaV3, VALID_ALIGNMENTS, VALID_THEMES } from '../schema';
+import { SettingsSchemaV3, SettingsSchemaV2, VALID_ALIGNMENTS } from '../schema';
+
+const VALID_THEMES_V3 = ['system', 'light', 'dark', 'sepia', 'paper', 'cream', 'nord'] as const;
 import { DEFAULT_SETTINGS } from '../defaults';
 
 describe('SettingsSchemaV3', () => {
@@ -52,7 +54,7 @@ describe('SettingsSchemaV3', () => {
 // each new design-pack theme so a regression collapsing back to V2's
 // 3-value set surfaces immediately.
 describe('SettingsSchemaV3 — theme enum (V3 widening, issue #101)', () => {
-  it.each(VALID_THEMES)('ACCEPTS theme "%s"', (theme) => {
+  it.each(VALID_THEMES_V3)('ACCEPTS theme "%s"', (theme) => {
     expect(SettingsSchemaV3.safeParse({ ...DEFAULT_SETTINGS, theme }).success).toBe(true);
   });
 
@@ -62,10 +64,34 @@ describe('SettingsSchemaV3 — theme enum (V3 widening, issue #101)', () => {
       expect(SettingsSchemaV3.safeParse({ ...DEFAULT_SETTINGS, theme }).success).toBe(true);
     },
   );
+});
 
-  it('VALID_THEMES has length 7 and matches the canonical enum order', () => {
-    expect(VALID_THEMES).toHaveLength(7);
-    expect(VALID_THEMES).toEqual(['system', 'light', 'dark', 'sepia', 'paper', 'cream', 'nord']);
+// Legacy V2 schema preserved for migration consumers. Pin the 3-value
+// theme enum so a future refactor that accidentally widens V2 (and breaks
+// the migration contract) surfaces here.
+describe('SettingsSchemaV2 (legacy, migration consumer)', () => {
+  const V2_CANONICAL = {
+    version: 2,
+    wpm: 250,
+    theme: 'system' as const,
+    font: 'system-ui',
+    fontSize: 20,
+    openDyslexic: false,
+    punctuationPacing: true,
+    alignment: 'orp' as const,
+  };
+
+  it('accepts a V2 payload with version literal 2', () => {
+    expect(SettingsSchemaV2.safeParse(V2_CANONICAL).success).toBe(true);
+  });
+
+  it('rejects V3 new themes on a V2 payload (theme set is light|dark|system only)', () => {
+    expect(SettingsSchemaV2.safeParse({ ...V2_CANONICAL, theme: 'sepia' }).success).toBe(false);
+    expect(SettingsSchemaV2.safeParse({ ...V2_CANONICAL, theme: 'nord' }).success).toBe(false);
+  });
+
+  it('rejects version: 3 (V2 schema is version-literal 2)', () => {
+    expect(SettingsSchemaV2.safeParse({ ...V2_CANONICAL, version: 3 }).success).toBe(false);
   });
 });
 

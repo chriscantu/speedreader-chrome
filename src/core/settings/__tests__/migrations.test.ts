@@ -136,24 +136,26 @@ describe('migrate — V1 -> V2 alignment field (forward-compatible)', () => {
 // strict subset of V3's (+ sepia | paper | cream | nord). Migrator only
 // stamps the version literal.
 describe('migrate — V2 -> V3 theme enum widening (#101)', () => {
-  it('V2 payload with legacy theme: dark -> V3 preserves theme, stamps version: 3', () => {
-    const v2 = {
-      version: 2,
-      wpm: 300,
-      theme: 'dark' as const,
-      font: 'system-ui',
-      fontSize: 20,
-      openDyslexic: false,
-      punctuationPacing: true,
-      alignment: 'orp' as const,
-    };
-    const result = migrate(v2);
-    expect(result.version).toBe(3);
-    expect(result.theme).toBe('dark');
-    // All other fields untouched.
-    expect(result.wpm).toBe(300);
-    expect(result.alignment).toBe('orp');
-  });
+  const V2_BASE = {
+    version: 2,
+    wpm: 300,
+    font: 'system-ui',
+    fontSize: 20,
+    openDyslexic: false,
+    punctuationPacing: true,
+    alignment: 'orp' as const,
+  };
+
+  it.each(['light', 'dark', 'system'] as const)(
+    'V2 payload with legacy theme "%s" -> V3 preserves theme, stamps version: 3',
+    (theme) => {
+      const result = migrate({ ...V2_BASE, theme });
+      expect(result.version).toBe(3);
+      expect(result.theme).toBe(theme);
+      expect(result.wpm).toBe(300);
+      expect(result.alignment).toBe('orp');
+    },
+  );
 
   it.each(['sepia', 'paper', 'cream', 'nord'] as const)(
     'V3-already-present payload with new theme "%s" round-trips unchanged',
@@ -172,5 +174,69 @@ describe('migrate — V2 -> V3 theme enum widening (#101)', () => {
     expect(result.version).toBe(3);
     expect(result.theme).toBe('light');
     expect(result.alignment).toBe('orp'); // stamped at 1->2
+  });
+
+  it('hand-edited V2 payload with NEW theme (sepia) — policy: V3 accepts after migrator stamp', () => {
+    // Plausible corrupt-state scenario: user syncs from a newer client OR
+    // hand-edits storage. The 2->3 migrator stamps version literally; the
+    // safeParse then accepts the new theme because V3 enum includes it.
+    // Pins the policy so a future ADR reverting theme widening surfaces
+    // here as an intentional change, not silent data loss.
+    const v2Corrupt = { ...V2_BASE, theme: 'sepia' as const };
+    const result = migrate(v2Corrupt);
+    expect(result.version).toBe(3);
+    expect(result.theme).toBe('sepia');
+  });
+});
+
+// Forward-incompat + idempotency boundary cases.
+describe('migrate — version-boundary policies', () => {
+  it('forward-incompat: V99 payload — fields that validate against V3 are preserved, version stamps to 3', () => {
+    // V > CURRENT_VERSION skips the loop entirely; the final merge stamps
+    // version: 3 (overriding the V99 literal) and individual fields that
+    // pass V3's schema survive. Documents the lossy-downgrade behavior so
+    // a future "reject future versions" change surfaces here.
+    const future = { version: 99, wpm: 400, theme: 'dark' as const, alignment: 'orp' as const };
+    const result = migrate(future);
+    expect(result.version).toBe(3);
+    expect(result.wpm).toBe(400);
+    expect(result.theme).toBe('dark');
+    expect(result.alignment).toBe('orp');
+  });
+
+  it('forward-incompat: V99 with field that fails V3 schema falls back to DEFAULT_SETTINGS', () => {
+    // E.g. a future schema added a `chunkSize` that V3 doesn't accept — but
+    // V3 strips unknown keys via safeParse, so this never fails. The
+    // failure path requires a field that V3 KNOWS about but rejects (out-
+    // of-range value).
+    const futureCorrupt = {
+      version: 99,
+      wpm: 999, // outside V3 range
+      theme: 'dark',
+    };
+    expect(migrate(futureCorrupt)).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it('idempotent: migrate(migrate(v2)) deep-equals migrate(v2)', () => {
+    const v2 = {
+      version: 2,
+      wpm: 350,
+      theme: 'light' as const,
+      font: 'Georgia',
+      fontSize: 24,
+      openDyslexic: true,
+      punctuationPacing: false,
+      alignment: 'center' as const,
+    };
+    const once = migrate(v2);
+    expect(migrate(once)).toEqual(once);
+  });
+
+  it('partial V3 payload (missing alignment) -> defaults fill alignment: orp', () => {
+    const partialV3 = { version: 3, wpm: 300, theme: 'nord' };
+    const result = migrate(partialV3);
+    expect(result.version).toBe(3);
+    expect(result.theme).toBe('nord');
+    expect(result.alignment).toBe('orp');
   });
 });
