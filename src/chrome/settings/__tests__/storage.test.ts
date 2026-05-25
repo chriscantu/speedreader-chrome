@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import sinonChrome from 'sinon-chrome';
 import { DEFAULT_SETTINGS } from '../../../core/settings/defaults';
-import type { SettingsV2 } from '../../../core/settings/schema';
+import type { SettingsV3 } from '../../../core/settings/schema';
 import { DEBOUNCE_MS } from '../storage';
 
 const KEY = 'speedreader.settings';
@@ -81,7 +81,7 @@ describe('chrome settings storage adapter', () => {
   });
 
   it('loadSettings returns valid stored payload as-is', async () => {
-    storedRaw = { ...DEFAULT_SETTINGS, wpm: 380 } satisfies SettingsV2;
+    storedRaw = { ...DEFAULT_SETTINGS, wpm: 380 } satisfies SettingsV3;
     const { loadSettings } = await import('../storage');
     const settings = await loadSettings();
     expect(settings.wpm).toBe(380);
@@ -96,7 +96,7 @@ describe('chrome settings storage adapter', () => {
   });
 
   it('saveSettings coalesces 10 calls within 300ms into one write', async () => {
-    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV2;
+    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV3;
     const { saveSettings } = await import('../storage');
     const stub = (globalThis as unknown as { chrome: ChromeStub }).chrome;
 
@@ -113,19 +113,19 @@ describe('chrome settings storage adapter', () => {
     // Exactly one set call (the trailing-edge write); set may also fire from
     // an internal load() canonicalisation if storedRaw mismatched, so assert
     // the *final* persisted wpm rather than count alone.
-    const finalStored = storedRaw as SettingsV2;
+    const finalStored = storedRaw as SettingsV3;
     expect(finalStored.wpm).toBe(340);
     expect(stub.storage.sync.set).toHaveBeenCalledTimes(1);
   });
 
   it('saveSettings preserves the version field', async () => {
-    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV2;
+    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV3;
     const { saveSettings } = await import('../storage');
     const p = saveSettings({ theme: 'dark' });
     await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
     await p;
-    const stored = storedRaw as SettingsV2;
-    expect(stored.version).toBe(2);
+    const stored = storedRaw as SettingsV3;
+    expect(stored.version).toBe(3);
     expect(stored.theme).toBe('dark');
   });
 
@@ -134,7 +134,7 @@ describe('chrome settings storage adapter', () => {
     const listener = vi.fn();
     const unsubscribe = subscribeSettings(listener);
 
-    const next: SettingsV2 = { ...DEFAULT_SETTINGS, wpm: 420 };
+    const next: SettingsV3 = { ...DEFAULT_SETTINGS, wpm: 420 };
     emitChange(next, 'sync');
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener).toHaveBeenCalledWith(next);
