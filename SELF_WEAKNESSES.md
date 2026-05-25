@@ -1,62 +1,25 @@
-# Self-identified weaknesses — issue #74 builder
+# Self-identified weaknesses — issue #96 (rsvp-engine progress + time API)
 
-Written BEFORE implementation per the antagonistic-ring builder protocol. These
-are the three weaknesses I expect a critic to flag against my approach. Cutting
-critic time is the goal; honest disclosure cuts more time than defensive
-framing.
+Honest critique of my own design choices, surfaced BEFORE implementation so reviewers can press on them.
 
-## 1. axe-core under JSDOM cannot evaluate CSS custom properties applied via stylesheet selectors
+## 1. Live-getter shape couples engine state to the read API
 
-axe-core's contrast rule works by walking the DOM and computing the effective
-`background-color` / `color` of each element. Under JSDOM, `getComputedStyle()`
-does NOT resolve CSS custom-property cascades the way a real browser engine
-does — `var(--bg)` references typically come back as the literal string
-`"var(--bg)"`, not the resolved hex value.
+I chose live getters on the engine object — `progress()`, `timeElapsed()`, `timeRemaining()` as methods that close over the engine's mutable `nextIndex` and `wpm` — to match the existing `state` getter idiom and the issue's preferred shape.
 
-To get axe-core to evaluate contrast at all under JSDOM, the test fixture must
-INLINE the resolved colors on each element (`style="background: #ffffff; color:
-#202124"`) rather than rely on the applier's `--bg` / `--text` var pipeline.
-This means the a11y test verifies **the token VALUES in `THEME_TOKENS`**, not
-the applier's wiring. The applier test covers the wiring separately, but the
-a11y test is one indirection removed from a real-browser pass. A real-browser
-Playwright sweep is the ground truth and is out-of-scope for this PR.
+Trade-off: pure functions of the form `progress(snapshot)`, `timeElapsed(snapshot, wpm)` would be more testable in isolation, cheaper to reason about, and would let callers freeze a snapshot (e.g., for an animation frame) without re-querying the engine. The live-getter shape forces every read to go through the engine and makes the engine the single source of truth for "what time is it now," which is exactly the coupling pure functions would avoid.
 
-## 2. `forced-colors: active` cannot be exercised faithfully under JSDOM
+Why I shipped live getters anyway: (a) consistent with the existing `state` getter, (b) the issue lists this as the preferred shape, (c) Safari ships it that way and parity-port is the MVP bar, (d) callers without the engine reference have no business asking for its progress.
 
-JSDOM's `window.matchMedia` is a stub that returns `matches: false` for any
-query by default. We can monkey-patch `matchMedia` to return `matches: true`
-for `(forced-colors: active)` in a test, but the actual browser behavior of
-forced-colors (system-color keyword substitution: `Canvas`, `CanvasText`,
-`LinkText`, `ButtonFace`, etc.) is NOT simulated. JSDOM does not implement
-the system-color keyword resolution that gives forced-colors its semantic
-weight.
+If the controls surface (#47) ends up needing to snapshot progress at frame boundaries without engine references, this choice becomes a real cost.
 
-What this PR's forced-colors test verifies: (a) the applier still writes its
-custom-property values when `forced-colors: active` matches — i.e., we do NOT
-clobber user-agent tokens by withholding writes — and (b) the documented
-CSS-side fallback contract (`@media (forced-colors: active)` selectors that
-yield to `Canvas` / `CanvasText`) is exercised at least by reference. What it
-does NOT verify: that the visual rendering in a real high-contrast Windows
-session matches the design pack. Playwright + a Windows runner with the
-high-contrast theme enabled is the only way to verify that, and it is
-out-of-scope here.
+## 2. `timeElapsed`/`timeRemaining` post-`stop()` is a math choice without explicit spec
 
-## 3. Token slot reduction (5 vs Hi-Fi.html's 11) silently drops surface tiers and text variants
+Once the engine reaches `done` via natural completion, `nextIndex === words.length`, so `timeRemaining()` returns `0` (correct) and `timeElapsed()` returns `total * msPerWord` (the full duration). But `stop()` can leave `nextIndex` mid-stream — in that case `timeRemaining()` returns the milliseconds for the unread tail even though those words will never be emitted.
 
-The task specifies "5 token slots minimum: `{ bg, surface, text, accent,
-accentSoft }`" and `docs/design/Speed Reader Hi-Fi.html` defines 11 tokens
-per theme (`--bg`, `--surface`, `--surface-2`, `--surface-3`, `--text`,
-`--text-2`, `--text-muted`, `--text-faint`, `--accent`, `--accent-hover`,
-`--accent-soft`). I am shipping the minimum 5 only. This is a deliberate
-match to the task spec, but it means the overlay component (when it lands in
-a later PR) will need to either (a) compute the missing tiers from the base
-tokens (e.g., `--surface-2 = color-mix(in oklab, var(--surface) 95%,
-var(--text))`); or (b) require a follow-up PR that widens `THEME_TOKENS` to
-include the dropped slots.
+The issue spec says "milliseconds equivalent to `(total - index) * msPerWord`" — purely mechanical, no special-case for `stop`. I followed that literally. A reasonable alternative would be: in `DONE` state, force `timeRemaining()` to 0 regardless of where `nextIndex` was. I did NOT do that, because it would diverge from the spec's mechanical formula and would require deciding what `timeElapsed()` returns post-stop (full duration? clipped to actual playback time?). Punting that policy to a future call-site or follow-up issue.
 
-The risk: if the overlay PR ships without revisiting this, designer-tuned
-`--surface-2` / `--surface-3` / `--text-muted` values from the Hi-Fi mock
-will be lost, and the surfaces will look algorithmically derived rather than
-hand-tuned. This violates ADR #0002's "designer-tuned color is load-bearing"
-force. Mitigation: flag this explicitly in the PR body so the overlay PR
-opens a follow-up to widen the token map before consuming it.
+## 3. Ratio precision and divergence from Safari literal API
+
+`ratio = index / total` is a straight float divide. For realistic article sizes (≤ ~10k words) this is precise to many decimals. For pathological inputs the clamp guarantees `0 ≤ ratio ≤ 1`, but a consumer expecting `ratio` to be a strictly increasing sequence between subsequent word events could be surprised by floating-point step sizes when the article length doesn't divide cleanly. No real-world impact at expected scale; documenting it because the issue spec didn't constrain precision.
+
+Additionally I chose to diverge from the Safari API: Safari exposes `progress().percent` (0-100 integer) and `timeElapsed()/timeRemaining()` returning **seconds** ceiling-rounded. The task spec for this issue requires `ratio` (0-1 float) and **milliseconds**. I followed the task spec, not Safari literally — call this out so a reviewer doesn't flag the divergence as a porting bug.
