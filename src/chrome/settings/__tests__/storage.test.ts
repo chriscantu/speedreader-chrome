@@ -118,6 +118,167 @@ describe('chrome settings storage adapter', () => {
     expect(stub.storage.sync.set).toHaveBeenCalledTimes(1);
   });
 
+  // #68 — debounce window resolution contract.
+  it('saveSettings: 3 calls in one window share resolution, all resolve on one set', async () => {
+    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV3;
+    const { saveSettings } = await import('../storage');
+    const stub = (globalThis as unknown as { chrome: ChromeStub }).chrome;
+
+    const resolved: boolean[] = [false, false, false];
+    const p1 = saveSettings({ wpm: 260 }).then(() => {
+      resolved[0] = true;
+    });
+    const p2 = saveSettings({ wpm: 270 }).then(() => {
+      resolved[1] = true;
+    });
+    const p3 = saveSettings({ wpm: 280 }).then(() => {
+      resolved[2] = true;
+    });
+
+    // No set yet, no resolutions yet.
+    expect(stub.storage.sync.set).not.toHaveBeenCalled();
+    expect(resolved).toEqual([false, false, false]);
+
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    await Promise.all([p1, p2, p3]);
+
+    // All three resolved together, and exactly one set fired.
+    expect(resolved).toEqual([true, true, true]);
+    expect(stub.storage.sync.set).toHaveBeenCalledTimes(1);
+    expect((storedRaw as SettingsV3).wpm).toBe(280);
+  });
+
+  // #68 — late call landing during in-flight flush queues for next window.
+  it('saveSettings: call landing during in-flight flush queues for next window (distinct resolutions)', async () => {
+    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV3;
+    const stub = (globalThis as unknown as { chrome: ChromeStub }).chrome;
+
+    // Replace `get` with a controllable Promise so we can park the in-flight
+    // flush mid-await and inject a saveSettings call before it completes.
+    let releaseFirstGet: (value: { [k: string]: unknown }) => void = () => {};
+    const firstGet = new Promise<{ [k: string]: unknown }>((resolve) => {
+      releaseFirstGet = resolve;
+    });
+    let getCallCount = 0;
+    stub.storage.sync.get.mockImplementation((key: string) => {
+      getCallCount += 1;
+      if (getCallCount === 1) return firstGet;
+      return Promise.resolve({ [key]: storedRaw });
+    });
+
+    const { saveSettings } = await import('../storage');
+
+    // First window.
+    const pFirst = saveSettings({ wpm: 260 });
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    // Timer fired; flushPendingSave is now awaiting our parked `get`. Pending
+    // state has already been cleared at the top of flushPendingSave, so the
+    // next saveSettings starts a fresh window.
+    await Promise.resolve(); // yield so the timer callback has entered flushPendingSave
+
+    let firstResolved = false;
+    let secondResolved = false;
+    void pFirst.then(() => {
+      firstResolved = true;
+    });
+
+    // Second saveSettings lands mid-flight — must NOT join the in-flight flush.
+    const pSecond = saveSettings({ wpm: 380 });
+    void pSecond.then(() => {
+      secondResolved = true;
+    });
+
+    // Still parked; no set has fired yet.
+    expect(stub.storage.sync.set).not.toHaveBeenCalled();
+    expect(firstResolved).toBe(false);
+    expect(secondResolved).toBe(false);
+
+    // Release the first get → first flush completes → first set fires.
+    releaseFirstGet({ [KEY]: storedRaw });
+    await pFirst;
+    expect(firstResolved).toBe(true);
+    expect(secondResolved).toBe(false);
+    expect(stub.storage.sync.set).toHaveBeenCalledTimes(1);
+
+    // Advance the second window's debounce to flush the late call.
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    await pSecond;
+    expect(secondResolved).toBe(true);
+
+    // Two distinct sets — late call did not coalesce into the in-flight write.
+    expect(stub.storage.sync.set).toHaveBeenCalledTimes(2);
+    expect((storedRaw as SettingsV3).wpm).toBe(380);
+  });
+
+  // #68 — flushSettings semantics.
+  it('flushSettings resolves immediately when no pending save', async () => {
+    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV3;
+    const { flushSettings } = await import('../storage');
+    const stub = (globalThis as unknown as { chrome: ChromeStub }).chrome;
+
+    await flushSettings();
+    expect(stub.storage.sync.set).not.toHaveBeenCalled();
+  });
+
+  it('flushSettings cancels debounce timer and forces an immediate flush', async () => {
+    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV3;
+    const { saveSettings, flushSettings } = await import('../storage');
+    const stub = (globalThis as unknown as { chrome: ChromeStub }).chrome;
+
+    let savePromiseResolved = false;
+    const p = saveSettings({ wpm: 410 });
+    void p.then(() => {
+      savePromiseResolved = true;
+    });
+
+    // Debounce is pending — no set yet.
+    expect(stub.storage.sync.set).not.toHaveBeenCalled();
+
+    // flushSettings before the 300ms timer would fire on its own.
+    let flushPromiseResolved = false;
+    const flushPromise = flushSettings();
+    void flushPromise.then(() => {
+      flushPromiseResolved = true;
+    });
+
+    // The flush itself awaits chrome.storage.sync.get + .set, which under the
+    // default stub resolve in microtasks. Await both and confirm the write
+    // landed without the 300ms timer ever firing.
+    await flushPromise;
+    await p;
+
+    expect(flushPromiseResolved).toBe(true);
+    expect(savePromiseResolved).toBe(true);
+    expect(stub.storage.sync.set).toHaveBeenCalledTimes(1);
+    expect((storedRaw as SettingsV3).wpm).toBe(410);
+
+    // Confirm there is no zombie timer left behind — advancing past 300ms
+    // must not produce a second set.
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 2);
+    expect(stub.storage.sync.set).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushSettings rejects when the forced flush fails', async () => {
+    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV3;
+    const { saveSettings, flushSettings } = await import('../storage');
+    const stub = (globalThis as unknown as { chrome: ChromeStub }).chrome;
+    const setErr = new Error('quota exceeded');
+    stub.storage.sync.set.mockImplementationOnce(() => Promise.reject(setErr));
+
+    let saveErr: unknown;
+    let flushErr: unknown;
+    const pSave = saveSettings({ wpm: 290 }).catch((e: unknown) => {
+      saveErr = e;
+    });
+    const pFlush = flushSettings().catch((e: unknown) => {
+      flushErr = e;
+    });
+    await pFlush;
+    await pSave;
+    expect(flushErr).toBe(setErr);
+    expect(saveErr).toBe(setErr);
+  });
+
   it('saveSettings preserves the version field', async () => {
     storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV3;
     const { saveSettings } = await import('../storage');
