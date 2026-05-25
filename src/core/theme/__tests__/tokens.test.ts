@@ -10,6 +10,13 @@ const TOKEN_KEYS = ['bg', 'surface', 'text', 'accent', 'accentSoft'] as const;
 // only writes 5 slots; we pin those against the Hi-Fi source so a typo in
 // THEME_TOKENS is caught at test time. ADR #0002 names this file as the
 // source of truth.
+//
+// Robustness: Hi-Fi.html has 20+ `[data-theme="dark"]` selectors (token block
+// at top + component overrides scattered through). We use a GLOBAL regex and
+// require the matched block to contain ALL 5 slot names — guards against a
+// future reorder that puts a component override before the token block.
+const REQUIRED_VAR_NAMES = ['bg', 'surface', 'text', 'accent', 'accent-soft'];
+
 function parseHiFiTokens(): Record<string, Record<string, string>> {
   const html = readFileSync(
     resolve(__dirname, '../../../../docs/design/Speed Reader Hi-Fi.html'),
@@ -18,17 +25,27 @@ function parseHiFiTokens(): Record<string, Record<string, string>> {
 
   const themes: Record<string, Record<string, string>> = {};
 
-  // light comes from :root (no data-theme selector)
-  const lightBlock = html.match(/:root\s*\{([^}]+)\}/);
-  if (lightBlock) themes.light = extractVars(lightBlock[1]);
-
+  themes.light = findTokenBlock(html, /:root\s*\{([^}]+)\}/g);
   for (const id of ['dark', 'sepia', 'paper', 'cream', 'nord']) {
-    const re = new RegExp(`\\[data-theme="${id}"\\]\\s*\\{([^}]+)\\}`);
-    const block = html.match(re);
-    if (block) themes[id] = extractVars(block[1]);
+    const re = new RegExp(`\\[data-theme="${id}"\\]\\s*\\{([^}]+)\\}`, 'g');
+    themes[id] = findTokenBlock(html, re);
   }
 
   return themes;
+}
+
+// Walk every match of `re` against `html` until one block contains all 5
+// required token names. Throws if no qualifying block exists — surfaces
+// silent drift instead of binding to the wrong selector.
+function findTokenBlock(html: string, re: RegExp): Record<string, string> {
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const vars = extractVars(m[1]);
+    if (REQUIRED_VAR_NAMES.every((name) => name in vars)) return vars;
+  }
+  throw new Error(
+    `No Hi-Fi block matched ${re.source} containing all of ${REQUIRED_VAR_NAMES.join(', ')}`,
+  );
 }
 
 function extractVars(body: string): Record<string, string> {

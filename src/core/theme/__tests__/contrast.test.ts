@@ -73,3 +73,22 @@ describe('WCAG AA contrast — bg vs accent (large/UI) per theme', () => {
     ).toBeGreaterThanOrEqual(WCAG_AA_LARGE);
   });
 });
+
+describe('WCAG AA contrast — accentSoft tinted-bg per theme', () => {
+  // accentSoft is used as a tinted background BEHIND text (badge labels,
+  // hover surfaces, soft callouts). Text rendered on accentSoft must meet
+  // AA body (4.5). A typo collapsing accentSoft to accent would fail here.
+  it.each(THEME_IDS)('"%s" accentSoft vs text meets AA body (≥ 4.5:1)', (theme) => {
+    const { accentSoft, text } = THEME_TOKENS[theme];
+    const ratio = contrastRatio(accentSoft, text);
+    expect(
+      ratio,
+      `${theme}: accentSoft=${accentSoft} text=${text} → ${ratio.toFixed(2)}`,
+    ).toBeGreaterThanOrEqual(WCAG_AA_BODY);
+  });
+
+  it.each(THEME_IDS)('"%s" accentSoft distinct from accent (typo guard)', (theme) => {
+    const { accent, accentSoft } = THEME_TOKENS[theme];
+    expect(accent.toLowerCase()).not.toBe(accentSoft.toLowerCase());
+  });
+});
