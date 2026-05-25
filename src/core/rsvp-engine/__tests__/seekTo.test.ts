@@ -96,6 +96,87 @@ describe('seekTo()', () => {
     expect(last).toEqual({ type: 'word', index: 0, word: 'a' });
   });
 
+  it('seek with non-integer index is a no-op (NaN, Infinity, fractional)', () => {
+    // Finite-integer guard prevents nextIndex corruption that would otherwise
+    // emit `{ word: undefined }` downstream.
+    const words = ['a', 'b', 'c'];
+    const engine = createRsvpEngine({ words, wpm: 300 });
+    const events: RsvpEvent[] = [];
+    engine.subscribe((e) => events.push(e));
+    engine.start();
+    const before = events.length;
+
+    engine.seekTo(Number.NaN);
+    engine.seekTo(Number.POSITIVE_INFINITY);
+    engine.seekTo(2.7);
+
+    expect(events.length).toBe(before);
+    expect(engine.state).toBe('playing');
+  });
+
+  it('reschedules at exactly the current cadence (no sub-msPerWord jitter pin)', () => {
+    // Pin the timing contract: after seekTo while playing, the next emission
+    // fires at exactly msPerWord, not less, not more.
+    const words = ['a', 'b', 'c', 'd', 'e'];
+    const engine = createRsvpEngine({ words, wpm: 300 }); // 200ms/word
+    const events: RsvpEvent[] = [];
+    engine.subscribe((e) => events.push(e));
+    engine.start();
+    vi.advanceTimersByTime(50); // Pre-seek mid-tick; partial elapsed.
+
+    engine.seekTo(2);
+    const afterSeek = events.length;
+
+    vi.advanceTimersByTime(199);
+    expect(events.length).toBe(afterSeek);
+    vi.advanceTimersByTime(1);
+    expect(events.length).toBe(afterSeek + 1);
+    expect(events[afterSeek]).toEqual({ type: 'word', index: 3, word: 'd' });
+  });
+
+  it('subscriber-initiated seek during word emit is bounded by re-entrancy guard', () => {
+    // A subscriber that calls engine.seekTo from inside its own word handler
+    // would otherwise re-enter tick() mid-emit, double-emitting and corrupting
+    // the schedule. The inner call is silently dropped; the outer tick
+    // proceeds normally.
+    const words = ['a', 'b', 'c', 'd', 'e'];
+    const engine = createRsvpEngine({ words, wpm: 300 });
+    const events: RsvpEvent[] = [];
+    let reentered = 0;
+    engine.subscribe((e) => {
+      events.push(e);
+      if (e.type === 'word' && e.index === 1) {
+        reentered += 1;
+        engine.seekTo(4); // Should be no-op while parent seek is in flight.
+      }
+    });
+    engine.start();
+    engine.seekTo(1); // Triggers the subscriber re-entry at index 1.
+
+    expect(reentered).toBe(1);
+    expect(engine.state).toBe('playing');
+    // Outer seek emitted only the index=1 replacement; inner was dropped.
+    const wordEvents = events.filter((e) => e.type === 'word');
+    expect(wordEvents.length).toBeGreaterThanOrEqual(2);
+    // No corruption — last word event has a defined `word` value.
+    const last = wordEvents[wordEvents.length - 1];
+    if (last.type === 'word') expect(typeof last.word).toBe('string');
+  });
+
+  it('snapToSentence: false / undefined skip snap', () => {
+    const words = ['Hello', 'world.', 'This', 'is', 'fine.'];
+    const engine = createRsvpEngine({ words, wpm: 300 });
+    const events: RsvpEvent[] = [];
+    engine.subscribe((e) => events.push(e));
+    engine.start();
+
+    engine.seekTo(3, { snapToSentence: false });
+    expect(events[events.length - 1]).toEqual({ type: 'word', index: 3, word: 'is' });
+
+    engine.seekTo(2);
+    expect(events[events.length - 1]).toEqual({ type: 'word', index: 2, word: 'This' });
+  });
+
   it('seek while done is a no-op', () => {
     const words = ['a', 'b'];
     const engine = createRsvpEngine({ words, wpm: 300 });
@@ -178,6 +259,24 @@ describe('seekTo() with snapToSentence', () => {
 
     const last = events[events.length - 1];
     expect(last).toEqual({ type: 'word', index: 0, word: 'First.' });
+  });
+
+  it('TODO #90: naive snap mis-fires on abbreviations ("Dr." treated as sentence end)', () => {
+    // Pins the CURRENT (intentionally naive) [.!?]$ heuristic so a future
+    // sentence-detector refactor (issue #90 markSentenceBoundaries) gets caught
+    // as a behavior change rather than slipping in silently. Builder
+    // self-weakness #1.
+    const words = ['Dr.', 'Smith', 'said', 'hello.', 'Next', 'sentence', 'here.'];
+    const engine = createRsvpEngine({ words, wpm: 300 });
+    const events: RsvpEvent[] = [];
+    engine.subscribe((e) => events.push(e));
+    engine.start();
+
+    // Seek to index 2 ("said") with snap. Naive heuristic sees "Dr." as a
+    // sentence end and snaps to 1 ("Smith") — INCORRECT for English prose.
+    engine.seekTo(2, { snapToSentence: true });
+
+    expect(events[events.length - 1]).toEqual({ type: 'word', index: 1, word: 'Smith' });
   });
 
   it('snapToSentence past-end still → done (snap is bypassed for out-of-range targets)', () => {

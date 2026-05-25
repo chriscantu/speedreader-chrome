@@ -26,15 +26,6 @@ export interface RsvpEngineOptions {
   wpm: number;
 }
 
-export interface SeekOptions {
-  /**
-   * If `true`, snap the target index BACKWARD to the nearest sentence-start
-   * word (the word immediately following the closest preceding word that ends
-   * with `.`, `!`, or `?`). If no such boundary exists, snap to `0`.
-   */
-  snapToSentence?: boolean;
-}
-
 export interface RsvpEngine {
   readonly state: RsvpState;
   start(): void;
@@ -54,8 +45,10 @@ export interface RsvpEngine {
    *     index. (Idle = nothing displayed yet, so no replacement to emit.)
    *   - past-end (`index >= total`) → state becomes `done`, emits `done`.
    *   - negative `index` → clamped to `0`.
+   *   - non-finite or non-integer `index` (NaN, Infinity, 2.7) → no-op.
+   *   - `done` → no-op.
    */
-  seekTo(index: number, options?: SeekOptions): void;
+  seekTo(index: number, options?: { snapToSentence?: boolean }): void;
 }
 
 // wpm must be a positive finite number; 0, negative, NaN, Infinity all invalid.
@@ -114,6 +107,7 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
   let state: RsvpState = RSVP_STATE.IDLE;
   let nextIndex = 0;
   let timerId: ReturnType<typeof setTimeout> | null = null;
+  let seekInFlight = false;
   const listeners = new Set<RsvpListener>();
 
   const emit = (event: RsvpEvent): void => {
@@ -202,8 +196,15 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
         listeners.delete(listener);
       };
     },
-    seekTo(index: number, options?: SeekOptions): void {
+    seekTo(index: number, options?: { snapToSentence?: boolean }): void {
       if (state === RSVP_STATE.DONE) return;
+      // Finite-integer guard: NaN, Infinity, fractional inputs would corrupt
+      // nextIndex and emit `words[NaN] === undefined` downstream.
+      if (!Number.isInteger(index)) return;
+      // Re-entrancy guard: prevent recursive seekTo invocations from inside a
+      // subscriber's word-event handler. Inner call would clearPending() + tick()
+      // and the outer would then schedule a stale setTimeout.
+      if (seekInFlight) return;
 
       const total = words.length;
       let target = index < 0 ? 0 : index;
@@ -215,23 +216,29 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
         nextIndex = total;
         state = RSVP_STATE.DONE;
         clearPending();
-        emit({ type: 'done' });
+        seekInFlight = true;
+        try {
+          emit({ type: 'done' });
+        } finally {
+          seekInFlight = false;
+        }
         return;
       }
 
       nextIndex = target;
-
-      if (state === RSVP_STATE.PLAYING) {
-        // Rescheduled emission at current cadence; tick emits word + advances.
-        clearPending();
-        tick();
-      } else if (state === RSVP_STATE.PAUSED) {
-        // Emit replacement so subscriber redraws; align nextIndex with the
-        // engine's post-emit invariant ("next word to emit").
-        emit({ type: 'word', index: target, word: words[target] });
-        nextIndex = target + 1;
+      seekInFlight = true;
+      try {
+        if (state === RSVP_STATE.PLAYING) {
+          clearPending();
+          tick();
+        } else if (state === RSVP_STATE.PAUSED) {
+          emit({ type: 'word', index: target, word: words[target] });
+          nextIndex = target + 1;
+        }
+        // idle: silent reposition; first start() will tick from new nextIndex.
+      } finally {
+        seekInFlight = false;
       }
-      // idle: silent reposition; first start() will tick from new nextIndex.
     },
   };
 }
