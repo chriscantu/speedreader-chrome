@@ -79,4 +79,25 @@ describe('context-menu/register (side-effect import)', () => {
     const subscribeSettings = storage.subscribeSettings as unknown as Mock;
     expect(subscribeSettings).toHaveBeenCalledTimes(1);
   });
+
+  it('subscribeSettings handler invokes ensureContextMenu on each settings change', async () => {
+    await import('../register');
+    const storage = await import('../../../settings/storage');
+    const subscribeSettings = storage.subscribeSettings as unknown as Mock;
+    const install = await import('../install');
+    const ensureContextMenu = install.ensureContextMenu as unknown as Mock;
+
+    // Grab the handler registered with subscribeSettings.
+    const handler = subscribeSettings.mock.calls[0]?.[0] as () => void;
+    expect(typeof handler).toBe('function');
+
+    // Settings module-load called ensureContextMenu zero times (it's
+    // invoked through the lifecycle listeners, not the subscribe path).
+    expect(ensureContextMenu).not.toHaveBeenCalled();
+
+    // Fire the subscribe callback twice → ensureContextMenu twice.
+    handler();
+    handler();
+    expect(ensureContextMenu).toHaveBeenCalledTimes(2);
+  });
 });

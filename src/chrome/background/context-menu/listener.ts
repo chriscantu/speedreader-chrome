@@ -57,12 +57,20 @@ export async function handleContextMenuClick(
       // is present to receive it on an unactivated page). The `.catch`
       // swallows the "Receiving end does not exist" rejection that
       // arises pre-#19.
-      void chrome.tabs
+      chrome.tabs
         .sendMessage(tab.id, {
           type: 'ctx-frame-blocked',
           message: 'Selection inside embedded frame; right-click the page directly',
         })
-        .catch(() => {});
+        .catch((err: unknown) => {
+          // "Receiving end does not exist" is benign pre-#19 (no CS on
+          // unactivated pages). Other failures (closed tab, serialization,
+          // disconnect) deserve a log so post-#19 regressions surface.
+          const msg = err instanceof Error ? err.message : String(err);
+          if (!msg.includes('Receiving end does not exist')) {
+            console.warn(`${LOG_PREFIX} contextMenu: ctx-frame-blocked toast failed`, err);
+          }
+        });
     }
     return;
   }
@@ -83,25 +91,39 @@ export async function handleContextMenuClick(
       // future right-click show the user's most recent choice. The
       // 300ms debounce in `saveSettings` is sized for this rate
       // (one write per click, max).
-      void saveSettings({ lastUsedWpm: wpm });
-      await dispatchActivation({
+      saveSettings({ lastUsedWpm: wpm }).catch((err) => {
+        console.warn(`${LOG_PREFIX} contextMenu: lastUsedWpm persist failed`, err);
+      });
+      const presetResult = await dispatchActivation({
         source: 'contextMenu',
         tabId: tab.id,
         selectionText: info.selectionText,
         menuItemId: id,
         overrides: { wpm },
       });
+      if (!presetResult.ok) {
+        console.warn(
+          `${LOG_PREFIX} contextMenu: preset dispatch failed (${presetResult.error.kind})`,
+          presetResult.error,
+        );
+      }
       return;
     }
     case 'speedreader.ctx.lastUsed.v1': {
       const settings = await loadSettings();
-      await dispatchActivation({
+      const lastUsedResult = await dispatchActivation({
         source: 'contextMenu',
         tabId: tab.id,
         selectionText: info.selectionText,
         menuItemId: id,
         overrides: { wpm: settings.lastUsedWpm },
       });
+      if (!lastUsedResult.ok) {
+        console.warn(
+          `${LOG_PREFIX} contextMenu: lastUsed dispatch failed (${lastUsedResult.error.kind})`,
+          lastUsedResult.error,
+        );
+      }
       return;
     }
     case 'speedreader.ctx.preset.custom.v1':
@@ -113,10 +135,14 @@ export async function handleContextMenuClick(
     case 'speedreader.ctx.toggle.showContext.v1':
       // `info.checked` is the NEW checked state Chrome reports after
       // the user's click — store it directly.
-      void saveSettings({ contextLine: info.checked === true });
+      saveSettings({ contextLine: info.checked === true }).catch((err) => {
+        console.warn(`${LOG_PREFIX} contextMenu: contextLine toggle persist failed`, err);
+      });
       return;
     case 'speedreader.ctx.toggle.startFromWord1.v1':
-      void saveSettings({ startFromWordOne: info.checked === true });
+      saveSettings({ startFromWordOne: info.checked === true }).catch((err) => {
+        console.warn(`${LOG_PREFIX} contextMenu: startFromWordOne toggle persist failed`, err);
+      });
       return;
     case 'speedreader.ctx.parent.v1':
     case 'speedreader.ctx.separator.v1':

@@ -30,21 +30,31 @@ import { handleContextMenuClick } from './listener';
 import { ensureContextMenu } from './install';
 import { subscribeSettings } from '../../settings/storage';
 
+const LOG_PREFIX = '[SpeedReader]';
+
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  void handleContextMenuClick(info, tab);
+  handleContextMenuClick(info, tab).catch((err) => {
+    console.error(`${LOG_PREFIX} contextMenu: click handler failed`, err);
+  });
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  void ensureContextMenu();
+  ensureContextMenu().catch((err) => {
+    console.error(`${LOG_PREFIX} contextMenu: onInstalled install failed`, err);
+  });
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  void ensureContextMenu();
+  ensureContextMenu().catch((err) => {
+    console.error(`${LOG_PREFIX} contextMenu: onStartup install failed`, err);
+  });
 });
 
 // Subscribe-broadcast → menu update path (Menu Update Discipline
 // path #1). Fires for any settings mutation; `ensureContextMenu`'s
 // per-item diff filters to actual title / checked changes.
 subscribeSettings(() => {
-  void ensureContextMenu();
+  ensureContextMenu().catch((err) => {
+    console.error(`${LOG_PREFIX} contextMenu: subscribe-driven update failed`, err);
+  });
 });

@@ -22,16 +22,23 @@ import { SettingsSchemaV4 } from '../settings/schema';
  * than nuking the entire overrides object at the shape gate — keeps the
  * activation alive with snapshot defaults for the other fields.
  *
+ * Field-name alignment: `contextLine` / `startFromWordOne` here match
+ * the `SettingsV4` field names exactly so the CS-side
+ * `{...snapshot, ...validatedOverrides}` shallow-merge composes
+ * cleanly without a wire→settings translation table. The hi-fi mock's
+ * "Show context line" submenu label is a display string, not the wire
+ * name.
+ *
  * `.strip()` (Zod default) silently drops unknown keys — chosen over
  * `.strict()` so a future sender that adds an `overrides.theme` field
  * doesn't hard-reject older clients (graceful forward-compat). Forgery
- * defense lives at sender-provenance
- * (`src/chrome/background/messaging/on-message.ts:104`), not at
- * unknown-key strictness.
+ * defense lives at sender-provenance (sender.id check in the unified
+ * onMessage listener — `src/chrome/background/messaging/on-message.ts`
+ * `handleOnMessage`), not at unknown-key strictness.
  */
 export const OverridesSchema = z.object({
   wpm: z.number().optional(),
-  showContext: z.boolean().optional(),
+  contextLine: z.boolean().optional(),
   startFromWordOne: z.boolean().optional(),
 });
 
@@ -41,7 +48,7 @@ export type Overrides = z.infer<typeof OverridesSchema>;
  * Shape gate. Returns parsed `Overrides` on success; `null` if `raw` is not
  * an object-shaped overrides payload at all (string, array, `null`, etc.)
  * OR if a typed field is present with a wrong primitive type
- * (e.g., `wpm: 'fast'`, `showContext: 'true'`). Per-field bounds (range,
+ * (e.g., `wpm: 'fast'`, `contextLine: 'true'`). Per-field bounds (range,
  * integer, multipleOf) are NOT enforced here — that's `pickValidOverrides`.
  */
 export function validateOverrides(raw: unknown): Overrides | null {
@@ -61,8 +68,8 @@ export function pickValidOverrides(raw: Overrides): Overrides {
     const r = SettingsSchemaV4.shape.wpm.safeParse(raw.wpm);
     if (r.success) out.wpm = r.data;
   }
-  if (raw.showContext !== undefined && typeof raw.showContext === 'boolean') {
-    out.showContext = raw.showContext;
+  if (raw.contextLine !== undefined && typeof raw.contextLine === 'boolean') {
+    out.contextLine = raw.contextLine;
   }
   if (raw.startFromWordOne !== undefined && typeof raw.startFromWordOne === 'boolean') {
     out.startFromWordOne = raw.startFromWordOne;

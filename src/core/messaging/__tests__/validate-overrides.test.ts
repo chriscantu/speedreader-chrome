@@ -27,8 +27,8 @@ describe('validateOverrides — shape gate', () => {
     });
 
     it('accepts boolean toggles', () => {
-      expect(validateOverrides({ showContext: true, startFromWordOne: false })).toEqual({
-        showContext: true,
+      expect(validateOverrides({ contextLine: true, startFromWordOne: false })).toEqual({
+        contextLine: true,
         startFromWordOne: false,
       });
     });
@@ -59,8 +59,8 @@ describe('validateOverrides — shape gate', () => {
       expect(validateOverrides(undefined)).toBeNull();
     });
 
-    it('rejects non-boolean showContext', () => {
-      expect(validateOverrides({ showContext: 'true' })).toBeNull();
+    it('rejects non-boolean contextLine', () => {
+      expect(validateOverrides({ contextLine: 'true' })).toBeNull();
     });
 
     it('rejects non-boolean startFromWordOne', () => {
@@ -126,15 +126,15 @@ describe('pickValidOverrides — bounds gate', () => {
   });
 
   describe('toggle bounds (strict-boolean)', () => {
-    it('preserves valid wpm + valid showContext together', () => {
-      expect(pickValidOverrides({ wpm: 300, showContext: true })).toEqual({
+    it('preserves valid wpm + valid contextLine together', () => {
+      expect(pickValidOverrides({ wpm: 300, contextLine: true })).toEqual({
         wpm: 300,
-        showContext: true,
+        contextLine: true,
       });
     });
 
-    it('drops non-boolean showContext (escaped via type-cast)', () => {
-      const overrides = { showContext: 'true' as unknown as boolean };
+    it('drops non-boolean contextLine (escaped via type-cast)', () => {
+      const overrides = { contextLine: 'true' as unknown as boolean };
       expect(pickValidOverrides(overrides)).toEqual({});
     });
 
@@ -145,10 +145,10 @@ describe('pickValidOverrides — bounds gate', () => {
 
     it('keeps valid boolean while dropping invalid sibling', () => {
       const overrides = {
-        showContext: true,
+        contextLine: true,
         startFromWordOne: 'false' as unknown as boolean,
       };
-      expect(pickValidOverrides(overrides)).toEqual({ showContext: true });
+      expect(pickValidOverrides(overrides)).toEqual({ contextLine: true });
     });
   });
 
@@ -175,13 +175,13 @@ describe('composition — applyOverrides-style pipeline', () => {
     // toggle. All survivors land in final overrides.
     const shapeOk = validateOverrides({
       wpm: 300,
-      showContext: true,
+      contextLine: true,
       theme: 'dark',
     });
     if (shapeOk === null) throw new Error('shape gate should have passed');
     expect(pickValidOverrides(shapeOk)).toEqual({
       wpm: 300,
-      showContext: true,
+      contextLine: true,
     });
   });
 

@@ -23,10 +23,20 @@ type Migrator = (raw: Record<string, unknown>) => Record<string, unknown>;
  * `contextLine: false`, `startFromWordOne: false`, and `lastUsedWpm`
  * defaulted from the payload's current `wpm` (so the first post-migration
  * submenu open shows the user's actual reading speed, not the default).
- * If `raw.wpm` isn't a number (corrupt payload), fall back to 250 —
- * the final `safeParse` against `SettingsSchemaV4` will still reject
- * out-of-range values and trigger the defaults fallback.
+ *
+ * `lastUsedWpm` is clamped + rounded to the V4 schema constraint
+ * (`int [100, 600], multipleOf(10)`) so a corrupt or out-of-range
+ * `raw.wpm` doesn't propagate into `lastUsedWpm` and force the final
+ * `safeParse` to nuke the entire payload to defaults. The whole-payload
+ * fallback still fires if `raw.wpm` itself fails V4 validation — this
+ * clamp only protects the derived `lastUsedWpm` field.
  */
+function clampLastUsedWpm(raw: unknown): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 250;
+  const clamped = Math.max(100, Math.min(600, raw));
+  return Math.round(clamped / 10) * 10;
+}
+
 const MIGRATIONS: Record<number, Migrator> = {
   0: (raw) => ({ ...raw, version: 1 }),
   1: (raw) => ({ ...raw, alignment: 'orp', version: 2 }),
@@ -35,7 +45,7 @@ const MIGRATIONS: Record<number, Migrator> = {
     ...raw,
     contextLine: false,
     startFromWordOne: false,
-    lastUsedWpm: typeof raw.wpm === 'number' ? raw.wpm : 250,
+    lastUsedWpm: clampLastUsedWpm(raw.wpm),
     version: 4,
   }),
 };

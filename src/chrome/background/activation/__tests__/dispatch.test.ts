@@ -278,4 +278,32 @@ describe('dispatchActivation', () => {
     const [, payload] = stub.tabs.sendMessage.mock.calls[0] ?? [];
     expect(payload).not.toHaveProperty('overrides');
   });
+
+  // AC #17 funnel-level integration: dispatch forwards whatever overrides
+  // it's given verbatim. Bounds-checking happens CS-side via
+  // pickValidOverrides — but the funnel must not silently strip or
+  // mutate the overrides object on the way out. A hostile in-process
+  // caller that constructs an intent with wpm: 999999 should see the
+  // value reach the wire untouched so the CS-side gate is the canonical
+  // enforcement seam (single source of truth for the bounds check).
+  it('AC #17: forwards out-of-bounds overrides verbatim — bounds check is CS-side', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+    const intent: ActivationIntent = {
+      source: 'contextMenu',
+      tabId: 17,
+      selectionText: 'hostile',
+      menuItemId: 'speedreader.ctx.preset.300.v1',
+      overrides: { wpm: 999999 },
+    };
+
+    const result = await dispatchActivation(intent);
+
+    expect(result.ok).toBe(true);
+    const [, payload] = stub.tabs.sendMessage.mock.calls[0] ?? [];
+    expect(payload).toEqual({
+      type: 'activate-reader',
+      scope: 'selection',
+      overrides: { wpm: 999999 },
+    });
+  });
 });
