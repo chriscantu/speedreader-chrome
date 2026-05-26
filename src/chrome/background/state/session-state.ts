@@ -76,22 +76,27 @@ export async function saveSession(state: SessionState): Promise<void> {
 }
 
 /**
- * Load and shape-validate a session for a given tab. Returns `null` if
- * absent or the stored payload fails shape validation (caller must
- * `sourceHash`-verify via `validateSession` separately when it has the
- * expected hash from the CS).
+ * Load and validate a session for a given tab.
+ *
+ * `expectedSourceHash` is REQUIRED — the caller must obtain it from the
+ * CS-side hash computation per the SW-lifecycle spec §"sourceHash resume
+ * gate". Self-comparing the stored hash to itself is a no-op and would
+ * defeat the resume guard (the whole point: detect content change under
+ * the user). Making the parameter required closes the silent-skip path
+ * that the prior signature allowed.
+ *
+ * Returns `null` if the slot is absent, the payload fails shape
+ * validation, OR the stored `sourceHash` does not match
+ * `expectedSourceHash`. Callers that receive `null` MUST treat the slot
+ * as empty and start fresh.
  */
-export async function loadSession(tabId: number): Promise<SessionState | null> {
+export async function loadSession(
+  tabId: number,
+  expectedSourceHash: string,
+): Promise<SessionState | null> {
   const key = keyFor(tabId);
   const result = await chrome.storage.session.get(key);
   const raw = (result as Record<string, unknown>)[key];
   if (raw === undefined) return null;
-
-  // Shape-only validation here — sourceHash is verified on the resume
-  // path (see SW-lifecycle spec §"sourceHash resume gate"). We pass the
-  // stored hash to itself so `validateSession` short-circuits on shape
-  // failure without enforcing a mismatch the caller hasn't asked for.
-  if (!isObject(raw)) return null;
-  const storedHash = typeof raw.sourceHash === 'string' ? raw.sourceHash : '';
-  return validateSession(raw, storedHash);
+  return validateSession(raw, expectedSourceHash);
 }

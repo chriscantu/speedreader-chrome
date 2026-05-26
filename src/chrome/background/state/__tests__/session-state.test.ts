@@ -53,16 +53,16 @@ describe('session-state', () => {
   });
 
   describe('round-trip save/load', () => {
-    it('saves and loads a valid state', async () => {
+    it('saves and loads a valid state when expectedSourceHash matches', async () => {
       const { saveSession, loadSession } = await import('../session-state');
       await saveSession(VALID_STATE);
-      const loaded = await loadSession(42);
+      const loaded = await loadSession(42, VALID_STATE.sourceHash);
       expect(loaded).toEqual(VALID_STATE);
     });
 
     it('returns null when no session is stored for the tab', async () => {
       const { loadSession } = await import('../session-state');
-      const loaded = await loadSession(999);
+      const loaded = await loadSession(999, 'whatever');
       expect(loaded).toBeNull();
     });
 
@@ -71,8 +71,8 @@ describe('session-state', () => {
       await saveSession(VALID_STATE);
       await saveSession({ ...VALID_STATE, tabId: 99, positionIndex: 3 });
 
-      const a = await loadSession(42);
-      const b = await loadSession(99);
+      const a = await loadSession(42, VALID_STATE.sourceHash);
+      const b = await loadSession(99, VALID_STATE.sourceHash);
 
       expect(a?.positionIndex).toBe(17);
       expect(b?.positionIndex).toBe(3);
@@ -136,8 +136,24 @@ describe('session-state', () => {
       const key = keys[0] ?? '';
       store[key] = { tabId: 42, oops: true };
 
-      const loaded = await loadSession(42);
+      const loaded = await loadSession(42, VALID_STATE.sourceHash);
       expect(loaded).toBeNull();
+    });
+
+    it('returns null when the stored sourceHash mismatches the expected one', async () => {
+      const { saveSession, loadSession } = await import('../session-state');
+      await saveSession(VALID_STATE);
+      const loaded = await loadSession(42, 'differenthash000000');
+      expect(loaded).toBeNull();
+    });
+
+    it('requires callers to supply an expectedSourceHash (compile-time guarantee)', async () => {
+      const { loadSession } = await import('../session-state');
+      // Type-level assertion via runtime: the second argument is required.
+      // The previous signature allowed `loadSession(tabId)` which silently
+      // self-compared the stored hash to itself — defeating the resume
+      // guard. We assert structurally that the function has arity 2.
+      expect(loadSession.length).toBe(2);
     });
   });
 });
