@@ -69,11 +69,18 @@ describe('dispatchActivation', () => {
     expect(stub.tabs.get).toHaveBeenCalledWith(42);
     expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
     const callArg = stub.scripting.executeScript.mock.calls[0]?.[0] as {
-      target: { tabId: number };
+      target: { tabId: number; frameIds?: unknown; allFrames?: unknown };
       files: string[];
     };
     expect(callArg.target.tabId).toBe(42);
     expect(callArg.files).toContain(CONTENT_SCRIPT_FILE);
+    // Issue #135 — top-frame-only invariant. Activation injects into
+    // the top frame; the dedup key is `(tabId, url)` keyed on the
+    // top-level document. Setting `allFrames: true` or `frameIds: [...]`
+    // here would silently break the dedup contract and let subframe
+    // origin flips bypass the `tab.url` recheck. Pin both.
+    expect(callArg.target).not.toHaveProperty('allFrames');
+    expect(callArg.target).not.toHaveProperty('frameIds');
     // The crxjs `?script` import resolves to the BUILT filename — must be
     // `.js`, not the `.ts` source. `chrome.scripting.executeScript` runs
     // against the emitted extension, not the source tree.

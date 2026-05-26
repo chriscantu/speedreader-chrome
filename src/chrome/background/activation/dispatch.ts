@@ -74,6 +74,17 @@ export { CONTENT_SCRIPT_FILE };
 interface InjectionLock {
   url: string;
   promise: Promise<void>;
+  /**
+   * Issue #138 — abort signal for the tab-id reuse residual race.
+   * Set by the `chrome.tabs.onRemoved` listener when the tab whose
+   * injection this lock represents is closed. Chrome's
+   * `scripting.executeScript` has no cancellation API; the underlying
+   * call may still resolve against a reused tab id. Followers awaiting
+   * `promise` and the leader's `.finally` both check this flag and
+   * surface `inject-failed` if set, so a successful resolve against a
+   * reused tab does not silently land the activation.
+   */
+  aborted: boolean;
 }
 const injectionLocks = new Map<number, InjectionLock>();
 
@@ -122,6 +133,16 @@ function withInjectionTimeout(inner: Promise<void>, ms: number): Promise<void> {
  */
 if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved?.addListener) {
   chrome.tabs.onRemoved.addListener((tabId) => {
+    const entry = injectionLocks.get(tabId);
+    if (entry) {
+      // Mark aborted FIRST so any follower already awaiting
+      // `entry.promise` observes the flag on resume. Deleting the slot
+      // alone is not sufficient — the underlying `executeScript` could
+      // resolve against a reused tab id (issue #138) and the local
+      // `entry` reference held by the leader / followers survives the
+      // map delete.
+      entry.aborted = true;
+    }
     injectionLocks.delete(tabId);
   });
 }
@@ -142,6 +163,12 @@ async function ensureContentScript(
   if (cached && cached.url === url) {
     try {
       await cached.promise;
+      if (cached.aborted) {
+        return {
+          ok: false,
+          error: { kind: 'inject-failed', tabId, details: 'tab-removed' },
+        };
+      }
       return { ok: true, data: undefined };
     } catch (details) {
       return { ok: false, error: { kind: 'inject-failed', tabId, details } };
@@ -149,11 +176,27 @@ async function ensureContentScript(
   }
 
   const inner = (async () => {
+    // Issue #135 — top-frame-only invariant. The dedup key is
+    // `(tabId, url)` where `url` is the top-level document URL from
+    // `chrome.tabs.get(tabId).url`. Adding `allFrames: true` or
+    // `frameIds: [...]` here would inject into subframes whose URL
+    // identity is NOT tracked by the lock key; an attacker-controlled
+    // subframe could navigate independently and bypass the URL
+    // recheck. If subframe injection becomes a requirement, extend
+    // the lock key to `(tabId, frameId, url)` and enumerate frames in
+    // the post-recheck.
     await chrome.scripting.executeScript({
       target: { tabId },
       files: [CONTENT_SCRIPT_FILE],
     });
   })();
+
+  // `entry` is allocated up-front so the `onRemoved` listener can
+  // mutate `entry.aborted` even after the map slot has been deleted.
+  // The leader and any followers hold local references to this object
+  // through their `await cached.promise` (followers) or the closure
+  // around `promise.finally` (leader).
+  const entry: InjectionLock = { url, promise: null as unknown as Promise<void>, aborted: false };
 
   const promise = withInjectionTimeout(inner, INJECTION_TIMEOUT_MS).finally(() => {
     // Only clear our own entry — a later dispatch on a different URL may
@@ -164,10 +207,14 @@ async function ensureContentScript(
       injectionLocks.delete(tabId);
     }
   });
-  injectionLocks.set(tabId, { url, promise });
+  entry.promise = promise;
+  injectionLocks.set(tabId, entry);
 
   try {
     await promise;
+    if (entry.aborted) {
+      return { ok: false, error: { kind: 'inject-failed', tabId, details: 'tab-removed' } };
+    }
     return { ok: true, data: undefined };
   } catch (details) {
     return { ok: false, error: { kind: 'inject-failed', tabId, details } };

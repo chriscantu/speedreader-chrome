@@ -270,6 +270,67 @@ describe('dispatchActivation — issue #128 lock eviction', () => {
     await Promise.all([pA, pB, pB2]);
   });
 
+  // Issue #138 — tab-id reuse residual race. When `onRemoved` fires
+  // for a tab whose injection is in flight, the listener must mark the
+  // lock entry as aborted in addition to deleting the slot. If the
+  // underlying `executeScript` then resolves (Chrome's API has no
+  // cancellation; reused tab id could land the injection elsewhere),
+  // `ensureContentScript` MUST surface `inject-failed` rather than
+  // returning ok against a stale/reused tab.
+  it('#138: aborted flag forces inject-failed even when executeScript resolves after onRemoved', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+    const TAB = 401;
+    const intent: ActivationIntent = { source: 'command', tabId: TAB };
+
+    const pA = dispatchActivation(intent);
+    pending.push(pA);
+    await flushMicrotasks();
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+
+    // Tab close fires while injection is in flight; listener must
+    // mark entry as aborted AND delete the slot.
+    fireTabRemoved(TAB);
+
+    // Now resolve executeScript (simulating Chrome's API resolving
+    // late against a reused tab). Without the abort flag, the leader
+    // path would return ok.
+    executeCalls[0]?.resolve();
+
+    const result = await pA;
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.error.kind).toBe('inject-failed');
+  });
+
+  // Issue #138 — followers must also see the abort. A follower attached
+  // to a leader's promise via URL match would observe the resolved
+  // promise after onRemoved fires; without checking the entry's
+  // aborted flag the follower would silently succeed against a
+  // potentially reused tab.
+  it('#138: follower attached via URL match also surfaces inject-failed on abort', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+    const TAB = 402;
+    const intent: ActivationIntent = { source: 'command', tabId: TAB };
+
+    const pLeader = dispatchActivation(intent);
+    pending.push(pLeader);
+    await flushMicrotasks();
+    const pFollower = dispatchActivation(intent);
+    pending.push(pFollower);
+    await flushMicrotasks();
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+
+    fireTabRemoved(TAB);
+    executeCalls[0]?.resolve();
+
+    const [rL, rF] = await Promise.all([pLeader, pFollower]);
+    expect(rL.ok).toBe(false);
+    expect(rF.ok).toBe(false);
+    if (rL.ok || rF.ok) throw new Error('unreachable');
+    expect(rL.error.kind).toBe('inject-failed');
+    expect(rF.error.kind).toBe('inject-failed');
+  });
+
   // Review L1 — the `clearTimeout` on the inner-settle path must run on
   // both branches so the timer cannot fire (or leak) after settle. A
   // regression that drops `clearTimeout` would leave `vi.getTimerCount()`
