@@ -19,8 +19,11 @@
  *   (issues #34, #72, #75) can wire their listeners in follow-up PRs
  *   WITHOUT touching the funnel.
  *
+ * Scope of this file (issue #34):
+ * - Side-effect import of `./commands/register` to install the
+ *   `chrome.commands.onCommand` listener for `_toggle_reader`.
+ *
  * Out of scope (deliberately):
- * - `chrome.commands.onCommand` listener (issue #34).
  * - `chrome.contextMenus` registration + `onClicked` listener (issue #72).
  * - The `rsvp-session` Port `onConnect` handler — owned by the messaging-
  *   contract spec; lands with the read-session implementation.
@@ -35,6 +38,12 @@ import { dispatchActivation } from './activation/dispatch';
 import { handleOnMessage } from './messaging/on-message';
 import { route } from './route';
 import type { ActivationIntent } from './activation/types';
+
+// Side-effect import: top-level `chrome.commands.onCommand.addListener`
+// for `_toggle_reader`. Dispatches directly via the funnel — does NOT
+// route through `onMessage`, so it cannot collide with the
+// `activate-reader` path below. See issue #34.
+import './commands/register';
 
 // Re-export so follow-up issues (#34, #72) can wire their source-specific
 // listeners against the funnel without reaching into the activation
