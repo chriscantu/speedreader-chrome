@@ -1,7 +1,7 @@
 # Context-Menu Integration Spec
 
 **Date:** 2026-05-25
-**Status:** Proposed
+**Status:** Accepted (2026-05-26)
 **Issue:** [#72 — Context-menu integration (right-click → SpeedReader scoped modal)](https://github.com/chriscantu/speedreader-chrome/issues/72)
 **Milestone:** M1 (MVP parity)
 **Scope:** Pin the surface-specific behavior of the `chrome.contextMenus` activation source — submenu structure, menu-item lifecycle, the `activate-reader` RPC overrides envelope, toggle persistence semantics, last-used-speed source, the scoped mini-modal state machine, and `chrome.contextMenus.update` discipline. Composes on top of the SW-lifecycle / activation-dispatch spec; does not modify it.
@@ -315,7 +315,7 @@ The submenu may briefly show a stale `420 wpm — last used` after SW wake, befo
 
 ### Two activation surfaces collide (#34 hotkey fires while submenu is open)
 
-`chrome.commands.onCommand` fires while the user has the submenu open. Both dispatches enter the funnel; both reach `ensureContentScript`. The activation spec's idempotent-injection contract (in-flight promise dedup + window sentinel) handles this — exactly one `executeScript` runs, and the second `activate-reader` arrives at a CS that already exists. **The second activation wins** for scope (full from the hotkey overrides selection from the menu) because they arrive in order and the CS treats the second `activate-reader` as a re-render. This is acceptable: hotkey-while-menu-open is a rare collision and the user explicitly chose to invoke the hotkey.
+`chrome.commands.onCommand` fires while the user has the submenu open. Both dispatches enter the funnel; both reach `ensureContentScript`. The activation spec's SW-side in-flight promise dedup (landed in `src/chrome/background/activation/dispatch.ts` 2026-05-26) handles this — exactly one `executeScript` runs, both `activate-reader` messages arrive in dispatch order, and the second `activate-reader` arrives at a CS instance that already exists. **The second activation wins** for scope (full from the hotkey overrides selection from the menu) because they arrive in order and the CS treats the second `activate-reader` as a re-render. **Verified invariant** as of 2026-05-26 via `src/chrome/background/activation/__tests__/collision.test.ts` (3/3 assertions passing); see OQ-2 → RESOLVED and §"OQ-2 resolution (2026-05-26)" below. This is acceptable: hotkey-while-menu-open is a rare collision and the user explicitly chose to invoke the hotkey.
 
 ### Mini-modal swap on a restricted target
 
@@ -443,16 +443,19 @@ Adjacent evidence — Safari's existing boolean toggle (`punctuationPause` in `r
 
 **Trade-off accepted.** Adding `contextLine`, `startFromWordOne`, `lastUsedWpm` to Chrome's settings schema diverges from Safari's schema. Acceptable under `scope:chrome-port`; cross-platform schema sync is not a stated invariant.
 
-### OQ-2 — #34 hotkey vs contextMenu collision (does idempotent injection + second-wins ordering survive a real race?)
+### OQ-2 — #34 hotkey vs contextMenu collision — RESOLVED (2026-05-26): test passes against in-flight Map dedup
 
 **Question.** When the #34 hotkey fires while the submenu is open, do both activations cleanly reconcile — exactly one `executeScript` call, both `activate-reader` messages arrive in order, the second message's scope and overrides cleanly replace the first overlay?
 
-**Evidence required.** The integration test at `src/chrome/background/activation/__tests__/collision.test.ts` (enumerated in §Test Surface). Three assertions: one-`executeScript` invariant, in-order message arrival, clean overlay replacement with no double-extraction and no zombie pause-state.
+**Evidence.** The integration test at `src/chrome/background/activation/__tests__/collision.test.ts` (enumerated in §Test Surface) lands in the same PR as this resolution. Three assertions, all passing:
 
-**Resolution effects.**
+1. One-`executeScript` invariant: 1/1 call observed across two near-simultaneous `dispatchActivation` calls for the same `tabId`.
+2. In-order message arrival: ctx-menu (`scope: 'selection'`) then hotkey (`scope: 'full'`), preserved by JS microtask scheduling.
+3. Clean overlay replacement at the funnel boundary: second message's `scope: 'full'` is the final delivered payload; both dispatches return `{ ok: true }`; only one CS instance ever instantiated.
 
-- If the test **passes**: §Failure Modes "Two activation surfaces collide" graduates from claim to verified invariant; spec moves to Accepted (OQ-1 already resolved 2026-05-26).
-- If the test **fails**: spec needs an explicit reconciliation decision before Accepted — either "first-wins + drop second" or "queue + serialize" — and §Failure Modes is rewritten accordingly.
+**Implementation note.** The activation spec's `ensureContentScript` contract (`docs/superpowers/specs/2026-05-22-sw-lifecycle-activation.md` §"SW-side: in-flight promise dedup") landed in `src/chrome/background/activation/dispatch.ts` in the same PR — a module-level `Map<number, Promise<void>>` keyed by `tabId`, entries cleared on settle. The companion `window.__SPEEDREADER_INJECTED__` CS-side sentinel and `sendPing` retry-with-3000ms-budget remain tracked separately under the SW-lifecycle spec (not gating this spec — the in-flight Map alone satisfies OQ-2's three assertions). See §"OQ-2 resolution (2026-05-26)" below for scope-boundary detail.
+
+**Resolution effect.** §Failure Modes "Two activation surfaces collide" graduates from claim to verified invariant; spec moves to Accepted (OQ-1 already resolved 2026-05-26).
 
 ## Self-identified Weaknesses
 
@@ -474,12 +477,12 @@ This spec went through a four-critic antagonistic ring on 2026-05-25.
   - F1 (toggle persistence) → OQ-1 (empirical gate) → RESOLVED 2026-05-26 (persistent).
   - F2 (scope swap silent + over-specified) → state table replaced with single sentence, §"Focus and Announcement on Swap" added, scope-swap unit test added, E2E corrected.
   - F3 (selection-cleared silent fallback) → §Failure Modes rewritten, AC #15 added, unit-test bullet added under `factory.test.ts` peer in §Test Surface.
-  - F4 (#34 hotkey collision) → OQ-2 (empirical gate), AC #14, `collision.test.ts` added.
+  - F4 (#34 hotkey collision) → OQ-2 (empirical gate) → RESOLVED 2026-05-26 (in-flight Map dedup in `dispatch.ts`; `collision.test.ts` 3/3 passing).
   - F5 (scoped modal focus on open) → §"Focus and Announcement on Open" added, AC #16.
   - F6 (overrides receive-side bounds) → §"Activation Payload Extension — Receive-Side Validation" added, AC #17, `validate-overrides.test.ts` added.
   - F7 (`installMenuItems` adapter test under-specified) → four explicit cases enumerated in §Test Surface.
   - F8 (frame provenance) → §"Frame Provenance" added, AC #18.
-- **Builder weakness drift**: weakness #2 (`overrides` nested vs flat) removed — arbiter confirmed style-only with no behavioral consequence; the nested shape stays. Weakness #3 (`lastUsedWpm` sync vs local) deferred to the V3 → V4 migration PR. Weaknesses #4 (toggle persistence) → OQ-1 → RESOLVED 2026-05-26; #5 (collision) → OQ-2; #7 (selection-cleared fallback) → AC #15. Remaining hedges in §Self-identified Weaknesses: #1 (`Custom…` → Options vs popup), #6 (first-extraction latency on swap), plus the new `storage.sync` quota / data-classification note.
+- **Builder weakness drift**: weakness #2 (`overrides` nested vs flat) removed — arbiter confirmed style-only with no behavioral consequence; the nested shape stays. Weakness #3 (`lastUsedWpm` sync vs local) deferred to the V3 → V4 migration PR. Weaknesses #4 (toggle persistence) → OQ-1 → RESOLVED 2026-05-26; #5 (collision) → OQ-2 → RESOLVED 2026-05-26; #7 (selection-cleared fallback) → AC #15. Remaining hedges in §Self-identified Weaknesses: #1 (`Custom…` → Options vs popup), #6 (first-extraction latency on swap), plus the new `storage.sync` quota / data-classification note.
 
 ## Post-ring review fixes (2026-05-25)
 
@@ -538,3 +541,39 @@ A second `/pr-review-toolkit:review-pr` run after the first fix commit surfaced 
 **Trade-off accepted.** Chrome's V4 schema adds `contextLine`, `startFromWordOne`, `lastUsedWpm` — fields Safari's schema does not have. Acceptable under `scope:chrome-port` label; cross-platform schema sync is not a stated invariant.
 
 **Remaining gate to Accepted.** OQ-2 (collision integration test) is the sole outstanding precondition.
+
+### OQ-2 resolution (2026-05-26): in-flight Map dedup in `dispatch.ts`, collision test passes
+
+OQ-2 resolution shipped in the same PR as this status flip — the test IS the evidence and the implementation IS the contract being tested.
+
+**Implementation.** `src/chrome/background/activation/dispatch.ts` gains a module-level `injectionLocks: Map<number, Promise<void>>` and an `ensureContentScript(tabId)` helper that:
+
+1. Reuses an in-flight injection promise if one exists for `tabId`.
+2. Otherwise calls `chrome.scripting.executeScript` once, stores the promise, and clears the entry on settle via `.finally`.
+3. Returns a typed `Result<void, ActivationError>` — exceptions are converted to `inject-failed` exactly as before.
+
+`dispatchActivation` now calls `ensureContentScript(intent.tabId)` instead of `chrome.scripting.executeScript` inline. All other behavior unchanged: restricted-URL guard still runs first; `intentToActivatePayload` still source-blind; existing `dispatch.test.ts` 11/11 still passing.
+
+**Test evidence.** `src/chrome/background/activation/__tests__/collision.test.ts` — 3 assertions, all passing:
+
+1. Exactly one `chrome.scripting.executeScript` call across two near-simultaneous `dispatchActivation` calls for the same `tabId`.
+2. Both `activate-reader` messages arrive at the CS in dispatch order (ctx → hotkey, `scope: 'selection'` then `scope: 'full'`).
+3. Clean overlay-scope replacement at the funnel boundary: final delivered payload is the hotkey's `scope: 'full'`; both dispatches return `{ ok: true }`; only one CS instance ever instantiated.
+
+The test uses a controllable chrome stub (in-flight resolvers + auto-drain mode on teardown) so the race window is deterministic — without it the JS microtask queue would serialize the two dispatches and erase the collision.
+
+**Out of scope (tracked separately under SW-lifecycle spec).** The full `ensureContentScript` contract specified in `docs/superpowers/specs/2026-05-22-sw-lifecycle-activation.md` §"Idempotent Content-Script Injection" also requires:
+
+- CS-side `window.__SPEEDREADER_INJECTED__` sentinel in `src/chrome/content/index.ts` (handles re-injection on already-injected pages — Chrome does NOT auto-dedupe `executeScript`).
+- `sendPing(tabId, { timeoutMs: 1500 })` post-inject confirm with 3000ms retry budget (handles CS-survived-SW-restart and slow-CS cases).
+
+These layers are not gating OQ-2 — the in-flight Map alone satisfies the three collision-test assertions. They remain required for SW-restart resume scenarios (different surface, different test) and are tracked under the SW-lifecycle spec's implementation backlog.
+
+**Spec changes from this resolution.**
+
+- §"Status" — `Proposed` → `Accepted (2026-05-26)`.
+- §"Failure Modes" → "Two activation surfaces collide" — claim graduates to verified invariant; references the new `dispatch.ts` impl and `collision.test.ts` evidence.
+- §"Open Questions" → OQ-2 — entry rewritten as RESOLVED with evidence + implementation note + scope-boundary note.
+- §"Antagonistic ring sign-off" → F4 disposition updated to "RESOLVED 2026-05-26 (in-flight Map dedup in `dispatch.ts`; `collision.test.ts` 3/3 passing)"; builder-weakness #5 disposition updated.
+
+**No remaining gates to Accepted.** Both empirical preconditions (OQ-1 toggle persistence, OQ-2 collision reconcile) resolved.
