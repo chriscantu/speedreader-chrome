@@ -29,7 +29,7 @@ This spec **composes** with — and does **NOT** supersede — the following alr
 
 **Implementation dependencies** (must land before this spec's implementation PR):
 
-- `subscribeSettings` is specified by the settings-schema spec but not yet on disk; implementation of this spec blocks on the `subscribeSettings` API shipping (tracked under the settings-schema spec's implementation PR series).
+- `subscribeSettings` is specified by [`2026-05-08-settings-schema.md`](2026-05-08-settings-schema.md) §"Read/write/subscribe API" but not yet on disk. Expected file: `src/core/settings/index.ts` (re-exports the subscribe API alongside `loadSettings`/`saveSettings`). Expected shape: `subscribeSettings(handler: (next: SettingsV4) => void): () => void` — debounced broadcast on `chrome.storage.onChanged` (300ms debounce per the existing `saveSettings` contract), unsubscribe handle returned. Tracked under the settings-schema spec's implementation backlog (no dedicated issue yet — file one when AC #6/#7 enter implementation). Implementation of this spec blocks on that API shipping.
 - OQ-1 resolution: if `momentary`, settings-schema dep collapses to "no migration needed." If `persistent`, a sibling V3 → V4 settings-schema PR lands first.
 - [`src/chrome/background/activation/types.ts`](../../../src/chrome/background/activation/types.ts) (`ContextMenuActivationIntent` already carries the `selectionText?: string` field) and [`dispatch.ts`](../../../src/chrome/background/activation/dispatch.ts) (`intentToActivatePayload` is extended, not replaced).
 
@@ -48,13 +48,14 @@ export type CtxMenuItemId =
   | 'speedreader.ctx.preset.300.v1'
   | 'speedreader.ctx.preset.500.v1'
   | 'speedreader.ctx.preset.custom.v1'
+  | 'speedreader.ctx.separator.v1'          // visual divider; Chrome dispatches no click event
   | 'speedreader.ctx.toggle.showContext.v1'
   | 'speedreader.ctx.toggle.startFromWord1.v1';
 ```
 
-`ContextMenuActivationIntent.menuItemId` (see §"Activation Payload Extension" below) narrows from `string` to `CtxMenuItemId`. Click-handler dispatch uses `case 'speedreader.ctx.preset.300.v1':` etc., with a `default: const _exhaust: never = id` arm to enforce coverage at compile time.
+`ContextMenuActivationIntent.menuItemId` (see §"Activation Payload Extension" below) narrows from `string` to `CtxMenuItemId`. Click-handler dispatch uses `case 'speedreader.ctx.preset.300.v1':` etc., with a `default: const _exhaust: never = id` arm to enforce coverage at compile time. The separator literal is included in the union for type-symmetry with the factory output; the listener handles it with an explicit no-op `case` (Chrome never dispatches click events on separator items, so reaching this arm is structurally unreachable — the `case` exists only to keep the switch exhaustive).
 
-Separator between the speed items and the toggle items (`type: 'separator'`, no stable ID needed — recreated each render).
+Separator between the speed items and the toggle items (`type: 'separator'`; uses the stable `speedreader.ctx.separator.v1` ID above).
 
 ### Generation logic
 
@@ -63,11 +64,12 @@ Items are created **once per SW wake** in `ensureContextMenu()`, the same functi
 ```ts
 // `CtxContext` mirrors the subset of chrome.contextMenus.ContextType the
 // factory uses — local literal union keeps the pure factory free of any
-// `chrome.*` type imports (per §File Layout boundary discipline).
-type CtxContext = 'selection' | 'page';
+// `chrome.*` type imports (per §File Layout boundary discipline). Widen
+// only when a new item actually needs another context.
+type CtxContext = 'selection';
 
 interface CtxItemSpec {
-  id: CtxMenuItemId | 'speedreader.ctx.separator';     // separator is the one non-stable ID
+  id: CtxMenuItemId;                                   // includes separator literal (see CtxMenuItemId)
   title: string;
   type?: 'normal' | 'separator' | 'checkbox';
   parentId?: CtxMenuItemId;
@@ -79,9 +81,9 @@ interface CtxItemSpec {
 
 The `chrome.*`-typed coercion (to `chrome.contextMenus.CreateProperties`) happens in the `install.ts` adapter, NOT in `factory.ts`. `readonly` on the array fields is a free invariant — factory output is treated as immutable downstream.
 
-`buildMenuItems(settings: SettingsV3): CtxItemSpec[]` lives in `src/chrome/background/context-menu/factory.ts` (no `chrome.*` calls — pure list builder). `installMenuItems(items)` in `src/chrome/background/context-menu/install.ts` is the Chrome adapter that calls `chrome.contextMenus.removeAll()` then `chrome.contextMenus.create()` per spec.
+`buildMenuItems(settings: SettingsV4): CtxItemSpec[]` lives in `src/chrome/background/context-menu/factory.ts` (no `chrome.*` calls — pure list builder). `installMenuItems(items)` in `src/chrome/background/context-menu/install.ts` is the Chrome adapter that calls `chrome.contextMenus.removeAll()` then `chrome.contextMenus.create()` per spec. `SettingsV4` is the post-migration shape introduced by §"Settings schema additions" below (current trunk is `SettingsV3`; this spec's V3 → V4 migration adds `lastUsedWpm`, `contextLine`, `startFromWordOne`).
 
-The factory consumes the current `SettingsV3` (read via `loadSettings()`) to render:
+The factory consumes the current `SettingsV4` (read via `loadSettings()`) to render:
 
 - `lastUsed` title — `"{wpm} wpm · last used"`, reading `settings.lastUsedWpm`.
 - `toggle.showContext` `checked` — reflects `settings.contextLine` (new field; see §Toggle Persistence).
@@ -142,7 +144,7 @@ interface ActivateReaderMessage {
 `ContextMenuActivationIntent` is extended in `src/chrome/background/activation/types.ts`:
 
 ```ts
-import type { Overrides } from '../../core/messaging/validate';
+import type { Overrides } from '../../../core/messaging/validate';
 import type { CtxMenuItemId } from '../context-menu/factory';
 
 export interface ContextMenuActivationIntent {
@@ -162,22 +164,48 @@ The foundation sender-provenance gate (`isPopupShape` at `src/chrome/background/
 
 **Two-layer defense:**
 
-1. **Pure bounds validator** — new file `src/core/messaging/validate.ts` (pure, no `chrome.*` per CLAUDE.md core boundary). Exports `validateOverrides(raw: unknown): Overrides | null` and per-field guards. Derive the `Overrides` type from a Zod schema reusing existing settings constraints:
+1. **Pure bounds validator** — new file `src/core/messaging/validate.ts` (pure, no `chrome.*` per CLAUDE.md core boundary). Exports two named functions plus the shared `Overrides` type derived from a Zod schema that reuses existing settings constraints:
 
    ```ts
-   import { SettingsSchemaV3 } from '../settings/schema';
+   import { SettingsSchemaV4 } from '../settings/schema';
 
+   // `.strip()` (Zod default) silently drops unknown keys — chosen over
+   // `.strict()` so a future sender that adds an `overrides.theme` field
+   // doesn't hard-reject the message on older clients (graceful
+   // forward-compat). Forgery defense is provided by sender-provenance
+   // at `src/chrome/background/messaging/on-message.ts:104`, not by
+   // unknown-key strictness here.
    export const OverridesSchema = z.object({
-     wpm: SettingsSchemaV3.shape.wpm.optional(),     // int [100,600], multipleOf(10)
+     wpm: SettingsSchemaV4.shape.wpm.optional(),     // int [100,600], multipleOf(10)
      showContext: z.boolean().optional(),
      startFromWordOne: z.boolean().optional(),
-   }).strict();
+   });
    export type Overrides = z.infer<typeof OverridesSchema>;
+
+   // Shape gate. Returns parsed Overrides on success; null if `raw` is
+   // not an object-shaped overrides payload at all (e.g., string, array,
+   // null). Per-field bounds are NOT enforced here.
+   export function validateOverrides(raw: unknown): Overrides | null;
+
+   // Per-field bounds gate. Walks an already-shape-valid Overrides and
+   // drops any field that fails its bound (wpm out of [100,600], non-int,
+   // non-multipleOf-10; boolean fields that aren't strictly boolean).
+   // Returns the remaining valid subset (possibly empty).
+   export function pickValidOverrides(raw: Overrides): Overrides;
    ```
 
-   Single source of truth — the `wpm` constraint lives in `SettingsSchemaV3` already and is reused by reference, not duplicated. The wire-payload type and the validator share the same shape; future field additions land in one place.
+   Single source of truth — the `wpm` constraint lives in `SettingsSchemaV4` already and is reused by reference, not duplicated. The wire-payload type and the validator share the same shape; future field additions land in one place.
 
-2. **CS-side receive check** — `applyOverrides(snapshot, raw)` calls `validateOverrides(raw)` on receive. A whole-payload reject returns `null` and the CS proceeds with snapshot defaults (no overrides applied). A per-field guard variant `pickValidOverrides(raw)` may be used if per-field drop semantics are preferred — dev-mode `console.warn` per dropped field. **The activation is NOT rejected on a malformed overrides field** — a single bad field falls back to snapshot defaults; the read trigger proceeds. Strict reject mode is reserved for genuinely hostile messages (e.g., non-object `overrides`).
+2. **CS-side receive composition (pipeline order, pinned)** — `applyOverrides(snapshot, raw)` runs the two validators in sequence:
+
+   ```ts
+   const shapeOk = validateOverrides(raw);     // null on shape failure
+   if (shapeOk === null) return snapshot;       // no overrides applied
+   const valid = pickValidOverrides(shapeOk);   // drops out-of-bound fields
+   return { ...snapshot, ...valid };            // shallow merge
+   ```
+
+   `validateOverrides` is the entry guard (shape gate); `pickValidOverrides` is the bounds gate. **The activation is NOT rejected on a malformed overrides field** — a single bad field falls back to snapshot defaults; the read trigger proceeds. A non-object `overrides` payload (the hostile shape case) returns `null` at the shape gate and the CS applies zero overrides. Empty object `overrides: {}` is treated as no-op (parses successfully, picks zero fields, shallow merge is no-op).
 
 The `ActivateReaderMessage.overrides` type on the wire becomes `Overrides | undefined`, sourced from the same Zod-derived type as the validator — eliminating the drift class where the type and the bounds-check go out of sync.
 
@@ -199,7 +227,7 @@ This means the `overrides` field on the wire is, in practice, populated only wit
 
 ### Settings schema additions
 
-Three new fields land on `SettingsV3` as a V3 → V4 migration. Current trunk is `SettingsSchemaV3` (per `src/core/settings/schema.ts`, shipped in #115); this spec's fields land as the next version bump.
+Three new fields land on a new `SettingsV4` via a V3 → V4 migration. Current trunk is `SettingsSchemaV3` (per `src/core/settings/schema.ts`, shipped in #115); this spec introduces `SettingsSchemaV4` as the next version bump. The V4 schema extends V3 with the three fields below:
 
 ```ts
 contextLine: z.boolean(),          // default: false (matches Safari behavior)
@@ -325,7 +353,7 @@ Mirrors and expands the issue checkboxes:
 14. **#34 hotkey vs contextMenu collision test exists and passes** — `src/chrome/background/activation/__tests__/collision.test.ts` asserts exactly one `executeScript` call, both `activate-reader` messages arrive in dispatch order, and the second message's scope / overrides cleanly replace the first overlay (no double-extraction, no zombie pause-state). Gates OQ-2 and the move to Accepted.
 15. **Empty-selection fallback** emits the polite live-region status `"No selection detected. Reading full article instead."` and renders full-article scope with a visible subtitle in the modal header.
 16. **Scoped mini-modal mount** — activation from any source produces an overlay with `role="dialog"`, `aria-modal="true"`, `aria-labelledby="sr-scope-header"`, focus on the play/pause control within one rAF of mount.
-17. **Override bounds-check** — a forged `activate-reader` with `overrides.wpm = 999999` is rejected by `validateMsg`; the CS receives no overrides; the engine uses the settings default.
+17. **Override bounds-check** — a forged `activate-reader` with `overrides.wpm = 999999` is dropped by `pickValidOverrides` (the out-of-bounds field is removed; remaining valid fields, if any, are applied); the engine uses the settings default for `wpm`. A non-object `overrides` payload is rejected by `validateOverrides` (whole-payload reject); CS proceeds with snapshot defaults.
 18. **Frame provenance** — right-click + menu-click inside an `<iframe>` (`info.frameId !== 0`) produces no activation; the user-visible status `"Selection inside embedded frame; right-click the page directly"` is surfaced.
 19. **Top-level listener registration** — `chrome.contextMenus.onClicked.addListener` is registered top-level synchronously in `src/chrome/background/context-menu/register.ts`, imported from `src/chrome/background/index.ts` before any `await`, per the foundation spec §"Listener Registration Discipline". Verified by `register.test.ts` (asserting registration completes synchronously on module load) and matches the `commands/register.ts` pattern.
 
@@ -336,7 +364,7 @@ Unit (Vitest, pure):
 - `src/chrome/background/context-menu/__tests__/factory.test.ts` — `buildMenuItems(settings)` returns the expected list for default settings, for each toggle-checked permutation, and for `lastUsedWpm ∈ {undefined, 300, 500, 420 (custom), 100 (lower bound), 600 (upper bound)}`. Asserts no preset-vs-lastUsed title collision when `lastUsedWpm` exactly equals a preset value.
 - `src/core/settings/__tests__/migrations.test.ts` — V3 → V4 migration adds `contextLine`, `startFromWordOne`, `lastUsedWpm`; existing prior-version / corrupt-data tests continue to pass.
 - `src/chrome/background/activation/__tests__/dispatch.test.ts` — `intentToActivatePayload` produces `overrides` on `contextMenu` source when `menuItemId` matches a preset speed; omits `overrides` for `popup` and `command` sources.
-- `src/core/messaging/__tests__/validate-overrides.test.ts` — `validateMsg` accepts in-bounds `overrides.wpm` (`100`, `300`, `600`, `multipleOf(10)`); rejects out-of-bounds (`50`, `601`, `999999`), non-integer (`300.5`), wrong-type (`"300"`), non-boolean `showContext` / `startFromWordOne`. Receive-side `applyOverrides` drops malformed fields and proceeds with snapshot defaults.
+- `src/core/messaging/__tests__/validate-overrides.test.ts` — `validateOverrides(raw)` returns the parsed `Overrides` for in-bounds inputs (`100`, `300`, `600`, `multipleOf(10)`) and `null` for non-object or shape-violating payloads. `pickValidOverrides(raw)` drops out-of-bounds (`50`, `601`, `999999`), non-integer (`300.5`), wrong-type (`"300"`), or non-boolean `showContext` / `startFromWordOne` fields and returns the remaining valid subset. `applyOverrides(snapshot, raw)` composes the two: shape-reject → snapshot defaults; field-drop → partial override with snapshot fallback per dropped field.
 - `src/core/reader/__tests__/scope-swap.test.ts` — after `← Full article` click, asserts `currentScope === 'full'`, engine `paused`, `positionIndex === 0`, footer button removed, live-region status emitted with the swap announcement text.
 
 Integration (Vitest + `sinon-chrome`):
@@ -364,7 +392,7 @@ E2E (Playwright, deferred per #38):
 
 ```
 src/chrome/background/context-menu/
-  factory.ts                buildMenuItems(settings) → CtxItemSpec[]
+  factory.ts                buildMenuItems(settings) → CtxItemSpec[]; exports CtxMenuItemId, CtxItemSpec
   install.ts                installMenuItems(items), ensureContextMenu
   listener.ts               chrome.contextMenus.onClicked → dispatch / saveSettings / openOptionsPage
   register.ts               top-level synchronous wiring (matches commands/register.ts pattern)
@@ -372,10 +400,17 @@ src/chrome/background/context-menu/
     factory.test.ts
     install.test.ts
     listener.test.ts
+    register.test.ts
 
 src/chrome/background/activation/
   types.ts                  ContextMenuActivationIntent + menuItemId + overrides (extension)
   dispatch.ts               intentToActivatePayload extended to copy overrides
+
+src/core/messaging/
+  validate.ts               OverridesSchema (Zod, reuses SettingsSchemaV4.shape.wpm); exports
+                            validateOverrides, pickValidOverrides, type Overrides
+  __tests__/
+    validate-overrides.test.ts
 
 src/core/settings/
   schema.ts                 SettingsSchemaV4 (adds contextLine, startFromWordOne, lastUsedWpm)
@@ -383,7 +418,7 @@ src/core/settings/
   migrations.ts             V3 → V4 migrator
 ```
 
-`src/core/settings/**` retains zero `chrome.*` references. `src/chrome/background/context-menu/factory.ts` is pure (no `chrome.*`) for unit-testability; the `chrome.*` calls live in `install.ts` and `listener.ts`.
+`src/core/settings/**` and `src/core/messaging/**` retain zero `chrome.*` references — both are pure-TS for unit-testability and platform independence. `src/chrome/background/context-menu/factory.ts` is also pure (no `chrome.*`); the `chrome.*` calls live in `install.ts` and `listener.ts`. `OverridesSchema` reuses `SettingsSchemaV4.shape.wpm` to avoid duplicating the bounds constraint.
 
 ## Open Questions (gate Proposed → Accepted)
 
@@ -416,7 +451,7 @@ These are empirical preconditions named explicitly by the builder. Each blocks s
 Trimmed to honest hedges that the ring did not adjudicate. Findings the ring resolved are absorbed in the spec body above; preconditions are promoted to §"Open Questions".
 
 - **`Custom…` opens Options vs popup.** The choice rests on "popups can't render a slider well in M1" and on the #30 dependency for a popup-hosted WPM slider. A critic could argue Options is a heavier navigation than the user wants — they right-clicked a paragraph and now they're in a settings page, two steps away from reading. The Options-page path is defensible (and the ring concurred it's the right M1 destination), but it's not unambiguously the best long-term UX.
-- **`lastUsedWpm` may belong in `chrome.storage.local`, not `sync`.** Cross-device "last used" can be confusing if the user's laptop and phone have wildly different reading contexts. The settings-schema spec already separates reading-position (local) from settings (sync) on similar grounds. The storage-tier decision is deferred to the settings-schema PR that owns the v2 migration — see OQ-1's "persistent" branch.
+- **`lastUsedWpm` may belong in `chrome.storage.local`, not `sync`.** Cross-device "last used" can be confusing if the user's laptop and phone have wildly different reading contexts. The settings-schema spec already separates reading-position (local) from settings (sync) on similar grounds. The storage-tier decision is deferred to the settings-schema PR that owns the V3 → V4 migration — see OQ-1's "persistent" branch.
 - **First-extraction latency on `← Full article` is bounded but unmeasured.** If the FIRST activation is `scope: 'selection'`, the full-article extraction has not yet run. §"Loading state" pins the visual (`"Loading full article…"` header + disabled play control), but the 50–200ms estimate is hand-waved — actual times vary by article length and DOM complexity. A future measurement pass may motivate a pre-warm path (kick off background extraction on selection-scope activation so the cache is warm by the time the user clicks expand).
 - **`storage.sync` quota burn from menu-toggle spam, and `lastUsedWpm` data-classification on a synced surface.** Burst tolerance is unanalyzed; a user rapidly clicking toggles inside the 300ms debounce window coalesces, but the worst case (toggle + preset + toggle + preset within seconds) has not been measured. Both concerns resolve with OQ-1's storage-tier decision in the sibling settings-schema PR.
 
@@ -446,10 +481,25 @@ A `/pr-review-toolkit:review-pr` pass (comment-analyzer + code-reviewer + type-d
 - **C2** — `lastUsed` title at the factory rendering bullet read `settings.wpm`; everywhere else read `settings.lastUsedWpm`. Fixed at source.
 - **C3** — `src/core/messaging/validate.ts` was cited as if it existed and as if it housed `isPopupShape`. Real `isPopupShape` lives at `src/chrome/background/messaging/on-message.ts:77`. §Receive-Side Validation rewritten: pure overrides-bounds validator at the new `src/core/messaging/validate.ts` (no `chrome.*`); sender-provenance citation correctly anchored at `on-message.ts`.
 - **I1** — `CtxMenuItemId` literal union introduced; `ContextMenuActivationIntent.menuItemId` narrowed from `string`; listener switch is exhaustive.
-- **I2** — `Overrides` derived via `z.infer` from a Zod schema that reuses `SettingsSchemaV3.shape.wpm` — single source of truth for bounds.
+- **I2** — `Overrides` derived via `z.infer` from a Zod schema that reuses `SettingsSchemaV4.shape.wpm` — single source of truth for bounds.
 - **I3** — `CtxItemSpec` no longer imports `chrome.contextMenus.ContextType`; uses a local `CtxContext` union and `readonly` arrays.
 - **I5** — AC #13 dropped "~50ms" timing claim (unverifiable in a test); ordering invariant retained.
 - **M2** — AC #19 added asserting top-level synchronous listener registration.
 - **M6** — §"Expand to full" reconciled with self-weakness #3: `extract()` is cache-hit on warm path, lazy on cold path; loading state pinned.
 
 Two minor naming-drift items deferred (sibling specs use `Code Layout` / `Test Strategy`; this spec uses `File Layout` / `Test Surface`). Cosmetic; left for a follow-up sweep across all specs.
+
+### Second-pass review (2026-05-25)
+
+A second `/pr-review-toolkit:review-pr` run after the first fix commit surfaced 3 criticals + 5 importants introduced BY the fix pass:
+
+- **C1' (F1)** — `src/core/messaging/validate.ts` was declared NEW but missing from §File Layout — implementer had no anchor. Added `src/core/messaging/` subtree with `validate.ts` and `__tests__/validate-overrides.test.ts`.
+- **C2' (F2)** — `import type { Overrides } from '../../core/messaging/validate'` in the `types.ts` snippet had 2 `..` segments; correct is 3 (resolves from `src/chrome/background/activation/`). Fixed.
+- **C3' (F3)** — Factory signature was `SettingsV3` but the factory reads V4-only fields (`lastUsedWpm`, `contextLine`, `startFromWordOne`). Signature corrected to `SettingsV4`; §"Settings schema additions" rewritten to clarify the new V4 shape extends V3.
+- **I1' (F4)** — AC #17 and Test Surface bullet cited a non-existent `validateMsg` symbol. Replaced with the real exports: `validateOverrides` (shape gate) + `pickValidOverrides` (bounds gate).
+- **I2' (T1)** — `OverridesSchema.strict()` rejected forward-compat additions on the wire. Changed to `.strip()` (Zod default — silently drop unknown). Forgery defense provided by `sender.id === chrome.runtime.id` at `on-message.ts:104`, not by unknown-key strictness.
+- **I3' (T2)** — `CtxItemSpec.id` was `CtxMenuItemId | 'speedreader.ctx.separator'` (separator outside the main union). Moved separator literal inside `CtxMenuItemId` as `speedreader.ctx.separator.v1`; listener switch handles it with an explicit no-op `case` (Chrome never dispatches click on separators, so the arm is structurally unreachable; presence preserves exhaustiveness).
+- **I4' (T4)** — `validateOverrides` and `pickValidOverrides` were presented as a caller-choice; pinned the composition order: `applyOverrides` runs `validateOverrides` (shape gate) → `pickValidOverrides` (bounds gate) → shallow-merge.
+- **M1' (`'page'`)** — `CtxContext = 'selection' | 'page'` included `'page'` which was never used. Dropped to `'selection'`-only (per Karpathy #2: no flexibility not requested).
+- **M2' (`subscribeSettings` dep)** — One-liner expanded with expected file path (`src/core/settings/index.ts`), expected signature, debounce note, and follow-up-issue placeholder.
+- **F5 (`v2 migration` stale phrase)** — Self-weakness bullet rephrased to `V3 → V4 migration`.
