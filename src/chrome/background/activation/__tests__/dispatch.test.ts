@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import sinonChrome from 'sinon-chrome';
 import type { ActivationIntent } from '../types';
-
-// Touch sinon-chrome import so the dep stays explicit even though we use vi-based mocks.
-void sinonChrome;
 
 const OWN_ID = 'abcdefghijklmnopabcdefghijklmnop';
 
