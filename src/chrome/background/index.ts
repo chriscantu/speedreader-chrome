@@ -45,6 +45,12 @@ import type { ActivationIntent } from './activation/types';
 // `activate-reader` path below. See issue #34.
 import './commands/register';
 
+// Side-effect import: top-level `chrome.contextMenus.onClicked` +
+// `chrome.runtime.onInstalled` / `onStartup` + `subscribeSettings`
+// wiring for the right-click submenu. Same MV3 invariant — listener
+// registration runs synchronously on every SW wake. See issue #72.
+import './context-menu/register';
+
 // Re-export so follow-up issues (#34, #72) can wire their source-specific
 // listeners against the funnel without reaching into the activation
 // subdirectory.

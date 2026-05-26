@@ -1,7 +1,7 @@
-import type { SettingsV3 } from './schema';
+import type { SettingsV4 } from './schema';
 
-export const DEFAULT_SETTINGS: SettingsV3 = {
-  version: 3,
+export const DEFAULT_SETTINGS: SettingsV4 = {
+  version: 4,
   wpm: 250,
   theme: 'system',
   font: 'system-ui',
@@ -9,4 +9,7 @@ export const DEFAULT_SETTINGS: SettingsV3 = {
   openDyslexic: false,
   punctuationPacing: true,
   alignment: 'orp',
+  contextLine: false,
+  startFromWordOne: false,
+  lastUsedWpm: 250,
 };

@@ -26,6 +26,7 @@
 
 /// <reference types="@crxjs/vite-plugin/client" />
 
+import type { Overrides } from '../../../core/messaging/validate';
 import { isRestricted } from '../../../core/restricted';
 import type { ActivationError, ActivationIntent, Result } from './types';
 
@@ -101,23 +102,44 @@ async function ensureContentScript(tabId: number): Promise<Result<void, Activati
 /**
  * Payload sent to the content script on activation. Mirrors the
  * `activate-reader` one-shot RPC added by the SW-lifecycle spec to the
- * messaging-contract `Msg` union.
+ * messaging-contract `Msg` union; extended additively by the context-menu
+ * integration spec §"Activation Payload Extension" with the optional
+ * `overrides` slot.
  */
 interface ActivateReaderMessage {
   type: 'activate-reader';
   scope: 'selection' | 'full';
+  overrides?: Overrides;
 }
 
 /**
  * Normalize a source-specific intent into the scope payload the CS expects.
  * This is the ONLY place `intent.source` is inspected — the rest of the
  * funnel is source-blind.
+ *
+ * Scope rules:
+ * - `contextMenu` with `selectionText !== undefined` AND `menuItemId` of a
+ *   preset (`speedreader.ctx.preset.*`) → `'selection'`. Toggle items
+ *   never reach this funnel (the listener short-circuits to a settings
+ *   write), so the only contextMenu intents arriving here are preset
+ *   clicks; the `startsWith` check is defense-in-depth.
+ * - all other intents → `'full'`.
+ *
+ * Overrides are forwarded only for the contextMenu source. The key is
+ * omitted (not set to `undefined`) when not applicable so existing
+ * popup-source and command-source callers observe identical payload
+ * shape — `expect(payload).not.toHaveProperty('overrides')` stays true.
  */
 function intentToActivatePayload(intent: ActivationIntent): ActivateReaderMessage {
-  if (intent.source === 'contextMenu' && intent.selectionText !== undefined) {
-    return { type: 'activate-reader', scope: 'selection' };
-  }
-  return { type: 'activate-reader', scope: 'full' };
+  const isPresetSelection =
+    intent.source === 'contextMenu' &&
+    intent.selectionText !== undefined &&
+    intent.menuItemId.startsWith('speedreader.ctx.preset.');
+  const scope: ActivateReaderMessage['scope'] = isPresetSelection ? 'selection' : 'full';
+  const base = { type: 'activate-reader' as const, scope };
+  return intent.source === 'contextMenu' && intent.overrides
+    ? { ...base, overrides: intent.overrides }
+    : base;
 }
 
 /**

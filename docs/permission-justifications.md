@@ -56,6 +56,24 @@ pages, making the extension non-functional.
 
 ---
 
+### `contextMenus`
+
+**What it does:** Allows the extension to register entries in the browser's
+right-click context menu.
+
+**Why SpeedReader needs it:** Adds a "SpeedReader" submenu when the user
+right-clicks selected text, exposing preset reading speeds and persistent
+toggles (`Show context line`, `Start from word 1`). The submenu is scoped to
+`contexts: ['selection']` and `documentUrlPatterns: ['http://*/*', 'https://*/*']`
+so it never appears on internal pages or without an active selection.
+
+**User impact if denied:** Users can still activate SpeedReader via the
+popup or keyboard shortcut, but the right-click activation surface — which
+the design pack treats as the primary discovery path for selection-scoped
+reads — is unavailable.
+
+---
+
 ## Host Permissions
 
 ### `<all_urls>`
@@ -117,6 +135,7 @@ through Chrome's shortcuts settings page.
 | `storage`            | Permission | Persist user preferences across sessions        |
 | `activeTab`          | Permission | On-demand access when user triggers extension   |
 | `scripting`          | Permission | Dynamic content-script injection on user action |
+| `contextMenus`       | Permission | Right-click "SpeedReader" submenu on selection  |
 | `<all_urls>`         | Host perm. | General-purpose reading tool for any website    |
 | `fonts/*` (WAR)      | WAR        | Offline font rendering for RSVP overlay         |
 | `Ctrl+Shift+Y` (cmd) | Commands   | Global keyboard shortcut to activate reader     |

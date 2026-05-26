@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { migrate } from '../migrations';
 import { DEFAULT_SETTINGS } from '../defaults';
-import { SettingsSchemaV3 } from '../schema';
+import { SettingsSchemaV4 } from '../schema';
 
 describe('migrate', () => {
   it('returns a fresh defaults clone for undefined input (first install)', () => {
@@ -37,14 +37,14 @@ describe('migrate', () => {
     const written = JSON.parse(JSON.stringify(modified)); // simulate storage round-trip
     const read = migrate(written);
     expect(read).toEqual(modified);
-    expect(SettingsSchemaV3.safeParse(read).success).toBe(true);
+    expect(SettingsSchemaV4.safeParse(read).success).toBe(true);
   });
 
   it('migrates a synthetic v0 payload up through the full chain to current version', () => {
     // v0 lacks an explicit version field; defaults fill in the rest.
     const v0 = { wpm: 300, theme: 'dark', font: 'Georgia', fontSize: 22 };
     const result = migrate(v0);
-    expect(result.version).toBe(3);
+    expect(result.version).toBe(4);
     expect(result.wpm).toBe(300);
     expect(result.theme).toBe('dark');
     // Fields absent in v0 come from defaults.
@@ -55,7 +55,7 @@ describe('migrate', () => {
   it('fills in missing fields from defaults when partial v2 is stored', () => {
     const partial = { version: 2, wpm: 350 };
     const result = migrate(partial);
-    expect(result.version).toBe(3);
+    expect(result.version).toBe(4);
     expect(result.wpm).toBe(350);
     expect(result.theme).toBe(DEFAULT_SETTINGS.theme);
     expect(result.fontSize).toBe(DEFAULT_SETTINGS.fontSize);
@@ -82,7 +82,7 @@ describe('migrate', () => {
     const result = migrate(v3MissingField);
     expect(result.punctuationPacing).toBe(DEFAULT_SETTINGS.punctuationPacing);
     // And the rest of the user's values survive the repair.
-    expect(result.version).toBe(3);
+    expect(result.version).toBe(4);
     expect(result.wpm).toBe(300);
     expect(result.theme).toBe('dark');
   });
@@ -105,7 +105,7 @@ describe('migrate — V1 -> V2 alignment field (forward-compatible)', () => {
       punctuationPacing: true,
     };
     const result = migrate(v1);
-    expect(result.version).toBe(3);
+    expect(result.version).toBe(4);
     expect(result.alignment).toBe('orp');
     expect(result.wpm).toBe(300);
     expect(result.theme).toBe('dark');
@@ -118,7 +118,7 @@ describe('migrate — V1 -> V2 alignment field (forward-compatible)', () => {
   it('V0 payload (no version) -> chained 0->1->2->3 with alignment: orp', () => {
     const v0 = { wpm: 280, theme: 'light' as const };
     const result = migrate(v0);
-    expect(result.version).toBe(3);
+    expect(result.version).toBe(4);
     expect(result.alignment).toBe('orp');
     expect(result.wpm).toBe(280);
     expect(result.theme).toBe('light');
@@ -136,7 +136,7 @@ describe('migrate — V1 -> V2 alignment field (forward-compatible)', () => {
       alignment: 'center' as const,
     };
     const result = migrate(v2);
-    expect(result.version).toBe(3);
+    expect(result.version).toBe(4);
     expect(result.alignment).toBe('center');
     expect(result.wpm).toBe(300);
     expect(result.theme).toBe('dark');
@@ -176,7 +176,7 @@ describe('migrate — V2 -> V3 theme enum widening (#101)', () => {
     'V2 payload with legacy theme "%s" -> V3 preserves theme, stamps version: 3',
     (theme) => {
       const result = migrate({ ...V2_BASE, theme });
-      expect(result.version).toBe(3);
+      expect(result.version).toBe(4);
       expect(result.theme).toBe(theme);
       expect(result.wpm).toBe(300);
       expect(result.alignment).toBe('orp');
@@ -190,14 +190,14 @@ describe('migrate — V2 -> V3 theme enum widening (#101)', () => {
       const result = migrate(v3);
       expect(result).toEqual(v3);
       expect(result.theme).toBe(newTheme);
-      expect(result.version).toBe(3);
+      expect(result.version).toBe(4);
     },
   );
 
   it('V0 payload with legacy theme: light chains through to V3', () => {
     const v0 = { wpm: 320, theme: 'light' as const };
     const result = migrate(v0);
-    expect(result.version).toBe(3);
+    expect(result.version).toBe(4);
     expect(result.theme).toBe('light');
     expect(result.alignment).toBe('orp'); // stamped at 1->2
   });
@@ -210,7 +210,7 @@ describe('migrate — V2 -> V3 theme enum widening (#101)', () => {
     // here as an intentional change, not silent data loss.
     const v2Corrupt = { ...V2_BASE, theme: 'sepia' as const };
     const result = migrate(v2Corrupt);
-    expect(result.version).toBe(3);
+    expect(result.version).toBe(4);
     expect(result.theme).toBe('sepia');
   });
 });
@@ -224,7 +224,7 @@ describe('migrate — version-boundary policies', () => {
     // a future "reject future versions" change surfaces here.
     const future = { version: 99, wpm: 400, theme: 'dark' as const, alignment: 'orp' as const };
     const result = migrate(future);
-    expect(result.version).toBe(3);
+    expect(result.version).toBe(4);
     expect(result.wpm).toBe(400);
     expect(result.theme).toBe('dark');
     expect(result.alignment).toBe('orp');
@@ -261,8 +261,91 @@ describe('migrate — version-boundary policies', () => {
   it('partial V3 payload (missing alignment) -> defaults fill alignment: orp', () => {
     const partialV3 = { version: 3, wpm: 300, theme: 'nord' };
     const result = migrate(partialV3);
-    expect(result.version).toBe(3);
+    expect(result.version).toBe(4);
     expect(result.theme).toBe('nord');
     expect(result.alignment).toBe('orp');
+  });
+});
+
+// V3 -> V4 context-menu fields — issue #72,
+// spec docs/superpowers/specs/2026-05-25-context-menu-integration.md.
+// V4 adds three fields: contextLine (default false), startFromWordOne
+// (default false), lastUsedWpm (defaults to the payload's current wpm so
+// the first post-migration submenu open shows the user's actual reading
+// speed, not the V4 default).
+describe('migrate — V3 -> V4 context-menu fields (#72)', () => {
+  const V3_BASE = {
+    version: 3 as const,
+    wpm: 250,
+    theme: 'dark' as const,
+    font: 'system-ui',
+    fontSize: 20,
+    openDyslexic: false,
+    punctuationPacing: true,
+    alignment: 'orp' as const,
+  };
+
+  it('V3 payload (no contextLine/startFromWordOne/lastUsedWpm) -> V4 defaults the new fields; lastUsedWpm mirrors input wpm', () => {
+    const result = migrate(V3_BASE);
+    expect(result.version).toBe(4);
+    expect(result.contextLine).toBe(false);
+    expect(result.startFromWordOne).toBe(false);
+    expect(result.lastUsedWpm).toBe(V3_BASE.wpm);
+    // V3 fields preserved.
+    expect(result.wpm).toBe(250);
+    expect(result.theme).toBe('dark');
+    expect(result.alignment).toBe('orp');
+  });
+
+  it('V0 payload chains 0 -> 1 -> 2 -> 3 -> 4 with new V4 fields defaulted', () => {
+    const v0 = { wpm: 320, theme: 'light' as const };
+    const result = migrate(v0);
+    expect(result.version).toBe(4);
+    expect(result.contextLine).toBe(false);
+    expect(result.startFromWordOne).toBe(false);
+    expect(result.lastUsedWpm).toBe(320); // mirrors wpm at 3->4 step
+    expect(result.alignment).toBe('orp'); // stamped at 1->2 step
+    expect(result.wpm).toBe(320);
+    expect(result.theme).toBe('light');
+  });
+
+  it('V4 payload with contextLine: true round-trips unchanged', () => {
+    const v4 = {
+      ...DEFAULT_SETTINGS,
+      contextLine: true,
+      startFromWordOne: true,
+      lastUsedWpm: 420,
+      wpm: 420,
+    };
+    const result = migrate(v4);
+    expect(result).toEqual(v4);
+    expect(result.contextLine).toBe(true);
+    expect(result.startFromWordOne).toBe(true);
+    expect(result.lastUsedWpm).toBe(420);
+  });
+
+  it('V3 payload with custom wpm: 380 -> V4 with lastUsedWpm: 380 (mirrors input wpm)', () => {
+    const result = migrate({ ...V3_BASE, wpm: 380 });
+    expect(result.version).toBe(4);
+    expect(result.wpm).toBe(380);
+    expect(result.lastUsedWpm).toBe(380);
+  });
+
+  // AC #9 literal pin — exact payload shape from spec.
+  it('AC #9: literal V3 payload migrates to V4 with new fields defaulted and lastUsedWpm: 250', () => {
+    const result = migrate({
+      version: 3,
+      wpm: 250,
+      theme: 'dark',
+      font: 'system-ui',
+      fontSize: 20,
+      openDyslexic: false,
+      punctuationPacing: true,
+      alignment: 'orp',
+    });
+    expect(result.version).toBe(4);
+    expect(result.contextLine).toBe(false);
+    expect(result.startFromWordOne).toBe(false);
+    expect(result.lastUsedWpm).toBe(250);
   });
 });

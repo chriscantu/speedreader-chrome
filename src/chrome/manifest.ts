@@ -50,14 +50,17 @@ export default {
   // --- Permissions --------------------------------------------------------
   // Each permission is justified in docs/permission-justifications.md.
   //
-  // - storage    — persist user settings (WPM, font, theme).
-  // - activeTab  — grants temporary host access to the active tab on user
-  //                gesture (popup click).  Replaces `<all_urls>` host
-  //                permissions for the lazy-injection model.
-  // - scripting  — required to call `chrome.scripting.executeScript` from
-  //                the service worker to inject the content script on
-  //                demand.
-  permissions: ['storage', 'activeTab', 'scripting'],
+  // - storage      — persist user settings (WPM, font, theme).
+  // - activeTab    — grants temporary host access to the active tab on user
+  //                  gesture (popup click).  Replaces `<all_urls>` host
+  //                  permissions for the lazy-injection model.
+  // - scripting    — required to call `chrome.scripting.executeScript` from
+  //                  the service worker to inject the content script on
+  //                  demand.
+  // - contextMenus — register the right-click "SpeedReader" submenu on
+  //                  selection. User-gesture activation surface per the
+  //                  context-menu integration spec (issue #72).
+  permissions: ['storage', 'activeTab', 'scripting', 'contextMenus'],
 
   // --- Host permissions: intentionally omitted ----------------------------
   // The lazy-injection model (popup-open → service worker →

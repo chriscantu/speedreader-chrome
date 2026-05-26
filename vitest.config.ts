@@ -55,6 +55,7 @@ export default defineConfig({
       'src/chrome/background/__tests__/**/*.test.ts',
       'src/chrome/background/activation/**/__tests__/**/*.test.ts',
       'src/chrome/background/commands/**/__tests__/**/*.test.ts',
+      'src/chrome/background/context-menu/**/__tests__/**/*.test.ts',
       'src/chrome/background/messaging/**/__tests__/**/*.test.ts',
       'src/chrome/background/state/**/__tests__/**/*.test.ts',
     ],
