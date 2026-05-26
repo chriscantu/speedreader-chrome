@@ -19,6 +19,9 @@
  * envelope shape (a string `reason` still satisfies the wider parameter).
  */
 
+import type { Overrides } from '../../../core/messaging/validate';
+import type { CtxMenuItemId } from '../context-menu/factory';
+
 /**
  * Source of an activation attempt.
  *
@@ -46,6 +49,20 @@ export interface ContextMenuActivationIntent {
    * the SW-lifecycle spec §"Context-Menu Selection Trust".
    */
   selectionText?: string;
+  /**
+   * Clicked menu item ID — narrowed from `string` so the listener's
+   * dispatch switch is exhaustive at compile time. See the context-menu
+   * integration spec §"Submenu Structure" → "Item IDs".
+   */
+  menuItemId: CtxMenuItemId;
+  /**
+   * Per-activation overrides supplied by the context-menu source (e.g.,
+   * `{ wpm: 300 }` for a preset click). Forwarded by the funnel into the
+   * `activate-reader` payload's `overrides` slot. Absent for activations
+   * that don't carry presets. See the context-menu integration spec
+   * §"Activation Payload Extension".
+   */
+  overrides?: Overrides;
 }
 
 /** Activation triggered by the popup. */

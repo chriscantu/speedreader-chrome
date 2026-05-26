@@ -1,10 +1,10 @@
-import type { SettingsV3 } from '../../core/settings/schema';
+import type { SettingsV4 } from '../../core/settings/schema';
 import { migrate } from '../../core/settings/migrations';
 
 const KEY = 'speedreader.settings';
 export const DEBOUNCE_MS = 300;
 
-export type SaveSettingsInput = Omit<Partial<SettingsV3>, 'version'>;
+export type SaveSettingsInput = Omit<Partial<SettingsV4>, 'version'>;
 
 /**
  * Read settings from `chrome.storage.sync`, migrating + validating the raw
@@ -12,7 +12,7 @@ export type SaveSettingsInput = Omit<Partial<SettingsV3>, 'version'>;
  * or repair of a partial payload), the canonical form is written back so the
  * next read is a fast pass-through.
  */
-export async function loadSettings(): Promise<SettingsV3> {
+export async function loadSettings(): Promise<SettingsV4> {
   const result = await chrome.storage.sync.get(KEY);
   const raw = result[KEY];
   const settings = migrate(raw);
@@ -50,7 +50,7 @@ async function flushPendingSave(): Promise<void> {
   pendingRejectors = [];
   try {
     const current = await loadSettings();
-    const next: SettingsV3 = { ...current, ...partial, version: current.version };
+    const next: SettingsV4 = { ...current, ...partial, version: current.version };
     await chrome.storage.sync.set({ [KEY]: next });
     resolvers.forEach((r) => r());
   } catch (err) {
@@ -119,7 +119,7 @@ export function flushSettings(): Promise<void> {
  * the options page, or a different signed-in device via Chrome sync. Returns
  * an unsubscribe function.
  */
-export function subscribeSettings(listener: (s: SettingsV3) => void): () => void {
+export function subscribeSettings(listener: (s: SettingsV4) => void): () => void {
   const handler = (
     changes: Record<string, chrome.storage.StorageChange>,
     area: chrome.storage.AreaName,

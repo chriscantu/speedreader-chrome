@@ -128,7 +128,11 @@ describe('dispatchActivation', () => {
       executeScriptRejects: new Error('Cannot access contents of url "chrome://settings"'),
     });
     const { dispatchActivation } = await import('../dispatch');
-    const intent: ActivationIntent = { source: 'contextMenu', tabId: 3 };
+    const intent: ActivationIntent = {
+      source: 'contextMenu',
+      tabId: 3,
+      menuItemId: 'speedreader.ctx.preset.300.v1',
+    };
 
     const result = await dispatchActivation(intent);
 
@@ -170,6 +174,7 @@ describe('dispatchActivation', () => {
       source: 'contextMenu',
       tabId: 11,
       selectionText: 'hello world',
+      menuItemId: 'speedreader.ctx.preset.300.v1',
     };
 
     const result = await dispatchActivation(intent);
@@ -183,7 +188,11 @@ describe('dispatchActivation', () => {
 
   it('treats contextMenu without selectionText as full-scope', async () => {
     const { dispatchActivation } = await import('../dispatch');
-    const intent: ActivationIntent = { source: 'contextMenu', tabId: 12 };
+    const intent: ActivationIntent = {
+      source: 'contextMenu',
+      tabId: 12,
+      menuItemId: 'speedreader.ctx.preset.300.v1',
+    };
 
     const result = await dispatchActivation(intent);
 
@@ -203,5 +212,98 @@ describe('dispatchActivation', () => {
     const [, p2] = stub.tabs.sendMessage.mock.calls[1] ?? [];
     expect(p1).toMatchObject({ type: 'activate-reader', scope: 'full' });
     expect(p2).toMatchObject({ type: 'activate-reader', scope: 'full' });
+  });
+
+  // Context-menu integration spec §"Activation Payload Extension" — preset
+  // click forwards `overrides` through the funnel to the wire payload.
+  it('forwards overrides for contextMenu preset clicks with selection', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+    const intent: ActivationIntent = {
+      source: 'contextMenu',
+      tabId: 13,
+      selectionText: 'hello',
+      menuItemId: 'speedreader.ctx.preset.300.v1',
+      overrides: { wpm: 300 },
+    };
+
+    const result = await dispatchActivation(intent);
+
+    expect(result.ok).toBe(true);
+    const [, payload] = stub.tabs.sendMessage.mock.calls[0] ?? [];
+    expect(payload).toEqual({
+      type: 'activate-reader',
+      scope: 'selection',
+      overrides: { wpm: 300 },
+    });
+  });
+
+  // Backwards-compat: non-contextMenu sources never see an `overrides` key
+  // (not even `undefined`), so payload-shape assertions in legacy callers
+  // continue to hold.
+  it('omits overrides key for popup source', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+
+    const result = await dispatchActivation({ source: 'popup', tabId: 14 });
+
+    expect(result.ok).toBe(true);
+    const [, payload] = stub.tabs.sendMessage.mock.calls[0] ?? [];
+    expect(payload).not.toHaveProperty('overrides');
+  });
+
+  it('omits overrides key for command source', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+
+    const result = await dispatchActivation({ source: 'command', tabId: 15 });
+
+    expect(result.ok).toBe(true);
+    const [, payload] = stub.tabs.sendMessage.mock.calls[0] ?? [];
+    expect(payload).not.toHaveProperty('overrides');
+  });
+
+  // contextMenu intent WITHOUT explicit overrides must also omit the key —
+  // not all preset clicks supply an overrides payload (e.g., the
+  // `lastUsed` item dispatches without one).
+  it('omits overrides key for contextMenu intent that did not supply overrides', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+    const intent: ActivationIntent = {
+      source: 'contextMenu',
+      tabId: 16,
+      selectionText: 'hello',
+      menuItemId: 'speedreader.ctx.preset.500.v1',
+    };
+
+    const result = await dispatchActivation(intent);
+
+    expect(result.ok).toBe(true);
+    const [, payload] = stub.tabs.sendMessage.mock.calls[0] ?? [];
+    expect(payload).not.toHaveProperty('overrides');
+  });
+
+  // AC #17 funnel-level integration: dispatch forwards whatever overrides
+  // it's given verbatim. Bounds-checking happens CS-side via
+  // pickValidOverrides — but the funnel must not silently strip or
+  // mutate the overrides object on the way out. A hostile in-process
+  // caller that constructs an intent with wpm: 999999 should see the
+  // value reach the wire untouched so the CS-side gate is the canonical
+  // enforcement seam (single source of truth for the bounds check).
+  it('AC #17: forwards out-of-bounds overrides verbatim — bounds check is CS-side', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+    const intent: ActivationIntent = {
+      source: 'contextMenu',
+      tabId: 17,
+      selectionText: 'hostile',
+      menuItemId: 'speedreader.ctx.preset.300.v1',
+      overrides: { wpm: 999999 },
+    };
+
+    const result = await dispatchActivation(intent);
+
+    expect(result.ok).toBe(true);
+    const [, payload] = stub.tabs.sendMessage.mock.calls[0] ?? [];
+    expect(payload).toEqual({
+      type: 'activate-reader',
+      scope: 'selection',
+      overrides: { wpm: 999999 },
+    });
   });
 });

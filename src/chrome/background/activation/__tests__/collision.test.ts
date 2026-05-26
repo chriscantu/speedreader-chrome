@@ -155,6 +155,7 @@ describe('dispatchActivation — OQ-2 hotkey/contextMenu collision', () => {
       source: 'contextMenu',
       tabId: TAB,
       selectionText: 'a selected phrase',
+      menuItemId: 'speedreader.ctx.preset.300.v1',
     };
     const hotkeyIntent: ActivationIntent = { source: 'command', tabId: TAB };
 
@@ -177,6 +178,7 @@ describe('dispatchActivation — OQ-2 hotkey/contextMenu collision', () => {
       source: 'contextMenu',
       tabId: TAB,
       selectionText: 'a selected phrase',
+      menuItemId: 'speedreader.ctx.preset.300.v1',
     };
     const hotkeyIntent: ActivationIntent = { source: 'command', tabId: TAB };
 
@@ -213,6 +215,7 @@ describe('dispatchActivation — OQ-2 hotkey/contextMenu collision', () => {
       source: 'contextMenu',
       tabId: TAB,
       selectionText: 'a selected phrase',
+      menuItemId: 'speedreader.ctx.preset.300.v1',
     };
     const hotkeyIntent: ActivationIntent = { source: 'command', tabId: TAB };
 
@@ -257,6 +260,7 @@ describe('dispatchActivation — OQ-2 hotkey/contextMenu collision', () => {
       source: 'contextMenu',
       tabId: TAB,
       selectionText: 'a selected phrase',
+      menuItemId: 'speedreader.ctx.preset.300.v1',
     };
     const hotkeyIntent: ActivationIntent = { source: 'command', tabId: TAB };
 
