@@ -48,20 +48,29 @@ interface ChromeStub {
  * order. Without external control the JS microtask queue would serialize
  * the two `dispatchActivation` calls and erase the collision window.
  */
+/**
+ * Pending in-flight call — settle by calling `resolve` or `reject`.
+ */
+interface PendingCall {
+  resolve: () => void;
+  reject: (err: unknown) => void;
+}
+
 function installChromeStub(): {
   stub: ChromeStub;
+  executeCalls: PendingCall[];
   drainAll: () => void;
 } {
-  const executeResolvers: Array<() => void> = [];
+  const executeCalls: PendingCall[] = [];
   const sendResolvers: Array<() => void> = [];
   let autoDrain = false;
 
-  function pushExec(resolve: () => void): void {
+  function pushExec(resolve: () => void, reject: (err: unknown) => void): void {
     if (autoDrain) {
       resolve();
       return;
     }
-    executeResolvers.push(resolve);
+    executeCalls.push({ resolve, reject });
   }
   function pushSend(resolve: () => void): void {
     if (autoDrain) {
@@ -82,8 +91,11 @@ function installChromeStub(): {
     scripting: {
       executeScript: vi.fn(
         () =>
-          new Promise<Array<{ frameId: number; result: undefined }>>((resolve) =>
-            pushExec(() => resolve([{ frameId: 0, result: undefined }])),
+          new Promise<Array<{ frameId: number; result: undefined }>>((resolve, reject) =>
+            pushExec(
+              () => resolve([{ frameId: 0, result: undefined }]),
+              (err) => reject(err),
+            ),
           ),
       ),
     },
@@ -92,6 +104,7 @@ function installChromeStub(): {
 
   return {
     stub,
+    executeCalls,
     // Flip into auto-drain mode AND release everything already queued. Any
     // resolver registered later (e.g. a sendMessage call that fires after
     // the awaited executeScript resolves) auto-resolves on registration,
@@ -99,7 +112,7 @@ function installChromeStub(): {
     // executeScript / sendMessage calls the funnel made.
     drainAll: () => {
       autoDrain = true;
-      executeResolvers.forEach((r) => r());
+      executeCalls.forEach((c) => c.resolve());
       sendResolvers.forEach((r) => r());
     },
   };
@@ -112,11 +125,12 @@ function flushMicrotasks(): Promise<void> {
 
 describe('dispatchActivation — OQ-2 hotkey/contextMenu collision', () => {
   let stub: ChromeStub;
+  let executeCalls: PendingCall[];
   let drainAll: () => void;
   let pending: Array<Promise<unknown>>;
 
   beforeEach(() => {
-    ({ stub, drainAll } = installChromeStub());
+    ({ stub, executeCalls, drainAll } = installChromeStub());
     pending = [];
   });
 
@@ -226,5 +240,76 @@ describe('dispatchActivation — OQ-2 hotkey/contextMenu collision', () => {
     // the inject boundary (the page-level surface where double-extraction
     // would originate).
     expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+  });
+
+  // Regression: both concurrent dispatches must surface the SAME inject-failed
+  // Result when the shared in-flight executeScript rejects. Without this test
+  // the follower's error-conversion branch in `ensureContentScript` (the
+  // `await inFlight; catch` arm) is structurally unreachable from existing
+  // coverage. Adversary finding: a future refactor that drops the follower's
+  // catch (or misorders `.set` after `.finally`) would silently strand the
+  // rejected promise as the cached value.
+  it('both concurrent dispatches return inject-failed when shared executeScript rejects', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+    const TAB = 42;
+
+    const ctxIntent: ActivationIntent = {
+      source: 'contextMenu',
+      tabId: TAB,
+      selectionText: 'a selected phrase',
+    };
+    const hotkeyIntent: ActivationIntent = { source: 'command', tabId: TAB };
+
+    const p1 = dispatchActivation(ctxIntent);
+    const p2 = dispatchActivation(hotkeyIntent);
+    pending.push(p1, p2);
+    await flushMicrotasks();
+
+    // Single in-flight executeScript reject — leader's catch returns
+    // inject-failed; follower awaits the same promise and hits its own
+    // distinct catch arm.
+    expect(executeCalls).toHaveLength(1);
+    executeCalls[0]?.reject(new Error('Cannot access contents of url'));
+
+    const [r1, r2] = await Promise.all([p1, p2]);
+
+    expect(r1.ok).toBe(false);
+    expect(r2.ok).toBe(false);
+    if (r1.ok || r2.ok) throw new Error('unreachable');
+    expect(r1.error.kind).toBe('inject-failed');
+    expect(r2.error.kind).toBe('inject-failed');
+    expect(r1.error.kind === 'inject-failed' && r1.error.tabId).toBe(TAB);
+    expect(r2.error.kind === 'inject-failed' && r2.error.tabId).toBe(TAB);
+
+    // No handoff fired — both dispatches short-circuited at the inject step.
+    expect(stub.tabs.sendMessage).not.toHaveBeenCalled();
+  });
+
+  // Regression: dedup MUST key on tabId. Two near-simultaneous dispatches on
+  // DIFFERENT tabs must produce TWO executeScript calls. Adversary finding:
+  // a future refactor that drops the tabId key (or shares a global flag)
+  // would silently collapse to one injection across the whole browser, and
+  // every existing single-tab test would still pass.
+  it('keys dedup on tabId — concurrent dispatches on different tabs do not share an injection', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+
+    const intentTab42: ActivationIntent = { source: 'command', tabId: 42 };
+    const intentTab99: ActivationIntent = { source: 'command', tabId: 99 };
+
+    const p1 = dispatchActivation(intentTab42);
+    const p2 = dispatchActivation(intentTab99);
+    pending.push(p1, p2);
+    await flushMicrotasks();
+
+    // Two distinct tabs → two distinct injections.
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(2);
+    const callArg1 = stub.scripting.executeScript.mock.calls[0]?.[0] as {
+      target: { tabId: number };
+    };
+    const callArg2 = stub.scripting.executeScript.mock.calls[1]?.[0] as {
+      target: { tabId: number };
+    };
+    expect(callArg1.target.tabId).toBe(42);
+    expect(callArg2.target.tabId).toBe(99);
   });
 });
