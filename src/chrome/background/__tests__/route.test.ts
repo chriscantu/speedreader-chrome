@@ -14,9 +14,12 @@ function popupSender(): chrome.runtime.MessageSender {
 
 function makeDeps(
   result: { ok: true; data: void } | { ok: false; error: ActivationError },
+  opts: { activeTabId?: number | null } = {},
 ): RouteDeps {
+  const activeTabId = opts.activeTabId;
   return {
     dispatchActivation: vi.fn(() => Promise.resolve(result)),
+    getActiveTabId: vi.fn(() => Promise.resolve(activeTabId ?? null)),
   };
 }
 
@@ -47,7 +50,7 @@ describe('route — activate-reader handler', () => {
   });
 
   it('returns ok envelope on successful activation', async () => {
-    const deps = makeDeps({ ok: true, data: undefined });
+    const deps = makeDeps({ ok: true, data: undefined }, { activeTabId: 42 });
     const { promise, sendResponse } = waitForResponse();
 
     route({ type: 'activate-reader', tabId: 42 }, popupSender(), sendResponse, deps);
@@ -62,7 +65,7 @@ describe('route — activate-reader handler', () => {
       kind: 'restricted-page',
       url: 'chrome://settings',
     };
-    const deps = makeDeps({ ok: false, error: activationError });
+    const deps = makeDeps({ ok: false, error: activationError }, { activeTabId: 7 });
     const { promise, sendResponse } = waitForResponse();
 
     route({ type: 'activate-reader', tabId: 7 }, popupSender(), sendResponse, deps);
@@ -84,7 +87,7 @@ describe('route — activate-reader handler', () => {
       tabId: 11,
       details: new Error('Cannot access contents'),
     };
-    const deps = makeDeps({ ok: false, error: activationError });
+    const deps = makeDeps({ ok: false, error: activationError }, { activeTabId: 11 });
     const { promise, sendResponse } = waitForResponse();
 
     route({ type: 'activate-reader', tabId: 11 }, popupSender(), sendResponse, deps);
@@ -100,7 +103,7 @@ describe('route — activate-reader handler', () => {
   it('forwards tab-unavailable and handoff-failed verbatim', async () => {
     for (const kind of ['tab-unavailable', 'handoff-failed'] as const) {
       const activationError: ActivationError = { kind, tabId: 1 };
-      const deps = makeDeps({ ok: false, error: activationError });
+      const deps = makeDeps({ ok: false, error: activationError }, { activeTabId: 1 });
       const { promise, sendResponse } = waitForResponse();
 
       route({ type: 'activate-reader', tabId: 1 }, popupSender(), sendResponse, deps);
@@ -110,6 +113,30 @@ describe('route — activate-reader handler', () => {
       if (resp.error.kind !== 'activation-failed') throw new Error('unreachable');
       expect(resp.error.error.kind).toBe(kind);
     }
+  });
+
+  it('rejects when popup-supplied tabId does not match the active tab', async () => {
+    const deps = makeDeps({ ok: true, data: undefined }, { activeTabId: 99 });
+    const { promise, sendResponse } = waitForResponse();
+
+    // msg.tabId = 42 but active tab = 99 → mismatch → invalid-payload, no dispatch.
+    route({ type: 'activate-reader', tabId: 42 }, popupSender(), sendResponse, deps);
+
+    const resp = await promise;
+    expect(resp).toEqual({ ok: false, error: { kind: 'invalid-payload' } });
+    expect(deps.dispatchActivation).not.toHaveBeenCalled();
+    expect(deps.getActiveTabId).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects when no active tab can be resolved', async () => {
+    const deps = makeDeps({ ok: true, data: undefined }, { activeTabId: null });
+    const { promise, sendResponse } = waitForResponse();
+
+    route({ type: 'activate-reader', tabId: 42 }, popupSender(), sendResponse, deps);
+
+    const resp = await promise;
+    expect(resp).toEqual({ ok: false, error: { kind: 'invalid-payload' } });
+    expect(deps.dispatchActivation).not.toHaveBeenCalled();
   });
 
   it('returns invalid-payload for unknown message types', () => {

@@ -27,10 +27,21 @@ export interface RouteDeps {
   dispatchActivation: (
     intent: ActivationIntent,
   ) => Promise<{ ok: true; data: void } | { ok: false; error: ActivationError }>;
+  /**
+   * Returns the id of the currently active tab in the last-focused
+   * window, or `null` when none can be resolved. Used as a
+   * defense-in-depth cross-check: the popup-supplied `msg.tabId` must
+   * match the actually-active tab.
+   */
+  getActiveTabId: () => Promise<number | null>;
 }
 
 const defaultDeps: RouteDeps = {
   dispatchActivation: (intent) => dispatchActivation(intent),
+  getActiveTabId: async () => {
+    const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return typeof active?.id === 'number' ? active.id : null;
+  },
 };
 
 export function route(
@@ -50,8 +61,20 @@ export function route(
       sendResponse({ ok: false, error: { kind: 'invalid-payload' } });
       return;
     }
-    const intent: ActivationIntent = { source: 'popup', tabId: intentTabId };
-    void deps.dispatchActivation(intent).then((result) => {
+
+    void (async () => {
+      // Defense-in-depth: the popup-supplied tabId must match the
+      // actually-active tab. The provenance gate already enforced
+      // popup-shape, but a buggy / compromised popup could still
+      // hand us a stale tabId from a previous focus window.
+      const activeTabId = await deps.getActiveTabId();
+      if (activeTabId === null || activeTabId !== intentTabId) {
+        sendResponse({ ok: false, error: { kind: 'invalid-payload' } });
+        return;
+      }
+
+      const intent: ActivationIntent = { source: 'popup', tabId: intentTabId };
+      const result = await deps.dispatchActivation(intent);
       if (result.ok) {
         sendResponse({ ok: true, data: result.data });
       } else {
@@ -65,7 +88,7 @@ export function route(
           error: { kind: 'activation-failed', error: result.error },
         });
       }
-    });
+    })();
     return;
   }
 
