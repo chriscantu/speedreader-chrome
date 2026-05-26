@@ -204,4 +204,96 @@ describe('dispatchActivation — issue #128 lock eviction', () => {
     await flushMicrotasks();
     expect(stub.scripting.executeScript).toHaveBeenCalledTimes(2);
   });
+
+  // Review H2 — a follower attached via the URL-keyed lock to a leader
+  // that times out MUST also observe inject-failed. Without this assertion
+  // a regression that strips error propagation through `cached.promise`
+  // (e.g., swallowing the rejection) would hang or silently succeed for
+  // the follower.
+  it('follower attached to a timed-out leader also surfaces inject-failed', async () => {
+    vi.useFakeTimers();
+    const { dispatchActivation } = await import('../dispatch');
+    const TAB = 101;
+    const intent: ActivationIntent = { source: 'command', tabId: TAB };
+
+    const pLeader = dispatchActivation(intent);
+    pending.push(pLeader);
+    await vi.advanceTimersByTimeAsync(0);
+    const pFollower = dispatchActivation(intent);
+    pending.push(pFollower);
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Follower reused the leader's in-flight promise (URL match, same tab).
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(5001);
+
+    const [rL, rF] = await Promise.all([pLeader, pFollower]);
+    expect(rL.ok).toBe(false);
+    expect(rF.ok).toBe(false);
+    if (rL.ok || rF.ok) throw new Error('unreachable');
+    expect(rL.error.kind).toBe('inject-failed');
+    expect(rF.error.kind).toBe('inject-failed');
+
+    vi.useRealTimers();
+    executeCalls[0]?.resolve();
+  });
+
+  // Review M4 — strengthen the post-settle no-op test: the listener for
+  // tab X must not corrupt the lock entry for an unrelated tab Y. A
+  // regression that did `injectionLocks.clear()` instead of
+  // `.delete(tabId)` would still pass the previous test; this one fails.
+  it('tab-removed for one tab does NOT evict an unrelated tab’s in-flight lock', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+    const TAB_A = 201;
+    const TAB_B = 202;
+
+    const pA = dispatchActivation({ source: 'command', tabId: TAB_A });
+    const pB = dispatchActivation({ source: 'command', tabId: TAB_B });
+    pending.push(pA, pB);
+    await flushMicrotasks();
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(2);
+
+    // Remove TAB_A while both injections are still in flight.
+    fireTabRemoved(TAB_A);
+
+    // A follower on TAB_B MUST still reuse B's in-flight lock — slot
+    // for B survived the removal of A.
+    const pB2 = dispatchActivation({ source: 'command', tabId: TAB_B });
+    pending.push(pB2);
+    await flushMicrotasks();
+    // Still 2 executeScript calls total — B's slot was not evicted.
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(2);
+
+    // Settle everything so drain succeeds.
+    executeCalls.forEach((c) => c.resolve());
+    await Promise.all([pA, pB, pB2]);
+  });
+
+  // Review L1 — the `clearTimeout` on the inner-settle path must run on
+  // both branches so the timer cannot fire (or leak) after settle. A
+  // regression that drops `clearTimeout` would leave `vi.getTimerCount()`
+  // non-zero after the inner promise has resolved.
+  it('clearTimeout fires on successful exec — no leaked timer', async () => {
+    vi.useFakeTimers();
+    const { dispatchActivation } = await import('../dispatch');
+    const TAB = 303;
+
+    const pA = dispatchActivation({ source: 'command', tabId: TAB });
+    pending.push(pA);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+
+    // Settle exec immediately; the inner-settle branch of
+    // `withInjectionTimeout` MUST clear the timer.
+    executeCalls[0]?.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    await pA;
+
+    // After settle, no pending timers. A regression that skips
+    // clearTimeout would leave the 5s timer scheduled.
+    expect(vi.getTimerCount()).toBe(0);
+
+    vi.useRealTimers();
+  });
 });

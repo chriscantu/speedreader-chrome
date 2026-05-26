@@ -114,9 +114,11 @@ function withInjectionTimeout(inner: Promise<void>, ms: number): Promise<void> {
  * MV3-listener discipline — SW restart re-evaluates this module and
  * re-attaches the listener.
  *
- * Wrapped in a `typeof chrome` guard so unit tests that import this
- * module before installing the chrome stub don't crash; in the
- * MV3 service worker `chrome` is always present.
+ * Guarded against `chrome` being absent because this module is imported
+ * transitively by `route.ts`, and `route.test.ts` exercises the routing
+ * logic via dependency injection without installing a chrome stub. In
+ * the MV3 service worker `chrome` is always defined; the guard is
+ * load-time resilience, not a runtime branch we expect to take.
  */
 if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved?.addListener) {
   chrome.tabs.onRemoved.addListener((tabId) => {

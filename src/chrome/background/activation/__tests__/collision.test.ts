@@ -31,6 +31,7 @@ const OWN_ID = 'abcdefghijklmnopabcdefghijklmnop';
 interface TabsStub {
   get: ReturnType<typeof vi.fn>;
   sendMessage: ReturnType<typeof vi.fn>;
+  onRemoved: { addListener: ReturnType<typeof vi.fn> };
 }
 interface ScriptingStub {
   executeScript: ReturnType<typeof vi.fn>;
@@ -87,6 +88,7 @@ function installChromeStub(): {
       sendMessage: vi.fn(
         () => new Promise<{ ok: true }>((resolve) => pushSend(() => resolve({ ok: true }))),
       ),
+      onRemoved: { addListener: vi.fn() },
     },
     scripting: {
       executeScript: vi.fn(
