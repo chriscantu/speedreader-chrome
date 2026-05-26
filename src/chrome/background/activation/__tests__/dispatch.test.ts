@@ -306,4 +306,31 @@ describe('dispatchActivation', () => {
       overrides: { wpm: 999999 },
     });
   });
+
+  // Issue #129 — security TOCTOU. Guard runs at step 2 against URL at that
+  // moment; tab may navigate to a restricted origin between guard and
+  // handoff. A post-injection recheck before sendMessage MUST surface
+  // `restricted-page` (the typed error for this case), not silently hand
+  // off to the now-restricted page.
+  it('#129: re-checks isRestricted after injection and returns restricted-page on URL flip to chrome://', async () => {
+    stub = installChromeStub({});
+    // First call (step 2 guard) returns allowed; second call (post-inject
+    // recheck before handoff) returns restricted.
+    let getCalls = 0;
+    stub.tabs.get = vi.fn(() => {
+      getCalls += 1;
+      const url = getCalls === 1 ? 'https://example.com/article' : 'chrome://settings';
+      return Promise.resolve({ url });
+    });
+    const { dispatchActivation } = await import('../dispatch');
+    const intent: ActivationIntent = { source: 'command', tabId: 21 };
+
+    const result = await dispatchActivation(intent);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.error).toEqual({ kind: 'restricted-page', url: 'chrome://settings' });
+    expect(stub.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(stub.tabs.get).toHaveBeenCalledTimes(2);
+  });
 });

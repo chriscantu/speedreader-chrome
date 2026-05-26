@@ -316,4 +316,31 @@ describe('dispatchActivation — OQ-2 hotkey/contextMenu collision', () => {
     expect(callArg1.target.tabId).toBe(42);
     expect(callArg2.target.tabId).toBe(99);
   });
+
+  // Issue #129 — reverse-race / cache coherence. Lock is keyed on
+  // `(tabId, url)`. Two near-simultaneous dispatches on the SAME tab but
+  // DIFFERENT URLs (tab navigated mid-flight) MUST NOT share an injection;
+  // B's URL identity differs from A's cached entry so B fires its own
+  // executeScript. Without URL keying, B silently reuses A's stale
+  // promise and hands off against a navigated page.
+  it('#129: keys dedup on (tabId, url) — URL change invalidates in-flight reuse', async () => {
+    const TAB = 42;
+    // Override the default stub.tabs.get to return a different URL per call.
+    let getCalls = 0;
+    stub.tabs.get = vi.fn(() => {
+      getCalls += 1;
+      const url = getCalls === 1 ? 'https://example.com/a' : 'https://example.com/b';
+      return Promise.resolve({ url });
+    });
+    const { dispatchActivation } = await import('../dispatch');
+
+    const intent: ActivationIntent = { source: 'command', tabId: TAB };
+    const p1 = dispatchActivation(intent);
+    const p2 = dispatchActivation(intent);
+    pending.push(p1, p2);
+    await flushMicrotasks();
+
+    // Same tab, different URL identity → two distinct injections.
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(2);
+  });
 });
