@@ -30,7 +30,7 @@ This spec **composes** with — and does **NOT** supersede — the following alr
 **Implementation dependencies** (must land before this spec's implementation PR):
 
 - `subscribeSettings` is specified by [`2026-05-08-settings-schema.md`](2026-05-08-settings-schema.md) §"Read/write/subscribe API" but not yet on disk. Expected file: `src/core/settings/index.ts` (re-exports the subscribe API alongside `loadSettings`/`saveSettings`). Expected shape: `subscribeSettings(handler: (next: SettingsV4) => void): () => void` — debounced broadcast on `chrome.storage.onChanged` (300ms debounce per the existing `saveSettings` contract), unsubscribe handle returned. Tracked under the settings-schema spec's implementation backlog (no dedicated issue yet — file one when AC #6/#7 enter implementation). Implementation of this spec blocks on that API shipping.
-- OQ-1 resolution: if `momentary`, settings-schema dep collapses to "no migration needed." If `persistent`, a sibling V3 → V4 settings-schema PR lands first.
+- V3 → V4 settings-schema migration (adds `contextLine`, `startFromWordOne`, `lastUsedWpm`). Per OQ-1 resolution, persistent semantics are locked. The implementer may ship the migration in this spec's implementation PR OR split into a sibling settings-schema PR that lands first — both paths are acceptable; the choice is implementation-tier, not spec-tier.
 - [`src/chrome/background/activation/types.ts`](../../../src/chrome/background/activation/types.ts) (`ContextMenuActivationIntent` already carries the `selectionText?: string` field) and [`dispatch.ts`](../../../src/chrome/background/activation/dispatch.ts) (`intentToActivatePayload` is extended, not replaced).
 
 ## Submenu Structure
@@ -211,7 +211,7 @@ The `ActivateReaderMessage.overrides` type on the wire becomes `Overrides | unde
 
 ## Toggle Persistence Semantics
 
-> **Tentative — gated on OQ-1.** This section's persistence model assumes the Safari reference treats menu toggles as persistent settings. If the Safari spike resolves OQ-1 toward momentary semantics, this section, the §"Settings schema additions" subsection, the `subscribeSettings` rebroadcast path, and AC #6 / #7 / #9 are dropped from the spec.
+> **Locked (2026-05-26) — persistent settings writes.** OQ-1 resolved; see §"Open Questions" for spike result and Chrome-side reasoning. Safari has no context-menu surface, so parity is moot; persistent semantics chosen on Safari-toggle-pattern precedent + hi-fi mock visuals + user mental model.
 
 The two toggle items (`Show context line`, `Start from word 1`) are **persistent settings writes**, not per-activation toggles. Picked over per-activation-only because:
 
@@ -424,16 +424,24 @@ src/core/settings/
 
 These are empirical preconditions named explicitly by the builder. Each blocks status promotion until evidence lands. Both are tracked here rather than buried in §Self-identified Weaknesses because they directly determine spec text that ships.
 
-### OQ-1 — Toggle persistence semantics (does Safari persist menu-toggle state across reads?)
+### OQ-1 — Toggle persistence semantics — RESOLVED (2026-05-26): persistent settings writes
 
-**Question.** Do menu-item toggles (`Show context line`, `Start from word 1`) persist as settings writes, or are they momentary per-activation toggles?
+**Question (original).** Do menu-item toggles (`Show context line`, `Start from word 1`) persist as settings writes, or are they momentary per-activation toggles?
 
-**Evidence required.** A 10-minute spike against the `chriscantu/speed-reader` Safari reference. Inspect how the equivalent menu UI is wired — does a toggle click write to persistent storage or does it ride a single-activation envelope?
+**Spike result (2026-05-26).** The `chriscantu/speed-reader` Safari reference has **no context-menu integration at all** — `SpeedReaderExtension/Resources/manifest.json` declares no `contextMenus` permission, and `background.js` / `content.js` contain zero `contextMenus` API references. The literal question (does Safari persist menu toggles?) is moot — Safari has no menu and no menu toggles. Issue #72 carries the `scope:chrome-port` label for exactly this reason.
 
-**Resolution effects.**
+Adjacent evidence — Safari's existing boolean toggle (`punctuationPause` in `rsvp/settings-defaults.js`) is a **persistent settings field**, not a per-activation override. Pattern: when Safari has a boolean preference, it lives in persistent storage.
 
-- If Safari = **momentary**: drop §"Settings schema additions" (no V3 → V4 migration in this spec), drop the `subscribeSettings` rebroadcast path from §"Menu Update Discipline", drop AC #6, #7, and #9. Toggles ride the `overrides` envelope instead (the typed fields are already there). The spec shrinks by ~40 lines and stops dragging a settings-schema migration through a menu spec.
-- If Safari = **persistent**: split the §"Settings schema additions" subsection into a sibling settings-schema PR (V3 → V4) that lands first; this spec depends on that schema rather than introducing it. AC #9 graduates to "verified by the sibling PR."
+**Decision.** Lock persistent semantics. Reasoning shifts from "Safari does this" (parity) to Chrome-side UX reasoning:
+
+- Safari's only existing boolean toggle pattern is persistent — closest data point we have favors persistent.
+- Hi-fi mock checkbox visuals (`docs/design/Speed Reader Hi-Fi.html` surface 03) read as persistent defaults, not momentary toggles.
+- "Set my default" matches the user mental model for right-click → submenu toggle far better than per-activation semantics (which would render the checkbox state visibly incoherent on every right-click).
+- Per project stored feedback `parity_is_floor_not_ceiling`, Chrome UX may exceed Safari; the absence of a Safari precedent is not a reason to reject the persistent path.
+
+**Effects (no further spec text changes — already aligned).** Spec body already specifies persistent semantics. The "Tentative — gated on OQ-1" callout at §Toggle Persistence Semantics is removed in this revision. §"Settings schema additions" stays. `subscribeSettings` rebroadcast path stays. AC #6 / #7 / #9 stay. Settings schema V3 → V4 migration stays — either in this spec OR in a sibling settings-schema PR if the implementer prefers to split (decision deferred to implementation PR — see §"Implementation dependencies" in §Composes).
+
+**Trade-off accepted.** Adding `contextLine`, `startFromWordOne`, `lastUsedWpm` to Chrome's settings schema diverges from Safari's schema. Acceptable under `scope:chrome-port`; cross-platform schema sync is not a stated invariant.
 
 ### OQ-2 — #34 hotkey vs contextMenu collision (does idempotent injection + second-wins ordering survive a real race?)
 
@@ -443,7 +451,7 @@ These are empirical preconditions named explicitly by the builder. Each blocks s
 
 **Resolution effects.**
 
-- If the test **passes**: §Failure Modes "Two activation surfaces collide" graduates from claim to verified invariant; spec moves to Accepted (assuming OQ-1 also resolves).
+- If the test **passes**: §Failure Modes "Two activation surfaces collide" graduates from claim to verified invariant; spec moves to Accepted (OQ-1 already resolved 2026-05-26).
 - If the test **fails**: spec needs an explicit reconciliation decision before Accepted — either "first-wins + drop second" or "queue + serialize" — and §Failure Modes is rewritten accordingly.
 
 ## Self-identified Weaknesses
@@ -451,9 +459,9 @@ These are empirical preconditions named explicitly by the builder. Each blocks s
 Trimmed to honest hedges that the ring did not adjudicate. Findings the ring resolved are absorbed in the spec body above; preconditions are promoted to §"Open Questions".
 
 - **`Custom…` opens Options vs popup.** The choice rests on "popups can't render a slider well in M1" and on the #30 dependency for a popup-hosted WPM slider. A critic could argue Options is a heavier navigation than the user wants — they right-clicked a paragraph and now they're in a settings page, two steps away from reading. The Options-page path is defensible (and the ring concurred it's the right M1 destination), but it's not unambiguously the best long-term UX.
-- **`lastUsedWpm` may belong in `chrome.storage.local`, not `sync`.** Cross-device "last used" can be confusing if the user's laptop and phone have wildly different reading contexts. The settings-schema spec already separates reading-position (local) from settings (sync) on similar grounds. The storage-tier decision is deferred to the settings-schema PR that owns the V3 → V4 migration — see OQ-1's "persistent" branch.
+- **`lastUsedWpm` may belong in `chrome.storage.local`, not `sync`.** Cross-device "last used" can be confusing if the user's laptop and phone have wildly different reading contexts. The settings-schema spec already separates reading-position (local) from settings (sync) on similar grounds. The storage-tier decision is deferred to the V3 → V4 migration PR (whether shipped here or split into a sibling settings-schema PR per OQ-1 resolution effects).
 - **First-extraction latency on `← Full article` is bounded but unmeasured.** If the FIRST activation is `scope: 'selection'`, the full-article extraction has not yet run. §"Loading state" pins the visual (`"Loading full article…"` header + disabled play control), but the 50–200ms estimate is hand-waved — actual times vary by article length and DOM complexity. A future measurement pass may motivate a pre-warm path (kick off background extraction on selection-scope activation so the cache is warm by the time the user clicks expand).
-- **`storage.sync` quota burn from menu-toggle spam, and `lastUsedWpm` data-classification on a synced surface.** Burst tolerance is unanalyzed; a user rapidly clicking toggles inside the 300ms debounce window coalesces, but the worst case (toggle + preset + toggle + preset within seconds) has not been measured. Both concerns resolve with OQ-1's storage-tier decision in the sibling settings-schema PR.
+- **`storage.sync` quota burn from menu-toggle spam, and `lastUsedWpm` data-classification on a synced surface.** Burst tolerance is unanalyzed; a user rapidly clicking toggles inside the 300ms debounce window coalesces, but the worst case (toggle + preset + toggle + preset within seconds) has not been measured. Both concerns resolve with the storage-tier decision in the V3 → V4 migration PR.
 
 ## Antagonistic ring sign-off
 
@@ -461,9 +469,9 @@ This spec went through a four-critic antagonistic ring on 2026-05-25.
 
 - **Critics**: `security` (sender provenance, override bounds, frame provenance), `a11y` (focus management, AT announcements, reduced motion, forced colors), `scope` (schema creep, state-machine over-specification, premature future-proofing), `test-gap` (untested invariants, coverage holes on negative paths).
 - **Arbiter**: SUMMARY at `/tmp/ring-72/SUMMARY.md`; individual critiques at `/tmp/ring-72/{security,a11y,scope,test-gap}.md`.
-- **Convergence verdict**: **STRONG.** Three critics independently converged on the toggle-persistence decision (now OQ-1); three converged on the silent-fallback branch (now AC #15); four converged on the scope-swap state machine (now simplified per F2).
+- **Convergence verdict**: **STRONG.** Three critics independently converged on the toggle-persistence decision (now OQ-1 — RESOLVED 2026-05-26 via Safari-spike, locked on persistent semantics); three converged on the silent-fallback branch (now AC #15); four converged on the scope-swap state machine (now simplified per F2).
 - **Disposition of F1–F8 findings**:
-  - F1 (toggle persistence) → OQ-1 (empirical gate).
+  - F1 (toggle persistence) → OQ-1 (empirical gate) → RESOLVED 2026-05-26 (persistent).
   - F2 (scope swap silent + over-specified) → state table replaced with single sentence, §"Focus and Announcement on Swap" added, scope-swap unit test added, E2E corrected.
   - F3 (selection-cleared silent fallback) → §Failure Modes rewritten, AC #15 added, unit-test bullet added under `factory.test.ts` peer in §Test Surface.
   - F4 (#34 hotkey collision) → OQ-2 (empirical gate), AC #14, `collision.test.ts` added.
@@ -471,7 +479,7 @@ This spec went through a four-critic antagonistic ring on 2026-05-25.
   - F6 (overrides receive-side bounds) → §"Activation Payload Extension — Receive-Side Validation" added, AC #17, `validate-overrides.test.ts` added.
   - F7 (`installMenuItems` adapter test under-specified) → four explicit cases enumerated in §Test Surface.
   - F8 (frame provenance) → §"Frame Provenance" added, AC #18.
-- **Builder weakness drift**: weakness #2 (`overrides` nested vs flat) removed — arbiter confirmed style-only with no behavioral consequence; the nested shape stays. Weakness #3 (`lastUsedWpm` sync vs local) deferred to the settings-schema PR per OQ-1 resolution branch. Weaknesses #4 (toggle persistence), #5 (collision), and #7 (selection-cleared fallback) promoted to OQ-1, OQ-2, and AC #15 respectively. Remaining hedges in §Self-identified Weaknesses: #1 (`Custom…` → Options vs popup), #6 (first-extraction latency on swap), plus the new `storage.sync` quota / data-classification note.
+- **Builder weakness drift**: weakness #2 (`overrides` nested vs flat) removed — arbiter confirmed style-only with no behavioral consequence; the nested shape stays. Weakness #3 (`lastUsedWpm` sync vs local) deferred to the V3 → V4 migration PR. Weaknesses #4 (toggle persistence) → OQ-1 → RESOLVED 2026-05-26; #5 (collision) → OQ-2; #7 (selection-cleared fallback) → AC #15. Remaining hedges in §Self-identified Weaknesses: #1 (`Custom…` → Options vs popup), #6 (first-extraction latency on swap), plus the new `storage.sync` quota / data-classification note.
 
 ## Post-ring review fixes (2026-05-25)
 
@@ -503,3 +511,30 @@ A second `/pr-review-toolkit:review-pr` run after the first fix commit surfaced 
 - **M1' (`'page'`)** — `CtxContext = 'selection' | 'page'` included `'page'` which was never used. Dropped to `'selection'`-only (per Karpathy #2: no flexibility not requested).
 - **M2' (`subscribeSettings` dep)** — One-liner expanded with expected file path (`src/core/settings/index.ts`), expected signature, debounce note, and follow-up-issue placeholder.
 - **F5 (`v2 migration` stale phrase)** — Self-weakness bullet rephrased to `V3 → V4 migration`.
+
+### OQ-1 resolution (2026-05-26): Safari spike — persistent semantics locked
+
+10-minute spike against `chriscantu/speed-reader` upstream completed 2026-05-26.
+
+**Finding.** Safari has no context-menu integration. `SpeedReaderExtension/Resources/manifest.json` declares no `contextMenus` permission; `background.js` and `content.js` have zero `contextMenus` API references. The literal OQ-1 question (does Safari persist menu toggles?) is moot — Safari has no menu.
+
+**Adjacent evidence.** Safari's only existing boolean toggle (`punctuationPause` in `rsvp/settings-defaults.js`) is a persistent settings field, not a per-activation override. Pattern: Safari boolean prefs live in persistent storage.
+
+**Decision.** Lock persistent semantics for Chrome's menu toggles. Reasoning shifts from "Safari does this" (parity) to Chrome-side UX:
+
+- Closest Safari data point favors persistent.
+- Hi-fi mock checkbox visuals read as persistent defaults.
+- "Set my default" matches user mental model.
+- Per memory `parity_is_floor_not_ceiling`, Chrome UX may exceed Safari; absence of Safari precedent is not a reject reason.
+
+**Spec changes from this resolution.**
+
+- §"Toggle Persistence Semantics" — `Tentative — gated on OQ-1` callout replaced with `Locked (2026-05-26) — persistent settings writes`.
+- §"Open Questions" → OQ-1 — entry rewritten as RESOLVED with spike result and Chrome-side reasoning preserved.
+- §"Composes vs Supersedes" → "Implementation dependencies" — V3 → V4 migration confirmed required; split-vs-inline left as implementer's call.
+- §"Self-identified Weaknesses" — both `lastUsedWpm` storage-tier and quota-burn bullets re-pointed at the V3 → V4 migration PR (whether inline or split).
+- §"Antagonistic ring sign-off" — F1 / OQ-1 disposition updated to "RESOLVED 2026-05-26 (persistent)". OQ-2 resolution-effects updated: spec moves to Accepted once OQ-2 test passes (no longer "assuming OQ-1 also resolves").
+
+**Trade-off accepted.** Chrome's V4 schema adds `contextLine`, `startFromWordOne`, `lastUsedWpm` — fields Safari's schema does not have. Acceptable under `scope:chrome-port` label; cross-platform schema sync is not a stated invariant.
+
+**Remaining gate to Accepted.** OQ-2 (collision integration test) is the sole outstanding precondition.
