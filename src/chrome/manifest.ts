@@ -94,6 +94,11 @@ export default {
     },
   },
 
+  // --- externally_connectable: intentionally omitted ----------------------
+  // NO externally_connectable. Web origins MUST NOT reach our onMessage/onConnect.
+  // MV3 default is closed; this comment exists to surface the invariant for future PRs.
+  // See ADR docs/superpowers/decisions/2026-05-22-sw-lifecycle-activation.md §5.
+
   // --- Icons --------------------------------------------------------------
   // Used by Chrome Web Store and the extension toolbar.  See issue #11.
   icons: {
