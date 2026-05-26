@@ -43,6 +43,8 @@ const POPUP_ONLY_TYPES = new Set<string>([
  */
 const CS_ONLY_TYPES = new Set<string>(['cs-progress', 'overlay-state']);
 
+import type { ActivationError } from '../activation/types';
+
 export type OnMessageError =
   | { kind: 'sender-rejected' }
   | {
@@ -50,7 +52,8 @@ export type OnMessageError =
       expected: 'popup' | 'content-script';
       got: 'popup' | 'content-script';
     }
-  | { kind: 'invalid-payload' };
+  | { kind: 'invalid-payload' }
+  | { kind: 'activation-failed'; error: ActivationError };
 
 export interface OnMessageDeps {
   /**

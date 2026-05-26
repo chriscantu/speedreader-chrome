@@ -9,25 +9,22 @@
  * No `chrome.*` / `browser.*` imports — this file MUST live under
  * `src/core/` per the boundary contract in `src/core/README.md`.
  *
+ * Allow-list discipline (see issue #122 review):
+ *   The predicate is restricted UNLESS the URL parses cleanly AND its
+ *   scheme is on a small, explicit allow list:
+ *     - `http:` / `https:` (web content, minus Web Store hosts)
+ *     - `chrome-extension:` AND `hostname === ownExtensionId` (our own
+ *       extension surfaces)
+ *   Every other scheme — known-restricted (`chrome:`, `devtools:`,
+ *   `file:`, …) AND future schemes Chromium hasn't shipped yet
+ *   (`isolated-app:`, `chrome-distiller:`, `filesystem:`, …) — falls
+ *   to the default-deny branch. A deny-list misses any scheme not yet
+ *   enumerated; the allow-list flip closes that gap.
+ *
  * See `docs/superpowers/specs/2026-05-22-sw-lifecycle-activation.md`
  * §"Restricted-URL Guard" and the ADR
  * `docs/superpowers/decisions/2026-05-22-sw-lifecycle-activation.md`.
  */
-
-/** URL schemes Chrome forbids (or that have no useful injection target). */
-const RESTRICTED_SCHEMES = new Set<string>([
-  'chrome:',
-  'chrome-untrusted:',
-  'chrome-search:',
-  'devtools:',
-  'view-source:',
-  'about:',
-  'data:',
-  'javascript:',
-  'file:',
-  'blob:',
-  'edge:',
-]);
 
 /** Hosts whose entire surface is off-limits (Chrome Web Store). */
 const RESTRICTED_HOSTS = new Set<string>(['chromewebstore.google.com']);
@@ -39,7 +36,7 @@ const LEGACY_WEBSTORE_PATH_PREFIX = '/webstore';
 /**
  * Returns true if SpeedReader must not inject into the given URL.
  *
- * `chrome-extension:` URLs are restricted EXCEPT when their hostname (the
+ * `chrome-extension:` URLs are allowed ONLY when their hostname (the
  * extension ID) matches `ownExtensionId`. Pass `chrome.runtime.id` from
  * the call site — this function refuses to make that lookup itself to
  * stay platform-agnostic.
@@ -58,13 +55,7 @@ export function isRestricted(url: string, ownExtensionId?: string): boolean {
     return true;
   }
 
-  if (RESTRICTED_SCHEMES.has(parsed.protocol)) return true;
-
-  if (parsed.protocol === 'chrome-extension:') {
-    if (!ownExtensionId) return true;
-    return parsed.hostname !== ownExtensionId;
-  }
-
+  // Allow http(s), minus the Web Store hosts.
   if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
     if (RESTRICTED_HOSTS.has(parsed.hostname)) return true;
     if (
@@ -73,7 +64,16 @@ export function isRestricted(url: string, ownExtensionId?: string): boolean {
     ) {
       return true;
     }
+    return false;
   }
 
-  return false;
+  // Allow our own extension's `chrome-extension://` pages.
+  if (parsed.protocol === 'chrome-extension:') {
+    if (!ownExtensionId) return true;
+    return parsed.hostname !== ownExtensionId;
+  }
+
+  // Every other scheme — known-restricted AND future schemes Chromium
+  // hasn't shipped yet — defaults to restricted.
+  return true;
 }

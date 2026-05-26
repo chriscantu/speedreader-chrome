@@ -52,6 +52,7 @@ export default defineConfig({
       // state modules. Rest of src/chrome/** stays excluded — those surfaces
       // are integration-tested via Playwright (#38).
       'src/chrome/settings/**/__tests__/**/*.test.ts',
+      'src/chrome/background/__tests__/**/*.test.ts',
       'src/chrome/background/activation/**/__tests__/**/*.test.ts',
       'src/chrome/background/messaging/**/__tests__/**/*.test.ts',
       'src/chrome/background/state/**/__tests__/**/*.test.ts',

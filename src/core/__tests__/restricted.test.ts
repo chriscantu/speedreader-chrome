@@ -27,6 +27,27 @@ describe('isRestricted', () => {
     }
   });
 
+  describe('novel schemes (allow-list default-deny)', () => {
+    // These schemes either don't ship in stable Chromium yet, are
+    // proposed, or are obscure. An allow-list approach rejects them
+    // all by default — a deny-list approach would silently allow them
+    // until each is enumerated. Drives the design choice in #122.
+    const novelSchemeFixtures: ReadonlyArray<readonly [string, string]> = [
+      ['isolated-app://aaaaaaaaaaaaaaaa/index.html', 'isolated-app:'],
+      ['chrome-distiller://abc123', 'chrome-distiller:'],
+      ['filesystem:https://example.com/temporary/foo.txt', 'filesystem:'],
+      ['ws://example.com/socket', 'ws:'],
+      ['wss://example.com/socket', 'wss:'],
+      ['ftp://example.com/file', 'ftp:'],
+    ];
+
+    for (const [url, scheme] of novelSchemeFixtures) {
+      it(`rejects ${scheme} (${url}) under allow-list default-deny`, () => {
+        expect(isRestricted(url, OWN_ID)).toBe(true);
+      });
+    }
+  });
+
   describe('chrome-extension scheme', () => {
     it('rejects chrome-extension URLs from other extension IDs', () => {
       expect(isRestricted('chrome-extension://other-extension-id/popup.html', OWN_ID)).toBe(true);
