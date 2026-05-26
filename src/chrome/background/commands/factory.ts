@@ -47,13 +47,12 @@ async function resolveTabId(tab: chrome.tabs.Tab | undefined): Promise<number | 
  * every SW wake.
  */
 export function registerCommands(deps: CommandsDeps): void {
-  // The listener body is async, but `addListener` itself is sync —
-  // the MV3 invariant is preserved. Returning the promise from a
-  // `chrome.commands.onCommand` callback has no protocol effect
-  // (unlike `runtime.onMessage`), so we hand it back to make the
-  // listener awaitable in tests. Errors are swallowed inside so an
-  // unexpected rejection cannot become an unhandled-promise event
-  // in the SW.
+  // `addListener` is sync — MV3 invariant preserved. Errors are
+  // swallowed inside `handleCommand` so an unexpected rejection cannot
+  // become an unhandled-promise event in the SW. The returned promise
+  // has no Chrome-side protocol effect (unlike `runtime.onMessage`);
+  // the arrow is captured by the test stub so `await _listener(...)`
+  // resolves once `handleCommand` settles.
   chrome.commands.onCommand.addListener((command, tab) => handleCommand(deps, command, tab));
 }
 
@@ -63,7 +62,10 @@ async function handleCommand(
   tab: chrome.tabs.Tab | undefined,
 ): Promise<void> {
   // Defense against future binding additions — only react to the one
-  // command this module owns.
+  // command this module owns. Intentional silent no-op at runtime: a
+  // future binding added to the manifest but not wired here should fail
+  // loudly at the test layer (see "ignores unknown commands"), not in
+  // production where every keystroke would spam the SW log.
   if (command !== TARGET_COMMAND) return;
 
   try {

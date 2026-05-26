@@ -8,7 +8,7 @@ type DispatchMock = Mock<(intent: ActivationIntent) => Promise<Result<void, Acti
  *
  * The listener is wrapped in a `registerCommands(deps)` factory so the
  * `dispatchActivation` call can be injected. The default export of
- * `./index` calls the factory with the real `dispatchActivation` at
+ * `./register` calls the factory with the real `dispatchActivation` at
  * module top-level (the MV3 invariant: addListener BEFORE any await).
  *
  * Establishes the same chrome-stub pattern used in
@@ -74,13 +74,13 @@ describe('registerCommands', () => {
   });
 
   it('registers a single onCommand listener', async () => {
-    const { registerCommands } = await import('../index');
+    const { registerCommands } = await import('../factory');
     registerCommands({ dispatch });
     expect(stub.commands.onCommand.addListener).toHaveBeenCalledTimes(1);
   });
 
   it('dispatches a command intent when chrome provides the tab', async () => {
-    const { registerCommands } = await import('../index');
+    const { registerCommands } = await import('../factory');
     registerCommands({ dispatch });
 
     const tab = { id: 42 } as chrome.tabs.Tab;
@@ -94,7 +94,7 @@ describe('registerCommands', () => {
 
   it('falls back to tabs.query when chrome omits the tab argument', async () => {
     stub = installChromeStub({ activeTabId: 99 });
-    const { registerCommands } = await import('../index');
+    const { registerCommands } = await import('../factory');
     registerCommands({ dispatch });
 
     await stub.commands.onCommand._listener?.('_toggle_reader');
@@ -107,7 +107,7 @@ describe('registerCommands', () => {
 
   it('falls back to tabs.query when the tab argument has no id', async () => {
     stub = installChromeStub({ activeTabId: 13 });
-    const { registerCommands } = await import('../index');
+    const { registerCommands } = await import('../factory');
     registerCommands({ dispatch });
 
     // chrome can in theory pass a tab without an id (devtools, headless); the
@@ -122,7 +122,7 @@ describe('registerCommands', () => {
 
   it('warns and does not dispatch when no active tab can be resolved', async () => {
     stub = installChromeStub({ queryReturnsEmpty: true });
-    const { registerCommands } = await import('../index');
+    const { registerCommands } = await import('../factory');
     registerCommands({ dispatch });
 
     await stub.commands.onCommand._listener?.('_toggle_reader');
@@ -134,7 +134,7 @@ describe('registerCommands', () => {
   });
 
   it('ignores commands other than _toggle_reader', async () => {
-    const { registerCommands } = await import('../index');
+    const { registerCommands } = await import('../factory');
     registerCommands({ dispatch });
 
     await stub.commands.onCommand._listener?.('_some_future_command', { id: 1 } as chrome.tabs.Tab);
@@ -150,7 +150,7 @@ describe('registerCommands', () => {
         error: { kind: 'restricted-page', url: 'chrome://settings' },
       }),
     );
-    const { registerCommands } = await import('../index');
+    const { registerCommands } = await import('../factory');
     registerCommands({ dispatch });
 
     await expect(
@@ -165,7 +165,7 @@ describe('registerCommands', () => {
 
   it('warns but does not throw when dispatch itself rejects', async () => {
     dispatch = vi.fn(() => Promise.reject(new Error('boom')));
-    const { registerCommands } = await import('../index');
+    const { registerCommands } = await import('../factory');
     registerCommands({ dispatch });
 
     await expect(

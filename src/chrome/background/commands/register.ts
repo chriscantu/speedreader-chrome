@@ -3,7 +3,7 @@
  *
  * Importing this module is the install step — it calls `registerCommands`
  * with the real `dispatchActivation` at module load. Kept separate from
- * `./index.ts` so the factory can be imported in tests without firing
+ * `./factory.ts` so the factory can be imported in tests without firing
  * the side-effect (and without doubling the addListener call count).
  *
  * MV3 invariant: this file MUST be imported synchronously from the SW
@@ -12,6 +12,6 @@
  */
 
 import { dispatchActivation } from '../activation/dispatch';
-import { registerCommands } from './index';
+import { registerCommands } from './factory';
 
 registerCommands({ dispatch: dispatchActivation });
