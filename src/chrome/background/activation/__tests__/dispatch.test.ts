@@ -306,4 +306,89 @@ describe('dispatchActivation', () => {
       overrides: { wpm: 999999 },
     });
   });
+
+  // Issue #129 — security TOCTOU. Guard runs at step 2 against URL at that
+  // moment; tab may navigate to a restricted origin between guard and
+  // handoff. A post-injection recheck before sendMessage MUST surface
+  // `restricted-page` (the typed error for this case), not silently hand
+  // off to the now-restricted page.
+  it('#129: re-checks isRestricted after injection and returns restricted-page on URL flip to chrome://', async () => {
+    stub = installChromeStub({});
+    // First call (step 2 guard) returns allowed; second call (post-inject
+    // recheck before handoff) returns restricted.
+    let getCalls = 0;
+    stub.tabs.get = vi.fn(() => {
+      getCalls += 1;
+      const url = getCalls === 1 ? 'https://example.com/article' : 'chrome://settings';
+      return Promise.resolve({ url });
+    });
+    const { dispatchActivation } = await import('../dispatch');
+    const intent: ActivationIntent = { source: 'command', tabId: 21 };
+
+    const result = await dispatchActivation(intent);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.error).toEqual({ kind: 'restricted-page', url: 'chrome://settings' });
+    expect(stub.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(stub.tabs.get).toHaveBeenCalledTimes(2);
+  });
+
+  // Issue #129 follow-up (test-gap critic H1). The post-injection
+  // recheck does its own `chrome.tabs.get` — that call can reject (tab
+  // closed between executeScript settle and recheck). Without this test
+  // the catch branch around the second tabs.get is structurally
+  // unreachable from coverage; a refactor that drops it would surface
+  // as an unhandled rejection in the SW.
+  it('#129: post-recheck tabs.get rejection surfaces as tab-unavailable', async () => {
+    stub = installChromeStub({});
+    let getCalls = 0;
+    stub.tabs.get = vi.fn(() => {
+      getCalls += 1;
+      if (getCalls === 1) return Promise.resolve({ url: 'https://example.com/article' });
+      return Promise.reject(new Error('No tab with id: 21'));
+    });
+    const { dispatchActivation } = await import('../dispatch');
+    const intent: ActivationIntent = { source: 'command', tabId: 21 };
+
+    const result = await dispatchActivation(intent);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.error.kind).toBe('tab-unavailable');
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+    expect(stub.tabs.sendMessage).not.toHaveBeenCalled();
+  });
+
+  // Issue #129 follow-up (test-gap critic H2). The recheck threads
+  // `chrome.runtime.id` into `isRestricted`. Flipping to a FOREIGN
+  // `chrome-extension://` URL exercises the own-id branch of
+  // `isRestricted` — a regression that passed an empty/wrong runtime
+  // id would still pass the chrome:// flip case (that path ignores
+  // runtime id).
+  it('#129: post-recheck flip to foreign extension URL surfaces as restricted-page', async () => {
+    stub = installChromeStub({});
+    const FOREIGN_ID = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    let getCalls = 0;
+    stub.tabs.get = vi.fn(() => {
+      getCalls += 1;
+      const url =
+        getCalls === 1
+          ? 'https://example.com/article'
+          : `chrome-extension://${FOREIGN_ID}/popup.html`;
+      return Promise.resolve({ url });
+    });
+    const { dispatchActivation } = await import('../dispatch');
+    const intent: ActivationIntent = { source: 'command', tabId: 22 };
+
+    const result = await dispatchActivation(intent);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.error).toEqual({
+      kind: 'restricted-page',
+      url: `chrome-extension://${FOREIGN_ID}/popup.html`,
+    });
+    expect(stub.tabs.sendMessage).not.toHaveBeenCalled();
+  });
 });

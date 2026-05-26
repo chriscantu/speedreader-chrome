@@ -10,10 +10,12 @@
  *   1. tab URL lookup
  *   2. restricted-URL guard (`src/core/restricted.ts`)
  *   3. content-script injection via `chrome.scripting.executeScript`
- *   4. handoff to the CS via `chrome.tabs.sendMessage({type: 'activate-reader'})`
+ *   4. post-injection TOCTOU recheck (`isRestricted` against the
+ *      post-resolve URL — issue #129)
+ *   5. handoff to the CS via `chrome.tabs.sendMessage({type: 'activate-reader'})`
  *
  * `intent.source` is consulted ONLY for payload normalization (extracting
- * `selectionText` from the `contextMenu` variant). The four-step flow is
+ * `selectionText` from the `contextMenu` variant). The flow is
  * source-blind.
  *
  * Errors from any step are converted to `Result.err` — exceptions never
@@ -48,6 +50,12 @@ export { CONTENT_SCRIPT_FILE };
  * holds the in-flight injection promise per tab; later callers await the
  * same promise and skip a second `executeScript` call.
  *
+ * Lock is keyed on `(tabId, url)`: a follower reuses the cached promise
+ * ONLY when its observed URL matches the leader's. A tab that has
+ * navigated mid-flight presents a new URL identity, so the follower
+ * fires its own injection rather than handing off against a navigated
+ * page (issue #129 reverse race — cache coherence).
+ *
  * Entry cleared on settle (`.finally`) so the next genuine dispatch can
  * re-inject (e.g., after a CS tear-down or page navigation). The map only
  * dedups CONCURRENT injections — once an injection has completed and the
@@ -63,18 +71,26 @@ export { CONTENT_SCRIPT_FILE };
  * one `executeScript` call across two near-simultaneous dispatches for
  * the same tab.
  */
-const injectionLocks = new Map<number, Promise<void>>();
+interface InjectionLock {
+  url: string;
+  promise: Promise<void>;
+}
+const injectionLocks = new Map<number, InjectionLock>();
 
 /**
  * Idempotently inject the content script into `tabId`. Returns a `Result`
- * — never throws. Concurrent calls for the same `tabId` share one
- * underlying `chrome.scripting.executeScript` call.
+ * — never throws. Concurrent calls for the same `(tabId, url)` share one
+ * underlying `chrome.scripting.executeScript` call. A follower observing
+ * a URL different from the cached entry fires its own injection.
  */
-async function ensureContentScript(tabId: number): Promise<Result<void, ActivationError>> {
-  const inFlight = injectionLocks.get(tabId);
-  if (inFlight) {
+async function ensureContentScript(
+  tabId: number,
+  url: string,
+): Promise<Result<void, ActivationError>> {
+  const cached = injectionLocks.get(tabId);
+  if (cached && cached.url === url) {
     try {
-      await inFlight;
+      await cached.promise;
       return { ok: true, data: undefined };
     } catch (details) {
       return { ok: false, error: { kind: 'inject-failed', tabId, details } };
@@ -87,9 +103,14 @@ async function ensureContentScript(tabId: number): Promise<Result<void, Activati
       files: [CONTENT_SCRIPT_FILE],
     });
   })().finally(() => {
-    injectionLocks.delete(tabId);
+    // Only clear our own entry — a later dispatch on a different URL may
+    // have replaced the slot while we were in flight.
+    const current = injectionLocks.get(tabId);
+    if (current?.promise === promise) {
+      injectionLocks.delete(tabId);
+    }
   });
-  injectionLocks.set(tabId, promise);
+  injectionLocks.set(tabId, { url, promise });
 
   try {
     await promise;
@@ -165,16 +186,35 @@ export async function dispatchActivation(
   }
 
   // 3. Inject the content script idempotently. `ensureContentScript`
-  //    dedupes concurrent injections per tab so two near-simultaneous
-  //    activations (e.g., context-menu click + #34 hotkey) share one
-  //    underlying `chrome.scripting.executeScript` call. Rejections
-  //    (TOCTOU restricted URLs, etc.) surface as `inject-failed`.
-  const injectResult = await ensureContentScript(intent.tabId);
+  //    dedupes concurrent injections per `(tabId, url)` so two
+  //    near-simultaneous activations (e.g., context-menu click + #34
+  //    hotkey) on the same page share one `chrome.scripting.executeScript`
+  //    call. A tab that navigated mid-flight presents a different URL
+  //    identity, so a follower fires its own injection (issue #129).
+  //    Rejections (TOCTOU restricted URLs, etc.) surface as `inject-failed`.
+  const injectResult = await ensureContentScript(intent.tabId, url);
   if (!injectResult.ok) {
     return injectResult;
   }
 
-  // 4. Hand off to the CS via the `activate-reader` one-shot RPC. The
+  // 4. Post-injection TOCTOU recheck (issue #129). The tab may have
+  //    navigated between the step-2 guard and the now-resolved
+  //    `executeScript`. Re-fetch the URL and re-run `isRestricted`
+  //    before the handoff so a flip to a restricted origin surfaces as
+  //    `restricted-page` (the typed error for this case) rather than
+  //    leaking through as a silent handoff or a generic `inject-failed`.
+  let postUrl: string;
+  try {
+    const postTab = await chrome.tabs.get(intent.tabId);
+    postUrl = postTab.url ?? '';
+  } catch (details) {
+    return { ok: false, error: { kind: 'tab-unavailable', tabId: intent.tabId, details } };
+  }
+  if (isRestricted(postUrl, chrome.runtime.id)) {
+    return { ok: false, error: { kind: 'restricted-page', url: postUrl } };
+  }
+
+  // 5. Hand off to the CS via the `activate-reader` one-shot RPC. The
   //    `rsvp-session` Port is opened separately by the popup / CS per
   //    the messaging-contract spec.
   const payload = intentToActivatePayload(intent);

@@ -316,4 +316,79 @@ describe('dispatchActivation — OQ-2 hotkey/contextMenu collision', () => {
     expect(callArg1.target.tabId).toBe(42);
     expect(callArg2.target.tabId).toBe(99);
   });
+
+  // Issue #129 follow-up (test-gap critic M1). The leader's `.finally`
+  // includes an identity guard (`current?.promise === promise`) so a
+  // leader settling AFTER a follower with a different URL has replaced
+  // the map slot does NOT erase the follower's entry. Without the guard,
+  // the leader's settle would orphan the follower's promise and force a
+  // third dispatch on the follower's URL to re-inject. This test pins
+  // that behavior: dispatch leader on url1, follower on url2 (slot
+  // replacement), settle leader's executeScript, then dispatch a third
+  // call on url2 BEFORE follower's settles. With the guard, the third
+  // call reuses follower's in-flight promise → still only 2
+  // `executeScript` calls. Drop the guard, this test would fail with 3.
+  it('#129: leader settle does NOT orphan follower slot on URL mismatch', async () => {
+    const TAB = 42;
+    let getCalls = 0;
+    stub.tabs.get = vi.fn(() => {
+      getCalls += 1;
+      // Leader (1st call) gets /a; follower (2nd call) gets /b;
+      // third dispatch (3rd call) also /b → should reuse follower.
+      const url = getCalls === 1 ? 'https://example.com/a' : 'https://example.com/b';
+      return Promise.resolve({ url });
+    });
+    const { dispatchActivation } = await import('../dispatch');
+    const intent: ActivationIntent = { source: 'command', tabId: TAB };
+
+    const pLeader = dispatchActivation(intent);
+    const pFollower = dispatchActivation(intent);
+    pending.push(pLeader, pFollower);
+    await flushMicrotasks();
+
+    // Both leader and follower fired their own executeScript (URL mismatch).
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(2);
+    expect(executeCalls).toHaveLength(2);
+
+    // Settle leader's executeScript ONLY. Leader's .finally runs; the
+    // identity guard must prevent it from deleting the slot now owned
+    // by follower.
+    executeCalls[0]?.resolve();
+    await flushMicrotasks();
+
+    // Third dispatch on url=/b (same as follower). With guard intact,
+    // it reuses follower's still-in-flight promise → no new executeScript.
+    const pThird = dispatchActivation(intent);
+    pending.push(pThird);
+    await flushMicrotasks();
+
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(2);
+  });
+
+  // Issue #129 — reverse-race / cache coherence. Lock is keyed on
+  // `(tabId, url)`. Two near-simultaneous dispatches on the SAME tab but
+  // DIFFERENT URLs (tab navigated mid-flight) MUST NOT share an injection;
+  // B's URL identity differs from A's cached entry so B fires its own
+  // executeScript. Without URL keying, B silently reuses A's stale
+  // promise and hands off against a navigated page.
+  it('#129: keys dedup on (tabId, url) — URL change invalidates in-flight reuse', async () => {
+    const TAB = 42;
+    // Override the default stub.tabs.get to return a different URL per call.
+    let getCalls = 0;
+    stub.tabs.get = vi.fn(() => {
+      getCalls += 1;
+      const url = getCalls === 1 ? 'https://example.com/a' : 'https://example.com/b';
+      return Promise.resolve({ url });
+    });
+    const { dispatchActivation } = await import('../dispatch');
+
+    const intent: ActivationIntent = { source: 'command', tabId: TAB };
+    const p1 = dispatchActivation(intent);
+    const p2 = dispatchActivation(intent);
+    pending.push(p1, p2);
+    await flushMicrotasks();
+
+    // Same tab, different URL identity → two distinct injections.
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(2);
+  });
 });
