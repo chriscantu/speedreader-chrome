@@ -25,7 +25,12 @@ This spec **composes** with — and does **NOT** supersede — the following alr
 
 - [`2026-05-22-sw-lifecycle-activation.md`](2026-05-22-sw-lifecycle-activation.md) §"Listener Registration Discipline" (the `chrome.contextMenus.onClicked` listener registration), §"Unified Activation Dispatch" (the `dispatchActivation` funnel), §"Restricted-URL Guard" (call site #2 — `documentUrlPatterns`), §"Context-Menu Selection Trust" (the CS re-reads selection; `info.selectionText` is a boolean signal only).
 - [`2026-05-08-messaging-contract.md`](2026-05-08-messaging-contract.md) §"Message-type Registry" (the `activate-reader` entry; this spec extends its payload shape, additively).
-- [`2026-05-08-settings-schema.md`](2026-05-08-settings-schema.md) §"Schema shape" + §"Read/write/subscribe API" (`saveSettings` debounce, `subscribeSettings` broadcast; this spec adds two persisted fields).
+- [`2026-05-08-settings-schema.md`](2026-05-08-settings-schema.md) §"Schema shape" + §"Read/write/subscribe API" (`saveSettings` debounce, `subscribeSettings` broadcast; this spec adds three persisted fields via a V3 → V4 migration).
+
+**Implementation dependencies** (must land before this spec's implementation PR):
+
+- `subscribeSettings` is specified by the settings-schema spec but not yet on disk; implementation of this spec blocks on the `subscribeSettings` API shipping (tracked under the settings-schema spec's implementation PR series).
+- OQ-1 resolution: if `momentary`, settings-schema dep collapses to "no migration needed." If `persistent`, a sibling V3 → V4 settings-schema PR lands first.
 - [`src/chrome/background/activation/types.ts`](../../../src/chrome/background/activation/types.ts) (`ContextMenuActivationIntent` already carries the `selectionText?: string` field) and [`dispatch.ts`](../../../src/chrome/background/activation/dispatch.ts) (`intentToActivatePayload` is extended, not replaced).
 
 ## Submenu Structure
@@ -34,17 +39,20 @@ This spec **composes** with — and does **NOT** supersede — the following alr
 
 ### Item IDs (stable strings)
 
-IDs are versioned (`v1`) so a future shape revision can co-exist with old persisted state, and so the click handler can dispatch via a `switch` on the literal.
+IDs are versioned (`v1`) so a future shape revision can co-exist with old persisted state, and so the click handler can dispatch via an exhaustive `switch` on a literal union (typo in a switch arm = TS error, not a silent dead branch):
 
+```ts
+export type CtxMenuItemId =
+  | 'speedreader.ctx.parent.v1'
+  | 'speedreader.ctx.lastUsed.v1'           // top child; title rewritten on update
+  | 'speedreader.ctx.preset.300.v1'
+  | 'speedreader.ctx.preset.500.v1'
+  | 'speedreader.ctx.preset.custom.v1'
+  | 'speedreader.ctx.toggle.showContext.v1'
+  | 'speedreader.ctx.toggle.startFromWord1.v1';
 ```
-speedreader.ctx.parent.v1
-speedreader.ctx.lastUsed.v1            // top child; title rewritten on update
-speedreader.ctx.preset.300.v1
-speedreader.ctx.preset.500.v1
-speedreader.ctx.preset.custom.v1
-speedreader.ctx.toggle.showContext.v1
-speedreader.ctx.toggle.startFromWord1.v1
-```
+
+`ContextMenuActivationIntent.menuItemId` (see §"Activation Payload Extension" below) narrows from `string` to `CtxMenuItemId`. Click-handler dispatch uses `case 'speedreader.ctx.preset.300.v1':` etc., with a `default: const _exhaust: never = id` arm to enforce coverage at compile time.
 
 Separator between the speed items and the toggle items (`type: 'separator'`, no stable ID needed — recreated each render).
 
@@ -53,22 +61,29 @@ Separator between the speed items and the toggle items (`type: 'separator'`, no 
 Items are created **once per SW wake** in `ensureContextMenu()`, the same function the activation spec's `chrome.runtime.onInstalled` and `onStartup` listeners already invoke. The shape is data-driven:
 
 ```ts
+// `CtxContext` mirrors the subset of chrome.contextMenus.ContextType the
+// factory uses — local literal union keeps the pure factory free of any
+// `chrome.*` type imports (per §File Layout boundary discipline).
+type CtxContext = 'selection' | 'page';
+
 interface CtxItemSpec {
-  id: string;
+  id: CtxMenuItemId | 'speedreader.ctx.separator';     // separator is the one non-stable ID
   title: string;
   type?: 'normal' | 'separator' | 'checkbox';
-  parentId?: string;
-  contexts: chrome.contextMenus.ContextType[];
-  documentUrlPatterns: string[];
+  parentId?: CtxMenuItemId;
+  contexts: readonly CtxContext[];
+  documentUrlPatterns: readonly string[];
   checked?: boolean;
 }
 ```
 
-`buildMenuItems(settings: SettingsV1): CtxItemSpec[]` lives in `src/chrome/background/context-menu/factory.ts` (no `chrome.*` calls — pure list builder). `installMenuItems(items)` in `src/chrome/background/context-menu/install.ts` is the Chrome adapter that calls `chrome.contextMenus.removeAll()` then `chrome.contextMenus.create()` per spec.
+The `chrome.*`-typed coercion (to `chrome.contextMenus.CreateProperties`) happens in the `install.ts` adapter, NOT in `factory.ts`. `readonly` on the array fields is a free invariant — factory output is treated as immutable downstream.
 
-The factory consumes the current `SettingsV1` (read via `loadSettings()`) to render:
+`buildMenuItems(settings: SettingsV3): CtxItemSpec[]` lives in `src/chrome/background/context-menu/factory.ts` (no `chrome.*` calls — pure list builder). `installMenuItems(items)` in `src/chrome/background/context-menu/install.ts` is the Chrome adapter that calls `chrome.contextMenus.removeAll()` then `chrome.contextMenus.create()` per spec.
 
-- `lastUsed` title — `"{wpm} wpm · last used"`, reading `settings.wpm`.
+The factory consumes the current `SettingsV3` (read via `loadSettings()`) to render:
+
+- `lastUsed` title — `"{wpm} wpm · last used"`, reading `settings.lastUsedWpm`.
 - `toggle.showContext` `checked` — reflects `settings.contextLine` (new field; see §Toggle Persistence).
 - `toggle.startFromWord1` `checked` — reflects `settings.startFromWordOne` (new field).
 - Preset items show plain titles (`"300 wpm"`, `"500 wpm"`, `"Custom…"`).
@@ -95,6 +110,8 @@ interface ActivateReaderMessage {
 is extended **additively** to:
 
 ```ts
+import type { Overrides } from '../../../core/messaging/validate';
+
 interface ActivateReaderMessage {
   type: 'activate-reader';
   scope: 'selection' | 'full';
@@ -107,12 +124,12 @@ interface ActivateReaderMessage {
    * Absent / undefined → no overrides; CS uses live settings.
    * Present → CS shallow-merges over the live settings snapshot it
    *   already loads on activation. Unspecified fields use settings.
+   *
+   * `Overrides` is Zod-derived from `SettingsSchemaV3` constraints so the
+   * wire-type and the bounds-validator share the same shape — see
+   * §"Activation Payload Extension — Receive-Side Validation".
    */
-  overrides?: {
-    wpm?: number;                  // bounded 100..600 per settings schema
-    showContext?: boolean;
-    startFromWordOne?: boolean;
-  };
+  overrides?: Overrides;
 }
 ```
 
@@ -125,16 +142,15 @@ interface ActivateReaderMessage {
 `ContextMenuActivationIntent` is extended in `src/chrome/background/activation/types.ts`:
 
 ```ts
+import type { Overrides } from '../../core/messaging/validate';
+import type { CtxMenuItemId } from '../context-menu/factory';
+
 export interface ContextMenuActivationIntent {
   source: 'contextMenu';
   tabId: number;
   selectionText?: string;
-  menuItemId: string;              // one of the v1 IDs above
-  overrides?: {
-    wpm?: number;
-    showContext?: boolean;
-    startFromWordOne?: boolean;
-  };
+  menuItemId: CtxMenuItemId;       // narrowed from string — exhaustive switch in listener
+  overrides?: Overrides;
 }
 ```
 
@@ -142,16 +158,28 @@ The listener (`src/chrome/background/context-menu/listener.ts`) reads `info.menu
 
 ### Activation Payload Extension — Receive-Side Validation
 
-The foundation `activate-reader` shape gate (`isPopupShape` and similar in `src/core/messaging/validate.ts`) covers the SW-direction send only. The SW→CS direction — where `overrides` actually rides — needs its own validator: any same-extension surface (`chrome.runtime.id` parity) can call `chrome.tabs.sendMessage(tabId, { type: 'activate-reader', overrides: { wpm: 999999 } })` and reach the engine's `setInterval` cadence before a schema check fires.
+The foundation sender-provenance gate (`isPopupShape` at `src/chrome/background/messaging/on-message.ts:77`, plus the `sender.id === chrome.runtime.id` check at `on-message.ts:104`) covers SW-inbound messages only. It does NOT validate the SW→CS direction — where `overrides` actually rides — and it cannot prevent a same-extension surface (anything that passes the `sender.id === chrome.runtime.id` provenance check) from calling `chrome.tabs.sendMessage(tabId, { type: 'activate-reader', overrides: { wpm: 999999 } })` and reaching the engine's `setInterval` cadence before any value check fires.
 
-The CS-side `applyOverrides` re-bounds-checks each field on receive:
+**Two-layer defense:**
 
-- `wpm` — `typeof === 'number'`, integer, in `[100, 600]`, `multipleOf(10)`.
-- `showContext`, `startFromWordOne` — strictly `typeof === 'boolean'`.
+1. **Pure bounds validator** — new file `src/core/messaging/validate.ts` (pure, no `chrome.*` per CLAUDE.md core boundary). Exports `validateOverrides(raw: unknown): Overrides | null` and per-field guards. Derive the `Overrides` type from a Zod schema reusing existing settings constraints:
 
-An out-of-bounds or wrong-type field is dropped silently from the overrides set (dev-mode `console.warn`), and the engine proceeds with that field's value from the live settings snapshot. The activation as a whole is **not** rejected — a single malformed override field does not block a legitimate read trigger.
+   ```ts
+   import { SettingsSchemaV3 } from '../settings/schema';
 
-SW-side, `validateMsg` in `src/core/messaging/validate.ts` is extended to cover the SW→CS direction with the same per-field rules so a spoofed message is rejected before it ever reaches the CS handler.
+   export const OverridesSchema = z.object({
+     wpm: SettingsSchemaV3.shape.wpm.optional(),     // int [100,600], multipleOf(10)
+     showContext: z.boolean().optional(),
+     startFromWordOne: z.boolean().optional(),
+   }).strict();
+   export type Overrides = z.infer<typeof OverridesSchema>;
+   ```
+
+   Single source of truth — the `wpm` constraint lives in `SettingsSchemaV3` already and is reused by reference, not duplicated. The wire-payload type and the validator share the same shape; future field additions land in one place.
+
+2. **CS-side receive check** — `applyOverrides(snapshot, raw)` calls `validateOverrides(raw)` on receive. A whole-payload reject returns `null` and the CS proceeds with snapshot defaults (no overrides applied). A per-field guard variant `pickValidOverrides(raw)` may be used if per-field drop semantics are preferred — dev-mode `console.warn` per dropped field. **The activation is NOT rejected on a malformed overrides field** — a single bad field falls back to snapshot defaults; the read trigger proceeds. Strict reject mode is reserved for genuinely hostile messages (e.g., non-object `overrides`).
+
+The `ActivateReaderMessage.overrides` type on the wire becomes `Overrides | undefined`, sourced from the same Zod-derived type as the validator — eliminating the drift class where the type and the bounds-check go out of sync.
 
 ## Toggle Persistence Semantics
 
@@ -171,7 +199,7 @@ This means the `overrides` field on the wire is, in practice, populated only wit
 
 ### Settings schema additions
 
-Three new fields land on `SettingsV1` as a v2 migration:
+Three new fields land on `SettingsV3` as a V3 → V4 migration. Current trunk is `SettingsSchemaV3` (per `src/core/settings/schema.ts`, shipped in #115); this spec's fields land as the next version bump.
 
 ```ts
 contextLine: z.boolean(),          // default: false (matches Safari behavior)
@@ -217,12 +245,14 @@ All modal text — header, body, footer button labels, the swap subtitle — mus
 
 ### "Expand to full" — no fresh round-trip
 
-The `← Full article` button does NOT close the modal and does NOT re-fire activation. The CS already has the full extracted article in module-scope memory keyed by `location.href` (per the article-extraction spec's caching contract). The button click:
+The `← Full article` button does NOT close the modal and does NOT re-fire activation. The button click:
 
-1. Calls `extract()` from cache → `fullArticle` token list.
+1. Calls `extract()` for the full article — cache-hit if extraction has already run for this `location.href` (per the article-extraction spec); otherwise lazy first-extraction with the latency window noted in §Self-identified Weaknesses (50–200ms on long articles). The modal renders a paused-spinner state during the lazy path; see §"Loading state" below.
 2. Replaces the engine's token list with `fullArticle.tokens`.
 3. Sets `currentScope = 'full'`, `positionIndex = 0`, engine `paused`.
 4. Rewrites the header; hides the `← Full article` button.
+
+**Loading state (lazy first-extraction only):** if step 1 misses the cache, the modal header shows `"Loading full article…"` and the play/pause control disables until extraction resolves. On resolve, the announcement fires per §"Focus and Announcement on Swap". On extraction failure, the modal surfaces the article-extraction spec's error state and the `← Full article` button is restored so the user can retry.
 
 **Swap discards selection state; post-swap is always `paused` with `positionIndex = 0`. User resumes manually.** Mapping a selection position onto the full article requires a substring search that's brittle under whitespace / punctuation variation, and preserving a play/pause state across a content swap that re-anchors to word 0 is a footgun (the user expected to resume mid-selection, lands at the article top). The simpler discard-and-pause path satisfies the AC ("swap scope without closing") and is the obvious-correct behavior.
 
@@ -253,7 +283,7 @@ Out of scope for M1. Once a user expands to full, the selection scope is discard
 
 ### Stale `lastUsed` label after SW wake
 
-The submenu may show a stale `420 wpm — last used` for up to ~50ms after SW wake, before `onStartup` → `loadSettings` → `installMenuItems` completes. A click during this window dispatches with the old `lastUsedWpm`. **Accepted:** the user sees their previous-session value and that value is still the most recent persisted truth — the only way it's "wrong" is if a sibling device synced a newer value in the window between Chrome restart and first interaction, which is benign. We do NOT block clicks on menu-update completion; that introduces a 50ms unresponsive period for every right-click.
+The submenu may briefly show a stale `420 wpm — last used` after SW wake, before `onStartup` → `loadSettings` → `installMenuItems` completes (wall-clock duration depends on SW startup latency; not asserted). A click during this window dispatches with the old `lastUsedWpm`. **Accepted:** the user sees their previous-session value and that value is still the most recent persisted truth — the only way it's "wrong" is if a sibling device synced a newer value in the window between Chrome restart and first interaction, which is benign. We do NOT block clicks on menu-update completion; that would introduce an unresponsive period for every right-click.
 
 ### Two activation surfaces collide (#34 hotkey fires while submenu is open)
 
@@ -287,23 +317,24 @@ Mirrors and expands the issue checkboxes:
 6. Clicking `Show context line` calls `saveSettings({ contextLine: !current })`, does NOT dispatch an activation, and refreshes the menu's `checked` state via the `subscribeSettings` path within the 300ms debounce window plus one rendering tick.
 7. `Start from word 1` toggle behaves identically to `Show context line` against the corresponding field.
 8. `activate-reader` payload extension is backwards-compatible: command-source and popup-source dispatches produce payloads with `overrides === undefined`; existing CS handler tests pass without modification.
-9. Settings schema v2 migration: `migrate({ version: 1, ...legacy })` returns a v2 blob with `contextLine: false`, `startFromWordOne: false`, `lastUsedWpm: legacy.wpm`.
+9. Settings schema V3 → V4 migration: `migrate({ version: 3, ...legacy })` returns a V4 blob with `contextLine: false`, `startFromWordOne: false`, `lastUsedWpm: legacy.wpm`.
 10. Scoped mini-modal renders `SELECTION · N words · ~M sec` header for `scope: 'selection'` activations; the `← Full article` button is present only in scoped mode.
 11. Clicking `← Full article` swaps the reader to full-article scope without closing the overlay, sets engine state to `paused`, resets `positionIndex` to 0, removes the button, and emits the polite live-region announcement (see §"Focus and Announcement on Swap").
 12. Restricted-page guard: no menu items appear on `chrome://settings`; verified by manual smoke test (the runtime guard is already covered by the activation spec AC #5).
-13. Stale-label race: a click within ~50ms of SW wake dispatches with the persisted `lastUsedWpm`, never with an older or default value (the storage read precedes menu install). The ~50ms window of a stale-but-still-correct label is accepted and documented in §Failure Modes.
+13. Stale-label race: on `onStartup`, `loadSettings` resolves before `installMenuItems` is invoked; once installed, the menu reflects the persisted `lastUsedWpm`, never an older or default value. The brief stale-label window before installation completes is documented in §Failure Modes (wall-clock duration depends on SW startup latency and is not asserted in tests).
 14. **#34 hotkey vs contextMenu collision test exists and passes** — `src/chrome/background/activation/__tests__/collision.test.ts` asserts exactly one `executeScript` call, both `activate-reader` messages arrive in dispatch order, and the second message's scope / overrides cleanly replace the first overlay (no double-extraction, no zombie pause-state). Gates OQ-2 and the move to Accepted.
 15. **Empty-selection fallback** emits the polite live-region status `"No selection detected. Reading full article instead."` and renders full-article scope with a visible subtitle in the modal header.
 16. **Scoped mini-modal mount** — activation from any source produces an overlay with `role="dialog"`, `aria-modal="true"`, `aria-labelledby="sr-scope-header"`, focus on the play/pause control within one rAF of mount.
 17. **Override bounds-check** — a forged `activate-reader` with `overrides.wpm = 999999` is rejected by `validateMsg`; the CS receives no overrides; the engine uses the settings default.
 18. **Frame provenance** — right-click + menu-click inside an `<iframe>` (`info.frameId !== 0`) produces no activation; the user-visible status `"Selection inside embedded frame; right-click the page directly"` is surfaced.
+19. **Top-level listener registration** — `chrome.contextMenus.onClicked.addListener` is registered top-level synchronously in `src/chrome/background/context-menu/register.ts`, imported from `src/chrome/background/index.ts` before any `await`, per the foundation spec §"Listener Registration Discipline". Verified by `register.test.ts` (asserting registration completes synchronously on module load) and matches the `commands/register.ts` pattern.
 
 ## Test Surface
 
 Unit (Vitest, pure):
 
 - `src/chrome/background/context-menu/__tests__/factory.test.ts` — `buildMenuItems(settings)` returns the expected list for default settings, for each toggle-checked permutation, and for `lastUsedWpm ∈ {undefined, 300, 500, 420 (custom), 100 (lower bound), 600 (upper bound)}`. Asserts no preset-vs-lastUsed title collision when `lastUsedWpm` exactly equals a preset value.
-- `src/core/settings/__tests__/migrations.test.ts` — v1 → v2 migration adds `contextLine`, `startFromWordOne`, `lastUsedWpm`; existing v0 / corrupt-data tests continue to pass.
+- `src/core/settings/__tests__/migrations.test.ts` — V3 → V4 migration adds `contextLine`, `startFromWordOne`, `lastUsedWpm`; existing prior-version / corrupt-data tests continue to pass.
 - `src/chrome/background/activation/__tests__/dispatch.test.ts` — `intentToActivatePayload` produces `overrides` on `contextMenu` source when `menuItemId` matches a preset speed; omits `overrides` for `popup` and `command` sources.
 - `src/core/messaging/__tests__/validate-overrides.test.ts` — `validateMsg` accepts in-bounds `overrides.wpm` (`100`, `300`, `600`, `multipleOf(10)`); rejects out-of-bounds (`50`, `601`, `999999`), non-integer (`300.5`), wrong-type (`"300"`), non-boolean `showContext` / `startFromWordOne`. Receive-side `applyOverrides` drops malformed fields and proceeds with snapshot defaults.
 - `src/core/reader/__tests__/scope-swap.test.ts` — after `← Full article` click, asserts `currentScope === 'full'`, engine `paused`, `positionIndex === 0`, footer button removed, live-region status emitted with the swap announcement text.
@@ -316,7 +347,8 @@ Integration (Vitest + `sinon-chrome`):
   - (c) **`settings.contextLine` change**: calls `chrome.contextMenus.update` only on the `toggle.showContext` item; no other items mutated.
   - (d) **negative invariant**: the subscribe path NEVER calls `chrome.contextMenus.removeAll` (regression guard against the menu-flicker class).
   - (e) **stale-label race ordering**: `loadSettings` resolves before `installMenuItems` is invoked on `onStartup` — pins the AC #13 invariant.
-- `src/chrome/background/context-menu/__tests__/listener.test.ts` — `chrome.contextMenus.onClicked` with each `menuItemId` produces the expected dispatch (preset → activation; toggle → settings write, no activation; custom → `openOptionsPage`). Includes the `info.frameId !== 0` refusal case.
+- `src/chrome/background/context-menu/__tests__/listener.test.ts` — `chrome.contextMenus.onClicked` with each `menuItemId` produces the expected dispatch (preset → activation; toggle → settings write, no activation; custom → `openOptionsPage`). Includes the `info.frameId !== 0` refusal case. Switch on `menuItemId` is exhaustive over `CtxMenuItemId` (verified by a `never`-arm test that exercises every literal).
+- `src/chrome/background/context-menu/__tests__/register.test.ts` — module-load side effect registers `chrome.contextMenus.onClicked.addListener` synchronously, before any `await`. Pins AC #19 (foundation listener-registration discipline).
 - `src/chrome/background/activation/__tests__/restricted-menu.test.ts` — on a Web Store URL (matched by `RESTRICTED_HOSTS`), the menu shows (`documentUrlPatterns` permits) but `dispatchActivation` returns a `restricted-page` Result; no engine spin-up.
 - `src/chrome/background/activation/__tests__/collision.test.ts` — #34 hotkey fires while submenu is open: asserts (a) exactly one `chrome.scripting.executeScript` call across both dispatches; (b) both `activate-reader` messages arrive in dispatch order; (c) the second message's scope / overrides cleanly replace the first overlay (no double-extraction, no zombie pause-state). Gates OQ-2.
 
@@ -346,9 +378,9 @@ src/chrome/background/activation/
   dispatch.ts               intentToActivatePayload extended to copy overrides
 
 src/core/settings/
-  schema.ts                 SettingsSchemaV2 (adds contextLine, startFromWordOne, lastUsedWpm)
+  schema.ts                 SettingsSchemaV4 (adds contextLine, startFromWordOne, lastUsedWpm)
   defaults.ts               DEFAULT_SETTINGS extended
-  migrations.ts             v1 → v2 migrator
+  migrations.ts             V3 → V4 migrator
 ```
 
 `src/core/settings/**` retains zero `chrome.*` references. `src/chrome/background/context-menu/factory.ts` is pure (no `chrome.*`) for unit-testability; the `chrome.*` calls live in `install.ts` and `listener.ts`.
@@ -365,8 +397,8 @@ These are empirical preconditions named explicitly by the builder. Each blocks s
 
 **Resolution effects.**
 
-- If Safari = **momentary**: drop §"Settings schema additions" (no v2 migration in this spec), drop the `subscribeSettings` rebroadcast path from §"Menu Update Discipline", drop AC #6, #7, and #9. Toggles ride the `overrides` envelope instead (the typed fields are already there). The spec shrinks by ~40 lines and stops dragging a settings-schema migration through a menu spec.
-- If Safari = **persistent**: split the §"Settings schema additions" subsection into a sibling settings-schema PR that lands first; this spec depends on that schema rather than introducing it. AC #9 graduates to "verified by the sibling PR."
+- If Safari = **momentary**: drop §"Settings schema additions" (no V3 → V4 migration in this spec), drop the `subscribeSettings` rebroadcast path from §"Menu Update Discipline", drop AC #6, #7, and #9. Toggles ride the `overrides` envelope instead (the typed fields are already there). The spec shrinks by ~40 lines and stops dragging a settings-schema migration through a menu spec.
+- If Safari = **persistent**: split the §"Settings schema additions" subsection into a sibling settings-schema PR (V3 → V4) that lands first; this spec depends on that schema rather than introducing it. AC #9 graduates to "verified by the sibling PR."
 
 ### OQ-2 — #34 hotkey vs contextMenu collision (does idempotent injection + second-wins ordering survive a real race?)
 
@@ -385,7 +417,7 @@ Trimmed to honest hedges that the ring did not adjudicate. Findings the ring res
 
 - **`Custom…` opens Options vs popup.** The choice rests on "popups can't render a slider well in M1" and on the #30 dependency for a popup-hosted WPM slider. A critic could argue Options is a heavier navigation than the user wants — they right-clicked a paragraph and now they're in a settings page, two steps away from reading. The Options-page path is defensible (and the ring concurred it's the right M1 destination), but it's not unambiguously the best long-term UX.
 - **`lastUsedWpm` may belong in `chrome.storage.local`, not `sync`.** Cross-device "last used" can be confusing if the user's laptop and phone have wildly different reading contexts. The settings-schema spec already separates reading-position (local) from settings (sync) on similar grounds. The storage-tier decision is deferred to the settings-schema PR that owns the v2 migration — see OQ-1's "persistent" branch.
-- **The mini-modal expand-to-full state machine assumes the CS has the full article extracted.** If the FIRST activation is `scope: 'selection'`, the full-article extraction may not have run. The CS triggers `extract()` lazily on `← Full article` click, which introduces a latency window (50–200ms on long articles) where the modal sits in an indeterminate state between the click and the swap. The simplified swap contract (post-swap is always `paused` with `positionIndex = 0`) makes the latency less harmful — the user doesn't lose mid-word position — but the spec does not pin a loading-state visual for that window. The implementer will hit it.
+- **First-extraction latency on `← Full article` is bounded but unmeasured.** If the FIRST activation is `scope: 'selection'`, the full-article extraction has not yet run. §"Loading state" pins the visual (`"Loading full article…"` header + disabled play control), but the 50–200ms estimate is hand-waved — actual times vary by article length and DOM complexity. A future measurement pass may motivate a pre-warm path (kick off background extraction on selection-scope activation so the cache is warm by the time the user clicks expand).
 - **`storage.sync` quota burn from menu-toggle spam, and `lastUsedWpm` data-classification on a synced surface.** Burst tolerance is unanalyzed; a user rapidly clicking toggles inside the 300ms debounce window coalesces, but the worst case (toggle + preset + toggle + preset within seconds) has not been measured. Both concerns resolve with OQ-1's storage-tier decision in the sibling settings-schema PR.
 
 ## Antagonistic ring sign-off
@@ -404,4 +436,20 @@ This spec went through a four-critic antagonistic ring on 2026-05-25.
   - F6 (overrides receive-side bounds) → §"Activation Payload Extension — Receive-Side Validation" added, AC #17, `validate-overrides.test.ts` added.
   - F7 (`installMenuItems` adapter test under-specified) → four explicit cases enumerated in §Test Surface.
   - F8 (frame provenance) → §"Frame Provenance" added, AC #18.
-- **Builder weakness drift**: weakness #2 (`overrides` nested vs flat) removed — arbiter confirmed style-only with no behavioral consequence; the nested shape stays. Weakness #3 (`lastUsedWpm` sync vs local) deferred to the settings-schema PR per OQ-1 resolution branch.
+- **Builder weakness drift**: weakness #2 (`overrides` nested vs flat) removed — arbiter confirmed style-only with no behavioral consequence; the nested shape stays. Weakness #3 (`lastUsedWpm` sync vs local) deferred to the settings-schema PR per OQ-1 resolution branch. Weaknesses #4 (toggle persistence), #5 (collision), and #7 (selection-cleared fallback) promoted to OQ-1, OQ-2, and AC #15 respectively. Remaining hedges in §Self-identified Weaknesses: #1 (`Custom…` → Options vs popup), #6 (first-extraction latency on swap), plus the new `storage.sync` quota / data-classification note.
+
+## Post-ring review fixes (2026-05-25)
+
+A `/pr-review-toolkit:review-pr` pass (comment-analyzer + code-reviewer + type-design-analyzer) ran after PR #125 opened. Three critical findings and five important findings landed:
+
+- **C1** — Schema-version drift (spec said `SettingsV1` / v1→v2; trunk is `SettingsV3`). Swept to `SettingsV3` / V3 → V4 throughout. AC #9 input fixture corrected to `{version: 3, ...}`.
+- **C2** — `lastUsed` title at the factory rendering bullet read `settings.wpm`; everywhere else read `settings.lastUsedWpm`. Fixed at source.
+- **C3** — `src/core/messaging/validate.ts` was cited as if it existed and as if it housed `isPopupShape`. Real `isPopupShape` lives at `src/chrome/background/messaging/on-message.ts:77`. §Receive-Side Validation rewritten: pure overrides-bounds validator at the new `src/core/messaging/validate.ts` (no `chrome.*`); sender-provenance citation correctly anchored at `on-message.ts`.
+- **I1** — `CtxMenuItemId` literal union introduced; `ContextMenuActivationIntent.menuItemId` narrowed from `string`; listener switch is exhaustive.
+- **I2** — `Overrides` derived via `z.infer` from a Zod schema that reuses `SettingsSchemaV3.shape.wpm` — single source of truth for bounds.
+- **I3** — `CtxItemSpec` no longer imports `chrome.contextMenus.ContextType`; uses a local `CtxContext` union and `readonly` arrays.
+- **I5** — AC #13 dropped "~50ms" timing claim (unverifiable in a test); ordering invariant retained.
+- **M2** — AC #19 added asserting top-level synchronous listener registration.
+- **M6** — §"Expand to full" reconciled with self-weakness #3: `extract()` is cache-hit on warm path, lazy on cold path; loading state pinned.
+
+Two minor naming-drift items deferred (sibling specs use `Code Layout` / `Test Strategy`; this spec uses `File Layout` / `Test Surface`). Cosmetic; left for a follow-up sweep across all specs.
