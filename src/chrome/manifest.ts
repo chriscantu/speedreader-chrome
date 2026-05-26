@@ -82,15 +82,29 @@ export default {
   ],
 
   // --- Commands (keyboard shortcuts) --------------------------------------
-  // See issue #34 for full hotkey configuration.
-  // MVP: a single global shortcut to launch the reader from any page.
+  // Single global shortcut to toggle the reader from any (non-restricted)
+  // page. Wired in the SW via `chrome.commands.onCommand`, which normalizes
+  // to an `ActivationIntent` and routes through `dispatchActivation`.
+  //
+  // Mac binding uses `MacCtrl+Shift+Y` (literal Control, NOT Cmd):
+  //   - `Cmd+Shift+Y` is reserved by Chrome on Mac (History).
+  //   - `Cmd+Shift+R` collides with hard-reload.
+  // The D10 reproducer (`experiments/activeTab-commands-check/`) uses the
+  // same binding and confirms activeTab grants host access on the
+  // commands-gesture path without `host_permissions`.
+  //
+  // The `commands` API is implicit — no new permission entry required.
+  //
+  // See:
+  // - issue #34
+  // - `docs/superpowers/decisions/2026-05-22-sw-lifecycle-activation.md`
   commands: {
     _toggle_reader: {
       suggested_key: {
         default: 'Ctrl+Shift+Y',
-        mac: 'Ctrl+Shift+Y',
+        mac: 'MacCtrl+Shift+Y',
       },
-      description: 'Toggle SpeedReader overlay',
+      description: 'Toggle SpeedReader',
     },
   },
 
