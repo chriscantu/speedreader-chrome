@@ -61,9 +61,9 @@ describe('dispatchActivation', () => {
     vi.resetModules();
   });
 
-  it('returns ok and injects + hands off for an allowed URL (commands source)', async () => {
+  it('returns ok and injects + hands off for an allowed URL (command source)', async () => {
     const { dispatchActivation, CONTENT_SCRIPT_FILE } = await import('../dispatch');
-    const intent: ActivationIntent = { source: 'commands', tabId: 42 };
+    const intent: ActivationIntent = { source: 'command', tabId: 42 };
 
     const result = await dispatchActivation(intent);
 
@@ -91,7 +91,7 @@ describe('dispatchActivation', () => {
   it('rejects with restricted-page error for chrome:// URLs without injecting', async () => {
     stub = installChromeStub({ tabUrl: 'chrome://settings' });
     const { dispatchActivation } = await import('../dispatch');
-    const intent: ActivationIntent = { source: 'commands', tabId: 1 };
+    const intent: ActivationIntent = { source: 'command', tabId: 1 };
 
     const result = await dispatchActivation(intent);
 
@@ -145,7 +145,7 @@ describe('dispatchActivation', () => {
   it('converts a tabs.get rejection to a tab-unavailable error', async () => {
     stub = installChromeStub({ tabsGetRejects: new Error('No tab with id: 999') });
     const { dispatchActivation } = await import('../dispatch');
-    const intent: ActivationIntent = { source: 'commands', tabId: 999 };
+    const intent: ActivationIntent = { source: 'command', tabId: 999 };
 
     const result = await dispatchActivation(intent);
 
@@ -196,10 +196,10 @@ describe('dispatchActivation', () => {
     expect(payload).toMatchObject({ type: 'activate-reader', scope: 'full' });
   });
 
-  it('commands and popup sources hand off full-scope', async () => {
+  it('command and popup sources hand off full-scope', async () => {
     const { dispatchActivation } = await import('../dispatch');
 
-    await dispatchActivation({ source: 'commands', tabId: 1 });
+    await dispatchActivation({ source: 'command', tabId: 1 });
     await dispatchActivation({ source: 'popup', tabId: 2 });
 
     expect(stub.tabs.sendMessage.mock.calls).toHaveLength(2);

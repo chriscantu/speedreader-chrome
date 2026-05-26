@@ -22,16 +22,15 @@
 /**
  * Source of an activation attempt.
  *
- * NOTE: this uses `'commands'` (plural) to match the `chrome.commands` API
- * surface. The SW-lifecycle spec uses `'command'` (singular) in its
- * pseudocode; we follow the issue #122 task contract verbatim. The string
- * is internal — not on the wire — so the rename is a local choice.
+ * Uses `'command'` (singular) per the SW-lifecycle ADR pseudocode. The
+ * string is internal — not on the wire — so any future bridge to the
+ * `chrome.commands` API surface lives at the listener layer, not here.
  */
-export type ActivationSource = 'commands' | 'contextMenu' | 'popup';
+export type ActivationSource = 'command' | 'contextMenu' | 'popup';
 
 /** Activation triggered by a `chrome.commands` hotkey. */
 export interface CommandsActivationIntent {
-  source: 'commands';
+  source: 'command';
   tabId: number;
 }
 
