@@ -63,10 +63,16 @@ Per the [Chrome docs on service worker lifecycles](https://developer.chrome.com/
 Source of truth: `src/core/messaging/types.ts` (pure TS, no `chrome.*`).
 
 ```ts
-// One-shot RPC envelope
-export type Result<T> =
+// One-shot RPC envelope. `E` defaults to a string-reason shape for the
+// pre-existing surfaces (extract-summary, restricted-url-probe, …); new
+// surfaces that want a typed discriminated error opt in by parameterizing
+// `E`. The widening is strictly additive — callers that previously
+// consumed `{ ok: false; reason: string }` see the same shape under the
+// default (intersection keeps `E`'s fields at the top level rather than
+// nesting them under an `error:` key).
+export type Result<T, E = { reason: string; details?: unknown }> =
   | { ok: true; data: T }
-  | { ok: false; reason: string; details?: unknown };
+  | ({ ok: false } & E);
 
 // Discriminated union of all messages
 export type Msg =
@@ -114,7 +120,13 @@ Notes:
 
 ## Envelope Shape
 
-All `sendMessage` responses use the `Result<T>` envelope above. Mirrors `ExtractionResult` from the extraction spec for visual and structural consistency. Errors are values, not exceptions; a handler that throws is a bug. Port frames carry the discriminated `Msg` union directly — no envelope wrapper, since a Port is a stream of typed frames rather than a request/response pair.
+All `sendMessage` responses use the `Result<T, E>` envelope above. Mirrors `ExtractionResult` from the extraction spec for visual and structural consistency. Errors are values, not exceptions; a handler that throws is a bug. Port frames carry the discriminated `Msg` union directly — no envelope wrapper, since a Port is a stream of typed frames rather than a request/response pair.
+
+### Typed errors (issue #122 amendment)
+
+`Result<T>` is parameterized as `Result<T, E = { reason: string; details?: unknown }>`. The default `E` preserves the original `{ ok: false; reason: string }` shape — pre-existing surfaces (`extract-summary`, `restricted-url-probe`, …) consume the same envelope without change. New surfaces that want a typed discriminated error opt in by parameterizing `E`.
+
+Rationale: the activation funnel (issue #122) needs popup-side error rendering to distinguish `restricted-page` (render banner) from `inject-failed` / `handoff-failed` / `tab-unavailable` (retry surfaces). Collapsing every failure to a single `kind: 'invalid-payload'` string lost that signal; typed errors enable popup-side error rendering without lossy `kind: 'invalid-payload'` mapping. Example: `Result<void, ActivationError>` carries the discriminated union verbatim.
 
 ## Lifecycle Hazards
 
