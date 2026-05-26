@@ -16,9 +16,7 @@ import { dispatchActivation } from './activation/dispatch';
 import type { ActivationError, ActivationIntent } from './activation/types';
 import type { OnMessageError } from './messaging/on-message';
 
-export type RouteResponse =
-  | { ok: false; error: OnMessageError }
-  | { ok: true; data: unknown };
+export type RouteResponse = { ok: false; error: OnMessageError } | { ok: true; data: unknown };
 
 /**
  * Injection hooks. `index.ts` wires the real chrome bindings; tests
