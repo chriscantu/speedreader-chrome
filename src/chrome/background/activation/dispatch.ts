@@ -78,10 +78,59 @@ interface InjectionLock {
 const injectionLocks = new Map<number, InjectionLock>();
 
 /**
+ * Defensive ceiling on a single `chrome.scripting.executeScript` call.
+ * Per issue #128, an injection that never settles would pin its lock
+ * entry for the SW lifetime and silently deadlock subsequent dispatches
+ * on the same tab. The race timer surfaces a hung injection as
+ * `inject-failed` and clears the slot.
+ */
+const INJECTION_TIMEOUT_MS = 5000;
+
+/**
+ * Wrap a promise in a timeout race. The timer is cleared on either
+ * settle path so the timeout cannot fire (or leak) once the inner
+ * promise has resolved.
+ */
+function withInjectionTimeout(inner: Promise<void>, ms: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`inject timeout after ${ms}ms`)), ms);
+    inner.then(
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+/**
+ * Tab-removed listener. Drops any in-flight lock for a tab that has
+ * been closed so the orphan entry doesn't persist for the SW lifetime
+ * (issue #128). Registered synchronously at module load per
+ * MV3-listener discipline — SW restart re-evaluates this module and
+ * re-attaches the listener.
+ *
+ * Wrapped in a `typeof chrome` guard so unit tests that import this
+ * module before installing the chrome stub don't crash; in the
+ * MV3 service worker `chrome` is always present.
+ */
+if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved?.addListener) {
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    injectionLocks.delete(tabId);
+  });
+}
+
+/**
  * Idempotently inject the content script into `tabId`. Returns a `Result`
  * — never throws. Concurrent calls for the same `(tabId, url)` share one
  * underlying `chrome.scripting.executeScript` call. A follower observing
- * a URL different from the cached entry fires its own injection.
+ * a URL different from the cached entry fires its own injection. A hung
+ * injection is bounded by `INJECTION_TIMEOUT_MS` and surfaces as
+ * `inject-failed`.
  */
 async function ensureContentScript(
   tabId: number,
@@ -97,14 +146,17 @@ async function ensureContentScript(
     }
   }
 
-  const promise = (async () => {
+  const inner = (async () => {
     await chrome.scripting.executeScript({
       target: { tabId },
       files: [CONTENT_SCRIPT_FILE],
     });
-  })().finally(() => {
+  })();
+
+  const promise = withInjectionTimeout(inner, INJECTION_TIMEOUT_MS).finally(() => {
     // Only clear our own entry — a later dispatch on a different URL may
-    // have replaced the slot while we were in flight.
+    // have replaced the slot while we were in flight, or the
+    // `chrome.tabs.onRemoved` listener may have already evicted it.
     const current = injectionLocks.get(tabId);
     if (current?.promise === promise) {
       injectionLocks.delete(tabId);
