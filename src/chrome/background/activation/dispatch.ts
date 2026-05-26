@@ -40,6 +40,65 @@ import CONTENT_SCRIPT_FILE from '../../content/index.ts?script';
 export { CONTENT_SCRIPT_FILE };
 
 /**
+ * SW-side in-flight injection dedup. Per the SW-lifecycle activation spec
+ * §"Idempotent Content-Script Injection" → "SW-side: in-flight promise
+ * dedup", concurrent `dispatchActivation` calls for the same `tabId` MUST
+ * share a single underlying `chrome.scripting.executeScript`. This map
+ * holds the in-flight injection promise per tab; later callers await the
+ * same promise and skip a second `executeScript` call.
+ *
+ * Entry cleared on settle (`.finally`) so the next genuine dispatch can
+ * re-inject (e.g., after a CS tear-down or page navigation). The map only
+ * dedups CONCURRENT injections — once an injection has completed and the
+ * entry has cleared, a later dispatch will inject again. CS-side
+ * re-registration is guarded by a separate window sentinel
+ * (`window.__SPEEDREADER_INJECTED__`) per the same spec section; that
+ * layer is tracked separately and is not the subject of this in-flight
+ * dedup.
+ *
+ * OQ-2 of the context-menu integration spec
+ * (`docs/superpowers/specs/2026-05-25-context-menu-integration.md`)
+ * gates on this map's correctness — the collision test asserts exactly
+ * one `executeScript` call across two near-simultaneous dispatches for
+ * the same tab.
+ */
+const injectionLocks = new Map<number, Promise<void>>();
+
+/**
+ * Idempotently inject the content script into `tabId`. Returns a `Result`
+ * — never throws. Concurrent calls for the same `tabId` share one
+ * underlying `chrome.scripting.executeScript` call.
+ */
+async function ensureContentScript(tabId: number): Promise<Result<void, ActivationError>> {
+  const inFlight = injectionLocks.get(tabId);
+  if (inFlight) {
+    try {
+      await inFlight;
+      return { ok: true, data: undefined };
+    } catch (details) {
+      return { ok: false, error: { kind: 'inject-failed', tabId, details } };
+    }
+  }
+
+  const promise = (async () => {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: [CONTENT_SCRIPT_FILE],
+    });
+  })().finally(() => {
+    injectionLocks.delete(tabId);
+  });
+  injectionLocks.set(tabId, promise);
+
+  try {
+    await promise;
+    return { ok: true, data: undefined };
+  } catch (details) {
+    return { ok: false, error: { kind: 'inject-failed', tabId, details } };
+  }
+}
+
+/**
  * Payload sent to the content script on activation. Mirrors the
  * `activate-reader` one-shot RPC added by the SW-lifecycle spec to the
  * messaging-contract `Msg` union.
@@ -83,15 +142,14 @@ export async function dispatchActivation(
     return { ok: false, error: { kind: 'restricted-page', url } };
   }
 
-  // 3. Inject the content script. Convert rejections (TOCTOU restricted
-  //    URLs, etc.) to a typed `inject-failed` error.
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId: intent.tabId },
-      files: [CONTENT_SCRIPT_FILE],
-    });
-  } catch (details) {
-    return { ok: false, error: { kind: 'inject-failed', tabId: intent.tabId, details } };
+  // 3. Inject the content script idempotently. `ensureContentScript`
+  //    dedupes concurrent injections per tab so two near-simultaneous
+  //    activations (e.g., context-menu click + #34 hotkey) share one
+  //    underlying `chrome.scripting.executeScript` call. Rejections
+  //    (TOCTOU restricted URLs, etc.) surface as `inject-failed`.
+  const injectResult = await ensureContentScript(intent.tabId);
+  if (!injectResult.ok) {
+    return injectResult;
   }
 
   // 4. Hand off to the CS via the `activate-reader` one-shot RPC. The
