@@ -24,14 +24,20 @@
  * that spec.
  */
 
+/// <reference types="@crxjs/vite-plugin/client" />
+
 import { isRestricted } from '../../../core/restricted';
 import type { ActivationError, ActivationIntent, Result } from './types';
 
-/**
- * Path to the content-script entry. Relative to the extension root; matches
- * the manifest's expected emit target.
- */
-const CONTENT_SCRIPT_FILE = 'src/chrome/content/index.ts';
+// `?script` is the crxjs vite-plugin pattern for referencing a script entry
+// from another extension surface. The default export is the filename of the
+// emitted loader (e.g., `assets/index.ts-<hash>.js`) — i.e., the path that
+// `chrome.scripting.executeScript({ files })` resolves against the BUILT
+// extension. At dev / build time crxjs registers the entry with Rollup and
+// emits the corresponding chunk; the `.ts` source is never referenced at
+// runtime. See `node_modules/@crxjs/vite-plugin/client.d.ts`.
+import CONTENT_SCRIPT_FILE from '../../content/index.ts?script';
+export { CONTENT_SCRIPT_FILE };
 
 /**
  * Payload sent to the content script on activation. Mirrors the

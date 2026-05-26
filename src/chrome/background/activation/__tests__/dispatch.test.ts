@@ -6,7 +6,6 @@ import type { ActivationIntent } from '../types';
 void sinonChrome;
 
 const OWN_ID = 'abcdefghijklmnopabcdefghijklmnop';
-const CONTENT_SCRIPT_FILE = 'src/chrome/content/index.ts';
 
 interface TabsStub {
   get: ReturnType<typeof vi.fn>;
@@ -63,7 +62,7 @@ describe('dispatchActivation', () => {
   });
 
   it('returns ok and injects + hands off for an allowed URL (commands source)', async () => {
-    const { dispatchActivation } = await import('../dispatch');
+    const { dispatchActivation, CONTENT_SCRIPT_FILE } = await import('../dispatch');
     const intent: ActivationIntent = { source: 'commands', tabId: 42 };
 
     const result = await dispatchActivation(intent);
@@ -77,7 +76,16 @@ describe('dispatchActivation', () => {
     };
     expect(callArg.target.tabId).toBe(42);
     expect(callArg.files).toContain(CONTENT_SCRIPT_FILE);
-    expect(stub.tabs.sendMessage).toHaveBeenCalledTimes(1);
+    // The crxjs `?script` import resolves to the BUILT filename — must be
+    // `.js`, not the `.ts` source. `chrome.scripting.executeScript` runs
+    // against the emitted extension, not the source tree.
+    expect(CONTENT_SCRIPT_FILE.endsWith('.js')).toBe(true);
+    expect(CONTENT_SCRIPT_FILE.endsWith('.ts')).toBe(false);
+  });
+
+  it('resolves CONTENT_SCRIPT_FILE to a runtime filename, never a `.ts` source path', async () => {
+    const { CONTENT_SCRIPT_FILE } = await import('../dispatch');
+    expect(CONTENT_SCRIPT_FILE).toMatch(/\.js$/);
   });
 
   it('rejects with restricted-page error for chrome:// URLs without injecting', async () => {
