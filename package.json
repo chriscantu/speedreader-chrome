@@ -38,8 +38,6 @@
     "zod": "^4.4.3"
   },
   "overrides": {
-    "@crxjs/vite-plugin": {
-      "rollup": "^2.80.0"
-    }
+    "rollup@<2.80.0": "2.80.0"
   }
 }
