@@ -95,6 +95,19 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     opts.doc.documentElement.style.overflow = 'hidden';
     host = opts.doc.createElement('div');
     host.setAttribute(HOST_ATTR, '');
+    // Critical positioning styles inline with !important so external host-page
+    // CSS targeting `div` cannot override them. `:host` selector specificity
+    // is (0,0,0) which any outer-document `div` rule beats; inline !important
+    // beats everything short of another inline !important. See real-article
+    // verification on MDN (#19).
+    host.style.cssText =
+      'all: initial !important;' +
+      'position: fixed !important;' +
+      'top: 0 !important; right: 0 !important; bottom: 0 !important; left: 0 !important;' +
+      'width: 100vw !important; height: 100vh !important;' +
+      'z-index: 2147483647 !important;' +
+      'display: block !important;' +
+      'pointer-events: auto !important;';
     opts.doc.body.appendChild(host);
     const view = opts.doc.defaultView;
     if (!view) {
