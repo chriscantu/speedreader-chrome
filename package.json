@@ -16,9 +16,11 @@
     "test:e2e:headed": "playwright test --headed",
     "test:profile": "RUN_PROFILES=1 playwright test tests/e2e/profiling",
     "test:d10": "playwright test --config experiments/activeTab-commands-check/playwright.config.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:e2e-bundle": "vite build --config vite.e2e.config.ts"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
     "@crxjs/vite-plugin": "^2.0.0-beta.28",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.60.0",
