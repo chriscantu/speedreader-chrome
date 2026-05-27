@@ -30,8 +30,14 @@
 // - Handle play/pause, speed control, keyboard shortcuts
 
 import { handleActivateReader } from './activate-handler';
+import { createOverlay, type OverlayHandle } from '../../core/overlay';
+import { createRsvpEngine } from '../../core/rsvp-engine';
+import { loadSettings, subscribeSettings } from '../settings/storage';
+import { tokenize } from '../../core/tokenize';
 
 console.log('[SpeedReader] Content script loaded');
+
+let activeOverlay: OverlayHandle | null = null;
 
 /**
  * Issue #142 — resident-cost trade-off (surfaced by the antagonistic-ring
@@ -72,7 +78,33 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
     ) {
       const response = handleActivateReader(location.href, chrome.runtime.id);
       sendResponse(response);
-      // Synchronous response — no `return true` needed.
+      if (!response.ok) return;
+
+      // Mount overlay (idempotent). MVP word source: body.innerText
+      // tokenized; full Readability extraction tracked under #17.
+      (async () => {
+        if (activeOverlay && activeOverlay.status === 'mounted') return;
+        const settings = await loadSettings();
+        const text = document.body?.innerText ?? document.body?.textContent ?? '';
+        const words = tokenize(text);
+        if (words.length === 0) return;
+        activeOverlay = createOverlay({
+          doc: document,
+          words,
+          initialSettings: { theme: settings.theme, wpm: settings.wpm },
+          subscribeSettings: (listener) =>
+            subscribeSettings((s) => listener({ theme: s.theme, wpm: s.wpm })),
+          engineFactory: createRsvpEngine,
+          onClose: () => {
+            activeOverlay = null;
+          },
+        });
+        activeOverlay.mount();
+      })().catch(() => {
+        // Overlay mount failure must not crash the page. Errors are
+        // swallowed here; the content script remains active for future
+        // activation attempts.
+      });
     }
   });
 }
