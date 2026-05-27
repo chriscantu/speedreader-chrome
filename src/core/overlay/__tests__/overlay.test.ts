@@ -137,3 +137,29 @@ describe('createOverlay — idempotency', () => {
     expect(overlay.status).toBe('unmounted');
   });
 });
+
+describe('createOverlay — document scroll-lock', () => {
+  test('mount sets documentElement.style.overflow to hidden', () => {
+    document.documentElement.style.overflow = 'auto';
+    const overlay = createOverlay(defaultOpts());
+    overlay.mount();
+    expect(document.documentElement.style.overflow).toBe('hidden');
+    overlay.unmount();
+  });
+
+  test('unmount restores prior overflow value', () => {
+    document.documentElement.style.overflow = 'scroll';
+    const overlay = createOverlay(defaultOpts());
+    overlay.mount();
+    overlay.unmount();
+    expect(document.documentElement.style.overflow).toBe('scroll');
+  });
+
+  test('unmount restores empty string when prior overflow was unset', () => {
+    document.documentElement.style.overflow = '';
+    const overlay = createOverlay(defaultOpts());
+    overlay.mount();
+    overlay.unmount();
+    expect(document.documentElement.style.overflow).toBe('');
+  });
+});

@@ -29,6 +29,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
   let unsubscribeSettings: (() => void) | null = null;
   let uninstallTrap: (() => void) | null = null;
   let onEscape: ((e: KeyboardEvent) => void) | null = null;
+  let priorOverflow: string | null = null;
 
   function buildShadowTree(shadow: ShadowRoot): {
     modal: HTMLElement;
@@ -90,6 +91,8 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
 
   function mount(): void {
     if (status === 'mounted') return;
+    priorOverflow = opts.doc.documentElement.style.overflow;
+    opts.doc.documentElement.style.overflow = 'hidden';
     host = opts.doc.createElement('div');
     host.setAttribute(HOST_ATTR, '');
     opts.doc.body.appendChild(host);
@@ -141,6 +144,10 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     unsubscribeSettings = null;
     host?.remove();
     host = null;
+    if (priorOverflow !== null) {
+      opts.doc.documentElement.style.overflow = priorOverflow;
+      priorOverflow = null;
+    }
     status = 'unmounted';
     opts.onClose?.();
   }
