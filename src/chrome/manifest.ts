@@ -62,11 +62,18 @@ export default {
   //                  context-menu integration spec (issue #72).
   permissions: ['storage', 'activeTab', 'scripting', 'contextMenus'],
 
-  // --- Host permissions: intentionally omitted ----------------------------
-  // The lazy-injection model (popup-open → service worker →
-  // chrome.scripting.executeScript against the active tab) runs entirely
-  // under `activeTab`.  See ADR
+  // --- Host permissions ---------------------------------------------------
+  // Production: intentionally omitted. The lazy-injection model
+  // (popup-open → service worker → chrome.scripting.executeScript against
+  // the active tab) runs entirely under `activeTab`. See ADR
   // `docs/superpowers/decisions/2026-05-08-lazy-injection-manifest.md`.
+  //
+  // E2E build only (env SPEEDREADER_E2E=1): adds `<all_urls>` so the
+  // activation chain can be driven from Playwright without a real user
+  // gesture (activeTab requires gesture-provenance which CDP cannot
+  // dispatch). The dist-e2e-ext/ build is NEVER shipped to users — see
+  // `vite.e2e-ext.config.ts` and `tests/e2e/overlay-activation-chain.spec.ts`.
+  ...(process.env.SPEEDREADER_E2E === '1' ? { host_permissions: ['<all_urls>'] } : {}),
 
   // --- Content scripts: intentionally omitted -----------------------------
   // The content script is injected on demand via

@@ -70,6 +70,7 @@ export default ts.config(
       "node_modules/**",
       "dist/**",
       "dist-e2e/**",
+      "dist-e2e-ext/**",
       "coverage/**",
       "test-results/**",
       "playwright-report/**",

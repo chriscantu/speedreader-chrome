@@ -82,3 +82,4 @@ out/
 # E2E profiling outputs (issue #142 et al) — keep the dir, ignore results
 tests/e2e/profiling/results/*
 !tests/e2e/profiling/results/.gitkeep
+dist-e2e-ext/
