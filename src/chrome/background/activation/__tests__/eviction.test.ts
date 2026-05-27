@@ -539,4 +539,159 @@ describe('dispatchActivation — issue #128 lock eviction', () => {
 
     vi.useRealTimers();
   });
+
+  // Test-gap §7 — mirror of the success-branch clearTimeout test for
+  // the REJECT branch of `withInjectionTimeout`. The common error case
+  // (executeScript throws) must also clear the 5s timer; a regression
+  // that drops `clearTimeout` from the rejection handler would leak a
+  // pending timer per failed injection.
+  it('clearTimeout fires on rejected exec — no leaked timer (test-gap §7)', async () => {
+    vi.useFakeTimers();
+    const { dispatchActivation } = await import('../dispatch');
+    const TAB = 304;
+
+    const pA = dispatchActivation({ source: 'command', tabId: TAB });
+    pending.push(pA);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+
+    // Reject exec; the rejection branch of `withInjectionTimeout` MUST
+    // clear the timer alongside the resolve branch.
+    executeCalls[0]?.reject(new Error('boom'));
+    await vi.advanceTimersByTimeAsync(0);
+    const result = await pA;
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.error.kind).toBe('inject-failed');
+
+    expect(vi.getTimerCount()).toBe(0);
+
+    vi.useRealTimers();
+  });
+
+  // PR #143 review — N≥2 entries on the same (tabId, URL) is UNREACHABLE
+  // today because the URL-keyed dedup cache short-circuits before reaching
+  // the Set-add path (ensureContentScript line ~199: cache hit + URL match
+  // → await cached.promise + return). The invariant is load-bearing for
+  // the `inFlightByTab` Set semantics — if a future refactor moves Set-add
+  // above the dedup check, or adds a per-frame lock key, this assertion
+  // pins the current contract: at most one entry per (tabId) on the
+  // happy-path single-URL flow.
+  it('PR#143: N==1 invariant — single-URL dispatch never adds >1 entry to inFlightByTab', async () => {
+    const { dispatchActivation, __testGetInFlightSize } = await import('../dispatch');
+    const TAB = 601;
+    const intent: ActivationIntent = { source: 'command', tabId: TAB };
+
+    // Three concurrent dispatches on the same (tabId, URL) — leader +
+    // two followers. Followers join the leader via URL match and do
+    // NOT add their own entries to inFlightByTab.
+    const pLeader = dispatchActivation(intent);
+    pending.push(pLeader);
+    await flushMicrotasks();
+    const pF1 = dispatchActivation(intent);
+    pending.push(pF1);
+    const pF2 = dispatchActivation(intent);
+    pending.push(pF2);
+    await flushMicrotasks();
+
+    // One executeScript across all three; the per-tab Set has exactly
+    // one entry (the leader's).
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+    expect(__testGetInFlightSize(TAB)).toBe(1);
+
+    executeCalls[0]?.resolve();
+    await Promise.all([pLeader, pF1, pF2]);
+  });
+
+  // PR #143 review — normal happy-path drain. Single dispatch, no
+  // onRemoved, settle normally. After settle the Set entry MUST be
+  // removed AND the tabId Map key MUST be cleared (size===0 cleanup).
+  // A regression that drops `set.delete(entry)` or the empty-cleanup
+  // branch leaks one entry per dispatch and one Map key per tab.
+  it('PR#143: happy-path drain — inFlightByTab key removed after normal settle (test-gap §2)', async () => {
+    const { dispatchActivation, __testHasInFlight } = await import('../dispatch');
+    const TAB = 602;
+    const intent: ActivationIntent = { source: 'command', tabId: TAB };
+
+    const pA = dispatchActivation(intent);
+    pending.push(pA);
+    await flushMicrotasks();
+    expect(__testHasInFlight(TAB)).toBe(true);
+
+    executeCalls[0]?.resolve();
+    const result = await pA;
+    expect(result.ok).toBe(true);
+
+    // After settle the .finally must have removed the entry AND the
+    // map key (Set was size 1, drops to 0 → delete tabId key).
+    expect(__testHasInFlight(TAB)).toBe(false);
+  });
+
+  // PR #143 review — Set-instance-capture race. The orphan leader's
+  // `.finally` must operate on the Set it ORIGINALLY added to, not on
+  // whatever `inFlightByTab.get(tabId)` returns at settle time.
+  //
+  // Sequence:
+  //   1. leaderA dispatched on tab T (executeScript pending) → entryA
+  //      added to setA at inFlightByTab[T].
+  //   2. onRemoved(T) fires → setA detached from map.
+  //   3. leaderB dispatched on (reused) tab T → fresh setB installed at
+  //      inFlightByTab[T] with entryB.
+  //   4. leaderA's executeScript settles → `.finally` runs.
+  //
+  // Discriminating signal: spy on setB.delete. Pre-fix, leaderA's
+  // `.finally` calls `inFlightByTab.get(T).delete(entryA)` — i.e., calls
+  // setB.delete(entryA). Post-fix, leaderA operates on its captured
+  // mySet (which IS setA, now detached) — setB.delete is never invoked
+  // by the orphan. The spy assertion fails pre-fix and passes post-fix.
+  it('PR#143: orphan leader .finally does not touch new-generation Set after tab-id reuse', async () => {
+    const { dispatchActivation, __testHasInFlight, __testGetInFlightSet } =
+      await import('../dispatch');
+    const TAB = 603;
+    const intent: ActivationIntent = { source: 'command', tabId: TAB };
+
+    // 1. leaderA in-flight.
+    const pA = dispatchActivation(intent);
+    pending.push(pA);
+    await flushMicrotasks();
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+
+    // 2. onRemoved(TAB) — entryA orphaned, map slot deleted.
+    fireTabRemoved(TAB);
+    expect(__testHasInFlight(TAB)).toBe(false);
+
+    // 3. leaderB on reused TAB → fresh setB at inFlightByTab[TAB].
+    const pB = dispatchActivation(intent);
+    pending.push(pB);
+    await flushMicrotasks();
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(2);
+    const setB = __testGetInFlightSet(TAB);
+    expect(setB).toBeDefined();
+    if (!setB) throw new Error('unreachable');
+    expect(setB.size).toBe(1);
+
+    // Spy on setB.delete BEFORE settling leaderA. Pre-fix, leaderA's
+    // `.finally` would call setB.delete(entryA). Post-fix, it operates
+    // on its captured mySet (setA, detached) and never touches setB.
+    const setBDeleteSpy = vi.spyOn(setB, 'delete');
+
+    // 4. leaderA settles. Discriminating assertion below.
+    executeCalls[0]?.resolve();
+    await pA;
+
+    // Post-fix: setB.delete NEVER called by orphan. Pre-fix: called
+    // once with entryA (no-op return but observable side effect).
+    expect(setBDeleteSpy).not.toHaveBeenCalled();
+
+    // setB state still intact; map key still present.
+    expect(__testHasInFlight(TAB)).toBe(true);
+    expect(setB.size).toBe(1);
+
+    setBDeleteSpy.mockRestore();
+
+    // Settle leaderB; .finally drains entryB and removes map key.
+    executeCalls[1]?.resolve();
+    await pB;
+    expect(__testHasInFlight(TAB)).toBe(false);
+  });
 });

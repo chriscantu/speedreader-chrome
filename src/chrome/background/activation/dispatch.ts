@@ -242,8 +242,20 @@ async function ensureContentScript(
   // `inFlightByTab` regardless of whether it's still the slot owner in
   // `injectionLocks` (a later URL-mismatch dispatch may have replaced
   // the slot — issue #141).
-  // eslint-disable-next-line prefer-const -- forward-declared for .finally closure capture
+  // Capture the specific Set instance for THIS entry's lifecycle. After
+  // `onRemoved(tabId)` deletes the map slot, a subsequent dispatch on the
+  // same tabId installs a FRESH `Set` instance. The orphan leader's
+  // `.finally` must operate on the Set it originally added to — not on
+  // whatever Set `inFlightByTab.get(tabId)` returns at settle time, which
+  // may belong to a different generation of in-flight locks. The
+  // `=== mySet` guard before `inFlightByTab.delete(tabId)` ensures the
+  // orphan never evicts a fresh-generation slot installed after its
+  // tab was closed (PR #143 review).
+  //
+  /* eslint-disable prefer-const -- forward-declared for .finally closure capture */
   let entry!: InjectionLock;
+  let mySet!: Set<InjectionLock>;
+  /* eslint-enable prefer-const */
   const promise = withInjectionTimeout(inner, INJECTION_TIMEOUT_MS).finally(() => {
     // Only clear our own entry — a later dispatch on a different URL may
     // have replaced the slot while we were in flight, or the
@@ -252,15 +264,14 @@ async function ensureContentScript(
     if (current?.promise === promise) {
       injectionLocks.delete(tabId);
     }
-    // Issue #141 — drop this lock from the per-tab in-flight set
-    // regardless of whether it still owns the slot. Empty set → delete
-    // the tabId key to keep `inFlightByTab` bounded.
-    const set = inFlightByTab.get(tabId);
-    if (set) {
-      set.delete(entry);
-      if (set.size === 0) {
-        inFlightByTab.delete(tabId);
-      }
+    // Issue #141 + PR #143 review — drop this lock from the per-tab
+    // in-flight Set we ORIGINALLY added to (captured as `mySet` below).
+    // Only delete the tabId map key if it still points at our Set —
+    // never evict a Set installed by a later dispatch on a reused
+    // tabId.
+    mySet.delete(entry);
+    if (mySet.size === 0 && inFlightByTab.get(tabId) === mySet) {
+      inFlightByTab.delete(tabId);
     }
   });
   entry = { url, promise, aborted: false };
@@ -271,6 +282,7 @@ async function ensureContentScript(
     inFlightByTab.set(tabId, set);
   }
   set.add(entry);
+  mySet = set;
 
   try {
     await promise;
@@ -284,6 +296,27 @@ async function ensureContentScript(
   } catch (details) {
     return { ok: false, error: { kind: 'inject-failed', tabId, details } };
   }
+}
+
+/**
+ * Test-only accessors for `inFlightByTab` invariants. Used by
+ * `eviction.test.ts` to assert per-tab Set state without exposing the
+ * raw Map (which would let tests mutate it). Prefixed with `__test`
+ * so the symbol is greppable and obviously not production API.
+ */
+export function __testHasInFlight(tabId: number): boolean {
+  return inFlightByTab.has(tabId);
+}
+export function __testGetInFlightSize(tabId: number): number {
+  return inFlightByTab.get(tabId)?.size ?? 0;
+}
+/**
+ * Test-only: get the live Set instance for a tabId. Used to spy on
+ * `.delete` to detect orphan-leader cross-Set contamination (PR #143
+ * Set-instance-capture race regression test).
+ */
+export function __testGetInFlightSet(tabId: number): Set<unknown> | undefined {
+  return inFlightByTab.get(tabId);
 }
 
 /**
