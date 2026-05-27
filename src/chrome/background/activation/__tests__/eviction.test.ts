@@ -360,6 +360,159 @@ describe('dispatchActivation — issue #128 lock eviction', () => {
     expect(result.error.details).toBe(rejectErr);
   });
 
+  // Issue #141 — slot-replace + onRemoved orphans leader's entry abort flag.
+  //
+  // Scenario: dispatch A on (tab T, url X) installs entryA at slot T.
+  // Tab navigates to Y mid-flight. Dispatch B on (tab T, url Y) sees the
+  // URL mismatch, fires its own executeScript, and replaces slot T with
+  // entryB. onRemoved then fires for T. Before this fix the listener
+  // consulted only `injectionLocks.get(T)` → mutated entryB only →
+  // entryA's `aborted` stayed false → A's leader returned `{ ok: true }`
+  // against a closed/reused tab. Fix is per-tab `Set<InjectionLock>`
+  // tracked separately from the URL-keyed dedup cache.
+  it('#141: slot-replace + onRemoved aborts the orphaned leader entry (entryA)', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+    const TAB = 501;
+    const URL_X = 'https://example.com/x';
+    const URL_Y = 'https://example.com/y';
+
+    // A's pre-injection tabs.get returns URL_X; B's pre-injection
+    // tabs.get returns URL_Y. The URL mismatch is what causes B to
+    // fire its own executeScript and replace A's slot in the dedup
+    // cache. Post-recheck tabs.get calls are not reached in this
+    // test (executeScript stays pending until after the abort fires).
+    let getCallCount = 0;
+    stub.tabs.get = vi.fn(() => {
+      getCallCount += 1;
+      return Promise.resolve({ url: getCallCount === 1 ? URL_X : URL_Y });
+    }) as unknown as TabsStub['get'];
+
+    // Dispatch A on URL_X.
+    const pA = dispatchActivation({ source: 'command', tabId: TAB });
+    pending.push(pA);
+    await flushMicrotasks();
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+
+    // Dispatch B on URL_Y — URL mismatch evicts/replaces entryA in the
+    // dedup cache and fires a fresh executeScript.
+    const pB = dispatchActivation({ source: 'command', tabId: TAB });
+    pending.push(pB);
+    await flushMicrotasks();
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(2);
+
+    // Tab close while BOTH injections are in flight. Listener must
+    // mark BOTH entryA and entryB aborted — not just the slot owner
+    // (entryB).
+    fireTabRemoved(TAB);
+
+    // Resolve both executeScript calls; without the fix entryA's
+    // aborted flag would still be false and A's leader would return
+    // ok against the closed tab.
+    executeCalls[0]?.resolve();
+    executeCalls[1]?.resolve();
+
+    const [rA, rB] = await Promise.all([pA, pB]);
+    expect(rA.ok).toBe(false);
+    expect(rB.ok).toBe(false);
+    if (rA.ok || rB.ok) throw new Error('unreachable');
+    expect(rA.error.kind).toBe('inject-failed');
+    expect(rB.error.kind).toBe('inject-failed');
+  });
+
+  // Issue #141 — followers attached to entryA via promise reference
+  // (URL match at the time of follower dispatch) must also surface
+  // inject-failed when entryA is orphaned by a later URL-mismatch
+  // replacement and the tab is then closed.
+  it('#141: follower attached to entryA before slot-replace also surfaces inject-failed', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+    const TAB = 502;
+    const URL_X = 'https://example.com/x';
+    const URL_Y = 'https://example.com/y';
+
+    // Calls: A pre (X), A_follower pre (X), B pre (Y).
+    const urls = [URL_X, URL_X, URL_Y];
+    let i = 0;
+    stub.tabs.get = vi.fn(() =>
+      Promise.resolve({ url: urls[i++] ?? URL_Y }),
+    ) as unknown as TabsStub['get'];
+
+    const pLeaderA = dispatchActivation({ source: 'command', tabId: TAB });
+    pending.push(pLeaderA);
+    await flushMicrotasks();
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+
+    // Follower joins entryA via URL match (URL_X).
+    const pFollowerA = dispatchActivation({ source: 'command', tabId: TAB });
+    pending.push(pFollowerA);
+    await flushMicrotasks();
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+
+    // Dispatch B on URL_Y replaces entryA in the dedup slot.
+    const pB = dispatchActivation({ source: 'command', tabId: TAB });
+    pending.push(pB);
+    await flushMicrotasks();
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(2);
+
+    // Tab close. Listener must mark entryA aborted even though it
+    // is no longer the slot owner; both leaderA and followerA must
+    // observe inject-failed.
+    fireTabRemoved(TAB);
+
+    executeCalls[0]?.resolve();
+    executeCalls[1]?.resolve();
+
+    const [rL, rF, rB] = await Promise.all([pLeaderA, pFollowerA, pB]);
+    expect(rL.ok).toBe(false);
+    expect(rF.ok).toBe(false);
+    expect(rB.ok).toBe(false);
+    if (rL.ok || rF.ok || rB.ok) throw new Error('unreachable');
+    expect(rL.error.kind).toBe('inject-failed');
+    expect(rF.error.kind).toBe('inject-failed');
+    expect(rB.error.kind).toBe('inject-failed');
+  });
+
+  // Issue #141 — non-regression. Normal URL-replacement flow without
+  // onRemoved: A's exec settles AFTER slot replacement by B. Per the
+  // existing #129 semantics, A's result is whatever the underlying
+  // exec returned (no abort → ok). Confirms the new in-flight tracking
+  // does NOT change behavior on this path.
+  it('#141: URL-replacement WITHOUT onRemoved — A still resolves ok (no regression)', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+    const TAB = 503;
+    const URL_X = 'https://example.com/x';
+    const URL_Y = 'https://example.com/y';
+
+    // Sequence of tabs.get calls in this test:
+    //   1. A pre-injection  → URL_X
+    //   2. B pre-injection  → URL_Y (mismatch with A's cache → B fires own exec)
+    //   3. A post-recheck   → URL_Y (page has navigated by the time A's exec resolves)
+    //   4. B post-recheck   → URL_Y
+    // Both URL_Y values are non-restricted, so both flows reach handoff.
+    const urls = [URL_X, URL_Y, URL_Y, URL_Y];
+    let i = 0;
+    stub.tabs.get = vi.fn(() =>
+      Promise.resolve({ url: urls[i++] ?? URL_Y }),
+    ) as unknown as TabsStub['get'];
+
+    const pA = dispatchActivation({ source: 'command', tabId: TAB });
+    pending.push(pA);
+    await flushMicrotasks();
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+
+    const pB = dispatchActivation({ source: 'command', tabId: TAB });
+    pending.push(pB);
+    await flushMicrotasks();
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(2);
+
+    // Resolve both — no onRemoved, no abort, both succeed.
+    executeCalls[0]?.resolve();
+    executeCalls[1]?.resolve();
+
+    const [rA, rB] = await Promise.all([pA, pB]);
+    expect(rA.ok).toBe(true);
+    expect(rB.ok).toBe(true);
+  });
+
   // Review L1 — the `clearTimeout` on the inner-settle path must run on
   // both branches so the timer cannot fire (or leak) after settle. A
   // regression that drops `clearTimeout` would leave `vi.getTimerCount()`
@@ -385,5 +538,160 @@ describe('dispatchActivation — issue #128 lock eviction', () => {
     expect(vi.getTimerCount()).toBe(0);
 
     vi.useRealTimers();
+  });
+
+  // Test-gap §7 — mirror of the success-branch clearTimeout test for
+  // the REJECT branch of `withInjectionTimeout`. The common error case
+  // (executeScript throws) must also clear the 5s timer; a regression
+  // that drops `clearTimeout` from the rejection handler would leak a
+  // pending timer per failed injection.
+  it('clearTimeout fires on rejected exec — no leaked timer (test-gap §7)', async () => {
+    vi.useFakeTimers();
+    const { dispatchActivation } = await import('../dispatch');
+    const TAB = 304;
+
+    const pA = dispatchActivation({ source: 'command', tabId: TAB });
+    pending.push(pA);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+
+    // Reject exec; the rejection branch of `withInjectionTimeout` MUST
+    // clear the timer alongside the resolve branch.
+    executeCalls[0]?.reject(new Error('boom'));
+    await vi.advanceTimersByTimeAsync(0);
+    const result = await pA;
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.error.kind).toBe('inject-failed');
+
+    expect(vi.getTimerCount()).toBe(0);
+
+    vi.useRealTimers();
+  });
+
+  // PR #143 review — N≥2 entries on the same (tabId, URL) is UNREACHABLE
+  // today because the URL-keyed dedup cache short-circuits before reaching
+  // the Set-add path (ensureContentScript line ~199: cache hit + URL match
+  // → await cached.promise + return). The invariant is load-bearing for
+  // the `inFlightByTab` Set semantics — if a future refactor moves Set-add
+  // above the dedup check, or adds a per-frame lock key, this assertion
+  // pins the current contract: at most one entry per (tabId) on the
+  // happy-path single-URL flow.
+  it('PR#143: N==1 invariant — single-URL dispatch never adds >1 entry to inFlightByTab', async () => {
+    const { dispatchActivation, __testGetInFlightSize } = await import('../dispatch');
+    const TAB = 601;
+    const intent: ActivationIntent = { source: 'command', tabId: TAB };
+
+    // Three concurrent dispatches on the same (tabId, URL) — leader +
+    // two followers. Followers join the leader via URL match and do
+    // NOT add their own entries to inFlightByTab.
+    const pLeader = dispatchActivation(intent);
+    pending.push(pLeader);
+    await flushMicrotasks();
+    const pF1 = dispatchActivation(intent);
+    pending.push(pF1);
+    const pF2 = dispatchActivation(intent);
+    pending.push(pF2);
+    await flushMicrotasks();
+
+    // One executeScript across all three; the per-tab Set has exactly
+    // one entry (the leader's).
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+    expect(__testGetInFlightSize(TAB)).toBe(1);
+
+    executeCalls[0]?.resolve();
+    await Promise.all([pLeader, pF1, pF2]);
+  });
+
+  // PR #143 review — normal happy-path drain. Single dispatch, no
+  // onRemoved, settle normally. After settle the Set entry MUST be
+  // removed AND the tabId Map key MUST be cleared (size===0 cleanup).
+  // A regression that drops `set.delete(entry)` or the empty-cleanup
+  // branch leaks one entry per dispatch and one Map key per tab.
+  it('PR#143: happy-path drain — inFlightByTab key removed after normal settle (test-gap §2)', async () => {
+    const { dispatchActivation, __testHasInFlight } = await import('../dispatch');
+    const TAB = 602;
+    const intent: ActivationIntent = { source: 'command', tabId: TAB };
+
+    const pA = dispatchActivation(intent);
+    pending.push(pA);
+    await flushMicrotasks();
+    expect(__testHasInFlight(TAB)).toBe(true);
+
+    executeCalls[0]?.resolve();
+    const result = await pA;
+    expect(result.ok).toBe(true);
+
+    // After settle the .finally must have removed the entry AND the
+    // map key (Set was size 1, drops to 0 → delete tabId key).
+    expect(__testHasInFlight(TAB)).toBe(false);
+  });
+
+  // PR #143 review — Set-instance-capture race. The orphan leader's
+  // `.finally` must operate on the Set it ORIGINALLY added to, not on
+  // whatever `inFlightByTab.get(tabId)` returns at settle time.
+  //
+  // Sequence:
+  //   1. leaderA dispatched on tab T (executeScript pending) → entryA
+  //      added to setA at inFlightByTab[T].
+  //   2. onRemoved(T) fires → setA detached from map.
+  //   3. leaderB dispatched on (reused) tab T → fresh setB installed at
+  //      inFlightByTab[T] with entryB.
+  //   4. leaderA's executeScript settles → `.finally` runs.
+  //
+  // Discriminating signal: spy on setB.delete. Pre-fix, leaderA's
+  // `.finally` calls `inFlightByTab.get(T).delete(entryA)` — i.e., calls
+  // setB.delete(entryA). Post-fix, leaderA operates on its captured
+  // mySet (which IS setA, now detached) — setB.delete is never invoked
+  // by the orphan. The spy assertion fails pre-fix and passes post-fix.
+  it('PR#143: orphan leader .finally does not touch new-generation Set after tab-id reuse', async () => {
+    const { dispatchActivation, __testHasInFlight, __testGetInFlightSet } =
+      await import('../dispatch');
+    const TAB = 603;
+    const intent: ActivationIntent = { source: 'command', tabId: TAB };
+
+    // 1. leaderA in-flight.
+    const pA = dispatchActivation(intent);
+    pending.push(pA);
+    await flushMicrotasks();
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(1);
+
+    // 2. onRemoved(TAB) — entryA orphaned, map slot deleted.
+    fireTabRemoved(TAB);
+    expect(__testHasInFlight(TAB)).toBe(false);
+
+    // 3. leaderB on reused TAB → fresh setB at inFlightByTab[TAB].
+    const pB = dispatchActivation(intent);
+    pending.push(pB);
+    await flushMicrotasks();
+    expect(stub.scripting.executeScript).toHaveBeenCalledTimes(2);
+    const setB = __testGetInFlightSet(TAB);
+    expect(setB).toBeDefined();
+    if (!setB) throw new Error('unreachable');
+    expect(setB.size).toBe(1);
+
+    // Spy on setB.delete BEFORE settling leaderA. Pre-fix, leaderA's
+    // `.finally` would call setB.delete(entryA). Post-fix, it operates
+    // on its captured mySet (setA, detached) and never touches setB.
+    const setBDeleteSpy = vi.spyOn(setB, 'delete');
+
+    // 4. leaderA settles. Discriminating assertion below.
+    executeCalls[0]?.resolve();
+    await pA;
+
+    // Post-fix: setB.delete NEVER called by orphan. Pre-fix: called
+    // once with entryA (no-op return but observable side effect).
+    expect(setBDeleteSpy).not.toHaveBeenCalled();
+
+    // setB state still intact; map key still present.
+    expect(__testHasInFlight(TAB)).toBe(true);
+    expect(setB.size).toBe(1);
+
+    setBDeleteSpy.mockRestore();
+
+    // Settle leaderB; .finally drains entryB and removes map key.
+    executeCalls[1]?.resolve();
+    await pB;
+    expect(__testHasInFlight(TAB)).toBe(false);
   });
 });

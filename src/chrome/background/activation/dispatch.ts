@@ -89,6 +89,30 @@ interface InjectionLock {
 const injectionLocks = new Map<number, InjectionLock>();
 
 /**
+ * Issue #141 — per-tab tracking of ALL in-flight `InjectionLock` instances.
+ *
+ * `injectionLocks` above is a URL-keyed dedup cache: it holds only the
+ * CURRENT slot owner for a tabId. When a URL change causes dispatch B
+ * to replace dispatch A's slot, A's lock is still in flight but no
+ * longer reachable via `injectionLocks.get(tabId)`. If
+ * `chrome.tabs.onRemoved` fired in that window and consulted only the
+ * dedup map, it would mark B aborted but leave A's stale
+ * `aborted=false` in place — A's leader would then return `{ ok: true }`
+ * against a closed/reused tab.
+ *
+ * This set is the abort-target registry: every in-flight lock for a
+ * given tabId is added on dispatch start and removed on settle. The
+ * `onRemoved` listener iterates this set so EVERY in-flight lock (slot
+ * owner or orphaned by a later URL-mismatch replacement) observes the
+ * abort flag.
+ *
+ * Job separation:
+ *   - `injectionLocks` — URL-keyed dedup cache ("who do followers join?")
+ *   - `inFlightByTab`  — abort-target registry ("who must be aborted on tab close?")
+ */
+const inFlightByTab = new Map<number, Set<InjectionLock>>();
+
+/**
  * Defensive ceiling on a single `chrome.scripting.executeScript` call.
  * Per issue #128, an injection that never settles would pin its lock
  * entry for the SW lifetime and silently deadlock subsequent dispatches
@@ -142,15 +166,18 @@ function withInjectionTimeout(inner: Promise<void>, ms: number): Promise<void> {
  */
 if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved?.addListener) {
   chrome.tabs.onRemoved.addListener((tabId) => {
-    const entry = injectionLocks.get(tabId);
-    if (entry) {
-      // Mark aborted FIRST so any follower already awaiting
-      // `entry.promise` observes the flag on resume. Deleting the slot
-      // alone is not sufficient — the underlying `executeScript` could
-      // resolve against a reused tab id (issue #138) and the local
-      // `entry` reference held by the leader / followers survives the
-      // map delete.
-      entry.aborted = true;
+    // Issue #141 — iterate ALL in-flight locks for this tabId, not just
+    // the current slot owner. A URL-mismatch replacement (dispatch B
+    // evicting dispatch A's slot mid-flight) leaves A's lock orphaned
+    // in `injectionLocks` but still tracked here. Without iterating
+    // every entry, A's `aborted` flag would stay false and its leader
+    // would settle ok against a closed tab.
+    const inFlight = inFlightByTab.get(tabId);
+    if (inFlight) {
+      for (const entry of inFlight) {
+        entry.aborted = true;
+      }
+      inFlightByTab.delete(tabId);
     }
     injectionLocks.delete(tabId);
   });
@@ -203,10 +230,32 @@ async function ensureContentScript(
   // The leader and any followers hold local references to `entry`
   // through `await cached.promise` (followers) or the closure around
   // `promise.finally` (leader). The `onRemoved` listener mutates
-  // `entry.aborted` via `injectionLocks.get(tabId)` — even after the
-  // map slot has been deleted, the entry object itself survives via
-  // those references so the abort flag remains observable to the
-  // awaiting leader / follower.
+  // `entry.aborted` by iterating `inFlightByTab.get(tabId)` — even
+  // after the dedup-map slot has been replaced or deleted, the entry
+  // object itself survives in the per-tab set (and via those local
+  // references) so the abort flag remains observable to the awaiting
+  // leader / follower (issue #141).
+  // Definite-assignment assertion: `entry` is assigned below before the
+  // `.finally` closure can run (the closure only fires after `promise`
+  // settles, which is after `entry` is constructed). Forward declaration
+  // is needed so the closure can drop this specific lock from
+  // `inFlightByTab` regardless of whether it's still the slot owner in
+  // `injectionLocks` (a later URL-mismatch dispatch may have replaced
+  // the slot — issue #141).
+  // Capture the specific Set instance for THIS entry's lifecycle. After
+  // `onRemoved(tabId)` deletes the map slot, a subsequent dispatch on the
+  // same tabId installs a FRESH `Set` instance. The orphan leader's
+  // `.finally` must operate on the Set it originally added to — not on
+  // whatever Set `inFlightByTab.get(tabId)` returns at settle time, which
+  // may belong to a different generation of in-flight locks. The
+  // `=== mySet` guard before `inFlightByTab.delete(tabId)` ensures the
+  // orphan never evicts a fresh-generation slot installed after its
+  // tab was closed (PR #143 review).
+  //
+  /* eslint-disable prefer-const -- forward-declared for .finally closure capture */
+  let entry!: InjectionLock;
+  let mySet!: Set<InjectionLock>;
+  /* eslint-enable prefer-const */
   const promise = withInjectionTimeout(inner, INJECTION_TIMEOUT_MS).finally(() => {
     // Only clear our own entry — a later dispatch on a different URL may
     // have replaced the slot while we were in flight, or the
@@ -215,9 +264,25 @@ async function ensureContentScript(
     if (current?.promise === promise) {
       injectionLocks.delete(tabId);
     }
+    // Issue #141 + PR #143 review — drop this lock from the per-tab
+    // in-flight Set we ORIGINALLY added to (captured as `mySet` below).
+    // Only delete the tabId map key if it still points at our Set —
+    // never evict a Set installed by a later dispatch on a reused
+    // tabId.
+    mySet.delete(entry);
+    if (mySet.size === 0 && inFlightByTab.get(tabId) === mySet) {
+      inFlightByTab.delete(tabId);
+    }
   });
-  const entry: InjectionLock = { url, promise, aborted: false };
+  entry = { url, promise, aborted: false };
   injectionLocks.set(tabId, entry);
+  let set = inFlightByTab.get(tabId);
+  if (!set) {
+    set = new Set();
+    inFlightByTab.set(tabId, set);
+  }
+  set.add(entry);
+  mySet = set;
 
   try {
     await promise;
@@ -231,6 +296,27 @@ async function ensureContentScript(
   } catch (details) {
     return { ok: false, error: { kind: 'inject-failed', tabId, details } };
   }
+}
+
+/**
+ * Test-only accessors for `inFlightByTab` invariants. Used by
+ * `eviction.test.ts` to assert per-tab Set state without exposing the
+ * raw Map (which would let tests mutate it). Prefixed with `__test`
+ * so the symbol is greppable and obviously not production API.
+ */
+export function __testHasInFlight(tabId: number): boolean {
+  return inFlightByTab.has(tabId);
+}
+export function __testGetInFlightSize(tabId: number): number {
+  return inFlightByTab.get(tabId)?.size ?? 0;
+}
+/**
+ * Test-only: get the live Set instance for a tabId. Used to spy on
+ * `.delete` to detect orphan-leader cross-Set contamination (PR #143
+ * Set-instance-capture race regression test).
+ */
+export function __testGetInFlightSet(tabId: number): Set<unknown> | undefined {
+  return inFlightByTab.get(tabId);
 }
 
 /**
