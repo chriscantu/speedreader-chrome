@@ -98,6 +98,15 @@ const injectionLocks = new Map<number, InjectionLock>();
 const INJECTION_TIMEOUT_MS = 5000;
 
 /**
+ * Sentinel `details` value embedded in the `inject-failed` error when
+ * the abort flag is observed (i.e., the tab was closed mid-injection
+ * — see issue #138). Distinguishes the abort path from the rejection
+ * path (where `details` is the original thrown error). Callers that
+ * want to branch on the cause can compare against this constant.
+ */
+export const INJECT_FAILED_TAB_REMOVED = 'tab-removed' as const;
+
+/**
  * Wrap a promise in a timeout race. The timer is cleared on either
  * settle path so the timeout cannot fire (or leak) once the inner
  * promise has resolved.
@@ -166,7 +175,7 @@ async function ensureContentScript(
       if (cached.aborted) {
         return {
           ok: false,
-          error: { kind: 'inject-failed', tabId, details: 'tab-removed' },
+          error: { kind: 'inject-failed', tabId, details: INJECT_FAILED_TAB_REMOVED },
         };
       }
       return { ok: true, data: undefined };
@@ -191,13 +200,13 @@ async function ensureContentScript(
     });
   })();
 
-  // `entry` is allocated up-front so the `onRemoved` listener can
-  // mutate `entry.aborted` even after the map slot has been deleted.
-  // The leader and any followers hold local references to this object
-  // through their `await cached.promise` (followers) or the closure
-  // around `promise.finally` (leader).
-  const entry: InjectionLock = { url, promise: null as unknown as Promise<void>, aborted: false };
-
+  // The leader and any followers hold local references to `entry`
+  // through `await cached.promise` (followers) or the closure around
+  // `promise.finally` (leader). The `onRemoved` listener mutates
+  // `entry.aborted` via `injectionLocks.get(tabId)` — even after the
+  // map slot has been deleted, the entry object itself survives via
+  // those references so the abort flag remains observable to the
+  // awaiting leader / follower.
   const promise = withInjectionTimeout(inner, INJECTION_TIMEOUT_MS).finally(() => {
     // Only clear our own entry — a later dispatch on a different URL may
     // have replaced the slot while we were in flight, or the
@@ -207,13 +216,16 @@ async function ensureContentScript(
       injectionLocks.delete(tabId);
     }
   });
-  entry.promise = promise;
+  const entry: InjectionLock = { url, promise, aborted: false };
   injectionLocks.set(tabId, entry);
 
   try {
     await promise;
     if (entry.aborted) {
-      return { ok: false, error: { kind: 'inject-failed', tabId, details: 'tab-removed' } };
+      return {
+        ok: false,
+        error: { kind: 'inject-failed', tabId, details: INJECT_FAILED_TAB_REMOVED },
+      };
     }
     return { ok: true, data: undefined };
   } catch (details) {

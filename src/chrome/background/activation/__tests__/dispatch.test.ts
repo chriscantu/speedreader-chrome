@@ -195,6 +195,40 @@ describe('dispatchActivation', () => {
     expect(payload).toMatchObject({ type: 'activate-reader', scope: 'selection' });
   });
 
+  // Issue #135 — frame invariant on the contextMenu dispatch source.
+  // The happy-path command-source test pins target shape; this test
+  // pins the same invariant on a different source so a regression
+  // that adds `allFrames` to only one branch doesn't slip through.
+  it('#135: contextMenu source executeScript target has no allFrames / frameIds', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+    const intent: ActivationIntent = {
+      source: 'contextMenu',
+      tabId: 121,
+      menuItemId: 'speedreader.ctx.preset.300.v1',
+    };
+
+    await dispatchActivation(intent);
+
+    const callArg = stub.scripting.executeScript.mock.calls[0]?.[0] as {
+      target: Record<string, unknown>;
+    };
+    expect(callArg.target).not.toHaveProperty('allFrames');
+    expect(callArg.target).not.toHaveProperty('frameIds');
+  });
+
+  // Issue #135 — same invariant on the popup dispatch source.
+  it('#135: popup source executeScript target has no allFrames / frameIds', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+
+    await dispatchActivation({ source: 'popup', tabId: 122 });
+
+    const callArg = stub.scripting.executeScript.mock.calls[0]?.[0] as {
+      target: Record<string, unknown>;
+    };
+    expect(callArg.target).not.toHaveProperty('allFrames');
+    expect(callArg.target).not.toHaveProperty('frameIds');
+  });
+
   it('treats contextMenu without selectionText as full-scope', async () => {
     const { dispatchActivation } = await import('../dispatch');
     const intent: ActivationIntent = {

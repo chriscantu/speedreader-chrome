@@ -34,7 +34,13 @@ import { handleActivateReader } from './activate-handler';
 console.log('[SpeedReader] Content script loaded');
 
 if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
-  chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
+    // Sender authorization (review H2). `chrome.runtime.onMessage` in a
+    // content script today only receives messages from this extension's
+    // own contexts, but adding `externally_connectable` to the manifest
+    // would silently expose this listener to other extensions. Pin the
+    // expected sender so the gate is robust to future manifest changes.
+    if (sender.id !== chrome.runtime.id) return;
     if (
       msg !== null &&
       typeof msg === 'object' &&

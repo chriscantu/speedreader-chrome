@@ -331,6 +331,35 @@ describe('dispatchActivation — issue #128 lock eviction', () => {
     expect(rF.error.kind).toBe('inject-failed');
   });
 
+  // Review M3 — pin the behavior when executeScript REJECTS after the
+  // abort flag has been set. Current contract: the rejection wins (the
+  // catch branch returns the raw rejection's `details`) — the abort
+  // signal is redundant because the result is inject-failed either way.
+  // A regression that swallowed the rejection in favor of the abort
+  // sentinel would change the surfaced `details` and any caller
+  // branching on it would silently flip.
+  it('#138: executeScript rejection AFTER onRemoved — raw rejection details wins (abort signal is redundant)', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+    const TAB = 403;
+    const intent: ActivationIntent = { source: 'command', tabId: TAB };
+
+    const pA = dispatchActivation(intent);
+    pending.push(pA);
+    await flushMicrotasks();
+
+    fireTabRemoved(TAB);
+    const rejectErr = new Error('Frame with ID 0 was removed');
+    executeCalls[0]?.reject(rejectErr);
+
+    const result = await pA;
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.error.kind).toBe('inject-failed');
+    // Raw rejection details propagate, NOT the 'tab-removed' sentinel.
+    if (result.error.kind !== 'inject-failed') throw new Error('unreachable');
+    expect(result.error.details).toBe(rejectErr);
+  });
+
   // Review L1 — the `clearTimeout` on the inner-settle path must run on
   // both branches so the timer cannot fire (or leak) after settle. A
   // regression that drops `clearTimeout` would leave `vi.getTimerCount()`
