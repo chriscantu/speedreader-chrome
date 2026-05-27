@@ -75,3 +75,25 @@ describe('createOverlay — engine wiring', () => {
     vi.useRealTimers();
   });
 });
+
+describe('createOverlay — close path', () => {
+  test('Escape key unmounts the overlay', () => {
+    const onClose = vi.fn();
+    const overlay = createOverlay(defaultOpts({ onClose }));
+    overlay.mount();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(overlay.status).toBe('unmounted');
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(document.body.querySelector('[data-speedreader-overlay]')).toBeNull();
+  });
+
+  test('Close button click unmounts the overlay', () => {
+    const overlay = createOverlay(defaultOpts());
+    overlay.mount();
+    const closeBtn = (
+      document.body.querySelector('[data-speedreader-overlay]') as HTMLElement
+    ).shadowRoot!.querySelector<HTMLButtonElement>('.close-btn')!;
+    closeBtn.click();
+    expect(overlay.status).toBe('unmounted');
+  });
+});
