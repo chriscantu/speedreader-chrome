@@ -121,3 +121,19 @@ describe('createOverlay — settings re-theme', () => {
     overlay.unmount();
   });
 });
+
+describe('createOverlay — idempotency', () => {
+  test('calling mount() twice is a no-op (single host element)', () => {
+    const overlay = createOverlay(defaultOpts());
+    overlay.mount();
+    overlay.mount();
+    expect(document.querySelectorAll('[data-speedreader-overlay]')).toHaveLength(1);
+    overlay.unmount();
+  });
+
+  test('calling unmount() while unmounted is a no-op', () => {
+    const overlay = createOverlay(defaultOpts());
+    expect(() => overlay.unmount()).not.toThrow();
+    expect(overlay.status).toBe('unmounted');
+  });
+});
