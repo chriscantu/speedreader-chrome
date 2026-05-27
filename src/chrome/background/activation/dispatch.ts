@@ -118,6 +118,31 @@ const inFlightByTab = new Map<number, Set<InjectionLock>>();
  * entry for the SW lifetime and silently deadlock subsequent dispatches
  * on the same tab. The race timer surfaces a hung injection as
  * `inject-failed` and clears the slot.
+ *
+ * Accepted residuals (issue #139, surfaced by the antagonistic-ring
+ * arbiter on PR #137 — see issues #128, #137, #139):
+ *
+ *   1. SW idle-shutdown inversion. Every dispatch arms a 5 s timer.
+ *      MV3 idle-shutdown is ~30 s of no events / no pending timers, so
+ *      the SW stays alive at least 5 s past the last `executeScript`
+ *      settle even on the happy path. A stream of one dispatch every
+ *      ~4 s effectively pins the SW awake indefinitely.
+ *
+ *   2. Inner-promise long-tail retention. On the timeout reject path
+ *      below, `withInjectionTimeout` rejects the outer promise but the
+ *      `inner` IIFE keeps running and retains `tabId`, the file-path
+ *      argument, and a microtask-queue slot until Chrome eventually
+ *      settles `executeScript`. In the pathological never-settles case
+ *      this defensive timer exists to defend against, retention lasts
+ *      until SW restart.
+ *
+ * Decision: residuals ACCEPTED. We do not wrap `inner` in an
+ * `AbortController` because `chrome.scripting.executeScript` does not
+ * honor abort signals today — a wrapper would drop our reference but
+ * not stop the underlying call, adding code for no observable win.
+ * Removing the 5 s ceiling is out of scope per issue #128 (it is the
+ * defensive bound against silent activation deadlock). Revisit if/when
+ * `chrome.scripting` grows real cancellation.
  */
 const INJECTION_TIMEOUT_MS = 5000;
 

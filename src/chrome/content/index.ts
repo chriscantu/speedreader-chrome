@@ -33,6 +33,30 @@ import { handleActivateReader } from './activate-handler';
 
 console.log('[SpeedReader] Content script loaded');
 
+/**
+ * Issue #142 — resident-cost trade-off (surfaced by the antagonistic-ring
+ * arbiter on PR #140, perf finding #1).
+ *
+ * This listener registers at CS module load on every matched top-level
+ * document. At N open tabs that means:
+ * - N resident listener closures
+ * - N copies of the `handleActivateReader` import graph
+ *   (`activate-handler.ts` -> `core/restricted.ts`)
+ * - The `msg.type !== 'activate-reader'` early-return runs on EVERY
+ *   `runtime.onMessage` event routed to each tab (future feature
+ *   messages, devtools probes, etc.).
+ *
+ * Decision: trade ACCEPTED. The cliff is non-catastrophic at typical
+ * browsing scale, and the CS-side gate is load-bearing for #134's
+ * residual TOCTOU closure between the SW's post-injection recheck
+ * (PR #133) and the `chrome.tabs.sendMessage` handoff — removing it
+ * reintroduces the race. Lazy registration would require a different
+ * handshake protocol since the listener wouldn't exist at
+ * `sendMessage` time; non-trivial design change, deferred. Flagged
+ * for future hot-path expansion (auto-activate-on-scroll, etc.).
+ *
+ * Refs: #134 (gate rationale), #140 (review), #142 (this note).
+ */
 if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
   chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
     // Sender authorization (review H2). `chrome.runtime.onMessage` in a
