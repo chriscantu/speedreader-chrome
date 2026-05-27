@@ -98,6 +98,12 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     const resolvedTheme = resolveTheme(opts.initialSettings.theme, opts.doc.defaultView!);
     applyTheme(resolvedTheme, modal);
 
+    unsubscribeSettings = opts.subscribeSettings((s) => {
+      const resolved = resolveTheme(s.theme, opts.doc.defaultView!);
+      applyTheme(resolved, modal);
+      // wpm change handling lands with #33/#118; MVP applies theme only.
+    });
+
     engine = opts.engineFactory({ words: opts.words, wpm: opts.initialSettings.wpm });
     engine.subscribe((ev) => {
       if (ev.type === 'word') {

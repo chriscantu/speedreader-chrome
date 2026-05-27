@@ -97,3 +97,27 @@ describe('createOverlay — close path', () => {
     expect(overlay.status).toBe('unmounted');
   });
 });
+
+describe('createOverlay — settings re-theme', () => {
+  test('theme change re-applies tokens without restarting the engine', () => {
+    let notify: (s: { theme: 'system' | 'light' | 'dark' | 'sepia' | 'paper' | 'cream' | 'nord'; wpm: number }) => void = () => undefined;
+    const overlay = createOverlay(
+      defaultOpts({
+        subscribeSettings: (listener) => {
+          notify = listener;
+          return () => undefined;
+        },
+      }),
+    );
+    overlay.mount();
+    const modal = (
+      document.body.querySelector('[data-speedreader-overlay]') as HTMLElement
+    ).shadowRoot!.querySelector<HTMLElement>('.modal')!;
+    const before = modal.style.getPropertyValue('--bg');
+    notify({ theme: 'dark', wpm: 300 });
+    const after = modal.style.getPropertyValue('--bg');
+    expect(after).not.toBe(before);
+    expect(after).not.toBe('');
+    overlay.unmount();
+  });
+});
