@@ -96,13 +96,17 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     host = opts.doc.createElement('div');
     host.setAttribute(HOST_ATTR, '');
     opts.doc.body.appendChild(host);
+    const view = opts.doc.defaultView;
+    if (!view) {
+      throw new Error('createOverlay.mount: doc.defaultView is null (document is detached)');
+    }
     const shadow = host.attachShadow({ mode: 'open' });
     const { modal, word, closeBtn, ariaLive } = buildShadowTree(shadow);
-    const resolvedTheme = resolveTheme(opts.initialSettings.theme, opts.doc.defaultView!);
+    const resolvedTheme = resolveTheme(opts.initialSettings.theme, view);
     applyTheme(resolvedTheme, modal);
 
     unsubscribeSettings = opts.subscribeSettings((s) => {
-      const resolved = resolveTheme(s.theme, opts.doc.defaultView!);
+      const resolved = resolveTheme(s.theme, view);
       applyTheme(resolved, modal);
       // wpm change handling lands with #33/#118; MVP applies theme only.
     });

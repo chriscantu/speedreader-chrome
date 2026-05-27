@@ -14,6 +14,20 @@ function defaultOpts(overrides: Partial<OverlayOptions> = {}): OverlayOptions {
   };
 }
 
+function getShadow(): ShadowRoot {
+  const host = document.body.querySelector('[data-speedreader-overlay]');
+  if (!(host instanceof HTMLElement) || !host.shadowRoot) {
+    throw new Error('overlay host missing or no shadow root');
+  }
+  return host.shadowRoot;
+}
+
+function getEl<T extends Element>(root: ShadowRoot, sel: string): T {
+  const el = root.querySelector<T>(sel);
+  if (!el) throw new Error(`overlay shadow: missing selector ${sel}`);
+  return el;
+}
+
 describe('createOverlay — mount', () => {
   test('mount appends a host element with an open shadow root', () => {
     const overlay = createOverlay(defaultOpts());
@@ -21,14 +35,14 @@ describe('createOverlay — mount', () => {
     const host = document.body.querySelector('[data-speedreader-overlay]');
     expect(host).toBeTruthy();
     expect((host as HTMLElement).shadowRoot).toBeTruthy();
-    expect((host as HTMLElement).shadowRoot!.mode).toBe('open');
+    expect(((host as HTMLElement).shadowRoot as ShadowRoot).mode).toBe('open');
     overlay.unmount();
   });
 
   test('mount renders backdrop + modal + word region + close button + aria-live + sentinels', () => {
     const overlay = createOverlay(defaultOpts());
     overlay.mount();
-    const root = (document.body.querySelector('[data-speedreader-overlay]') as HTMLElement).shadowRoot!;
+    const root = getShadow();
     expect(root.querySelector('.backdrop')).toBeTruthy();
     expect(root.querySelector('.modal')).toBeTruthy();
     expect(root.querySelector('.word-region')).toBeTruthy();
@@ -45,21 +59,23 @@ describe('createOverlay — engine wiring', () => {
     const overlay = createOverlay(defaultOpts({ words: ['quick', 'brown', 'fox'] }));
     overlay.mount();
     vi.advanceTimersByTime(0); // let the engine emit
-    const root = (document.body.querySelector('[data-speedreader-overlay]') as HTMLElement).shadowRoot!;
-    expect(root.querySelector('.word-region')!.textContent).toBe('quick');
+    const root = getShadow();
+    expect(getEl(root, '.word-region').textContent).toBe('quick');
     overlay.unmount();
     vi.useRealTimers();
   });
 
   test('aria-live region announces each word', () => {
     vi.useFakeTimers();
-    const overlay = createOverlay(defaultOpts({ words: ['alpha', 'beta'], initialSettings: { theme: 'system', wpm: 600 } }));
+    const overlay = createOverlay(
+      defaultOpts({ words: ['alpha', 'beta'], initialSettings: { theme: 'system', wpm: 600 } }),
+    );
     overlay.mount();
     vi.advanceTimersByTime(0);
-    const root = (document.body.querySelector('[data-speedreader-overlay]') as HTMLElement).shadowRoot!;
-    expect(root.querySelector('[aria-live="polite"]')!.textContent).toBe('alpha');
+    const root = getShadow();
+    expect(getEl(root, '[aria-live="polite"]').textContent).toBe('alpha');
     vi.advanceTimersByTime(100);
-    expect(root.querySelector('[aria-live="polite"]')!.textContent).toBe('beta');
+    expect(getEl(root, '[aria-live="polite"]').textContent).toBe('beta');
     overlay.unmount();
     vi.useRealTimers();
   });
@@ -90,9 +106,7 @@ describe('createOverlay — close path', () => {
   test('Close button click unmounts the overlay', () => {
     const overlay = createOverlay(defaultOpts());
     overlay.mount();
-    const closeBtn = (
-      document.body.querySelector('[data-speedreader-overlay]') as HTMLElement
-    ).shadowRoot!.querySelector<HTMLButtonElement>('.close-btn')!;
+    const closeBtn = getEl<HTMLButtonElement>(getShadow(), '.close-btn');
     closeBtn.click();
     expect(overlay.status).toBe('unmounted');
   });
@@ -100,7 +114,10 @@ describe('createOverlay — close path', () => {
 
 describe('createOverlay — settings re-theme', () => {
   test('theme change re-applies tokens without restarting the engine', () => {
-    let notify: (s: { theme: 'system' | 'light' | 'dark' | 'sepia' | 'paper' | 'cream' | 'nord'; wpm: number }) => void = () => undefined;
+    let notify: (s: {
+      theme: 'system' | 'light' | 'dark' | 'sepia' | 'paper' | 'cream' | 'nord';
+      wpm: number;
+    }) => void = () => undefined;
     const overlay = createOverlay(
       defaultOpts({
         subscribeSettings: (listener) => {
@@ -110,9 +127,7 @@ describe('createOverlay — settings re-theme', () => {
       }),
     );
     overlay.mount();
-    const modal = (
-      document.body.querySelector('[data-speedreader-overlay]') as HTMLElement
-    ).shadowRoot!.querySelector<HTMLElement>('.modal')!;
+    const modal = getEl<HTMLElement>(getShadow(), '.modal');
     const before = modal.style.getPropertyValue('--bg');
     notify({ theme: 'dark', wpm: 300 });
     const after = modal.style.getPropertyValue('--bg');

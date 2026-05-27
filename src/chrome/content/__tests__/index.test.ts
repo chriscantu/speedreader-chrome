@@ -21,16 +21,24 @@ afterEach(() => {
 
 describe('content script wiring', () => {
   test('activate-reader success path mounts overlay host', async () => {
-    type Listener = (msg: unknown, sender: { id?: string }, sendResponse: (r: unknown) => void) => unknown;
+    type Listener = (
+      msg: unknown,
+      sender: { id?: string },
+      sendResponse: (r: unknown) => void,
+    ) => unknown;
     let listener: Listener | undefined;
-    (globalThis as unknown as { chrome: { runtime: { id: string; onMessage: { addListener: (l: Listener) => void } } } }).chrome
-      .runtime.onMessage.addListener = (l: Listener) => {
+    (
+      globalThis as unknown as {
+        chrome: { runtime: { id: string; onMessage: { addListener: (l: Listener) => void } } };
+      }
+    ).chrome.runtime.onMessage.addListener = (l: Listener) => {
       listener = l;
     };
     await import('../index');
     expect(listener).toBeDefined();
+    if (!listener) throw new Error('listener not registered');
     const respond = vi.fn();
-    listener!({ type: 'activate-reader' }, { id: 'test-ext' }, respond);
+    listener({ type: 'activate-reader' }, { id: 'test-ext' }, respond);
     expect(respond).toHaveBeenCalledWith({ ok: true });
     // overlay mount is async (await loadSettings); poll briefly
     await new Promise((r) => setTimeout(r, 50));
