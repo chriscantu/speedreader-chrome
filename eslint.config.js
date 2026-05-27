@@ -42,6 +42,30 @@ export default ts.config(
     },
   },
   {
+    // Playwright e2e specs + fixtures (issue #38). These run under Node
+    // for the harness layer and inside Chromium / SW contexts for the
+    // evaluate() blocks; surface the same globals the experiments/ block
+    // declares so the linter doesn't choke on `chrome`, `self`, etc.
+    files: ["tests/e2e/**/*.ts", "tests/e2e/**/*.mjs", "playwright.config.ts"],
+    languageOptions: {
+      globals: {
+        chrome: "readonly",
+        console: "readonly",
+        document: "readonly",
+        location: "readonly",
+        window: "readonly",
+        self: "readonly",
+        globalThis: "readonly",
+        process: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        URL: "readonly",
+      },
+    },
+  },
+  {
     ignores: [
       "node_modules/**",
       "dist/**",

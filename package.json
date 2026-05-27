@@ -12,6 +12,8 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
     "test:d10": "playwright test --config experiments/activeTab-commands-check/playwright.config.ts",
     "preview": "vite preview"
   },
