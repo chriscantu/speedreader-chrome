@@ -3,6 +3,8 @@ import type { ThemeId } from '../theme';
 import { OVERLAY_CSS } from './styles';
 import type { OverlayHandle, OverlayOptions, OverlayStatus } from './types';
 import type { RsvpEngine } from '../rsvp-engine';
+import { renderWord } from './word';
+import { installFocusTrap } from './focus-trap';
 
 /**
  * Resolve the 'system' sentinel to a concrete ThemeId using
@@ -93,12 +95,31 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     opts.doc.body.appendChild(host);
     const shadow = host.attachShadow({ mode: 'open' });
     const { modal, word, closeBtn, ariaLive } = buildShadowTree(shadow);
-    applyTheme(resolveTheme(opts.initialSettings.theme, opts.doc.defaultView!), modal);
+    const resolvedTheme = resolveTheme(opts.initialSettings.theme, opts.doc.defaultView!);
+    applyTheme(resolvedTheme, modal);
 
-    // engine wired in Task 7
-    void word;
-    void ariaLive;
-    void closeBtn;
+    engine = opts.engineFactory({ words: opts.words, wpm: opts.initialSettings.wpm });
+    engine.subscribe((ev) => {
+      if (ev.type === 'word') {
+        renderWord(word, ev.word);
+        ariaLive.textContent = ev.word;
+      }
+      // 'done' event: MVP leaves last word visible. Close is user-driven.
+    });
+    engine.start();
+
+    uninstallTrap = installFocusTrap(modal);
+
+    const close = () => unmount();
+    closeBtn.addEventListener('click', close);
+    onEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+      }
+    };
+    opts.doc.addEventListener('keydown', onEscape, true);
+
     status = 'mounted';
   }
 
