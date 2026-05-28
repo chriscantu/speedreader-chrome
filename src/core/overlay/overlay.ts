@@ -1,6 +1,7 @@
 import { applyTheme } from '../theme';
 import type { ThemeId } from '../theme';
 import { OVERLAY_CSS } from './styles';
+import { OVERLAY_ATTR, OVERLAY_CLASS, OVERLAY_ID, OVERLAY_TEXT } from './constants';
 import type { OverlayHandle, OverlayOptions, OverlayScope, OverlayStatus } from './types';
 import type { RsvpEngine } from '../rsvp-engine';
 import { renderWord } from './word';
@@ -27,8 +28,6 @@ interface ScopeView {
   readonly fallback: 'empty-selection' | null;
 }
 
-const EMPTY_SELECTION_FALLBACK_TEXT = 'No selection detected. Reading full article instead.';
-
 function buildScopeView(opts: OverlayOptions): ScopeView | null {
   if (!opts.scope) return null;
 
@@ -41,7 +40,7 @@ function buildScopeView(opts: OverlayOptions): ScopeView | null {
     return {
       scope: 'selection',
       activeWords: selectionWords,
-      headerText: `SELECTION · ${selectionWords.length} words · ~${formatSec(selectionWords.length)} sec`,
+      headerText: OVERLAY_TEXT.scopedHeader(selectionWords.length, formatSec(selectionWords.length)),
       showSwapBtn: true,
       fallback: null,
     };
@@ -58,7 +57,8 @@ function buildScopeView(opts: OverlayOptions): ScopeView | null {
   return {
     scope: 'full',
     activeWords: fullWords,
-    headerText: title && title.length > 0 ? title : `Whole page — ${fullWords.length} words`,
+    headerText:
+      title && title.length > 0 ? title : OVERLAY_TEXT.fullHeaderFallback(fullWords.length),
     showSwapBtn: false,
     fallback,
   };
@@ -78,7 +78,7 @@ function resolveTheme(theme: ThemeId | 'system', win: Window & typeof globalThis
   }
 }
 
-const HOST_ATTR = 'data-speedreader-overlay';
+const HOST_ATTR = OVERLAY_ATTR.HOST;
 
 export function createOverlay(opts: OverlayOptions): OverlayHandle {
   let status: OverlayStatus = 'unmounted';
@@ -117,63 +117,63 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     }
 
     const backdrop = doc.createElement('div');
-    backdrop.className = 'backdrop';
+    backdrop.className = OVERLAY_CLASS.BACKDROP;
     const modal = doc.createElement('div');
-    modal.className = 'modal';
+    modal.className = OVERLAY_CLASS.MODAL;
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
-    modal.setAttribute('aria-labelledby', 'sr-scope-header');
+    modal.setAttribute('aria-labelledby', OVERLAY_ID.SCOPE_HEADER);
 
     const header = doc.createElement('h2');
-    header.id = 'sr-scope-header';
-    header.className = 'scope-header';
-    header.textContent = scopeView?.headerText ?? 'SpeedReader';
+    header.id = OVERLAY_ID.SCOPE_HEADER;
+    header.className = OVERLAY_CLASS.SCOPE_HEADER;
+    header.textContent = scopeView?.headerText ?? OVERLAY_TEXT.DEFAULT_HEADER;
 
     let subtitle: HTMLElement | null = null;
     if (scopeView?.fallback === 'empty-selection') {
       subtitle = doc.createElement('p');
-      subtitle.className = 'scope-subtitle';
-      subtitle.textContent = EMPTY_SELECTION_FALLBACK_TEXT;
+      subtitle.className = OVERLAY_CLASS.SCOPE_SUBTITLE;
+      subtitle.textContent = OVERLAY_TEXT.EMPTY_SELECTION_FALLBACK;
     }
 
     const topSentinel = doc.createElement('div');
-    topSentinel.className = 'trap-sentinel';
+    topSentinel.className = OVERLAY_CLASS.TRAP_SENTINEL;
     topSentinel.tabIndex = 0;
 
     const closeBtn = doc.createElement('button');
-    closeBtn.className = 'close-btn';
+    closeBtn.className = OVERLAY_CLASS.CLOSE_BTN;
     closeBtn.type = 'button';
-    closeBtn.setAttribute('aria-label', 'Close reader');
-    closeBtn.textContent = 'X';
+    closeBtn.setAttribute('aria-label', OVERLAY_TEXT.CLOSE_LABEL);
+    closeBtn.textContent = OVERLAY_TEXT.CLOSE_GLYPH;
 
     const word = doc.createElement('div');
-    word.className = 'word-region';
+    word.className = OVERLAY_CLASS.WORD_REGION;
 
     const ariaLive = doc.createElement('div');
-    ariaLive.className = 'aria-live';
+    ariaLive.className = OVERLAY_CLASS.ARIA_LIVE;
     ariaLive.setAttribute('aria-live', 'polite');
     ariaLive.setAttribute('aria-atomic', 'true');
 
     const footer = doc.createElement('div');
-    footer.className = 'footer';
+    footer.className = OVERLAY_CLASS.FOOTER;
 
     let swapBtn: HTMLButtonElement | null = null;
     if (scopeView?.showSwapBtn) {
       swapBtn = doc.createElement('button');
-      swapBtn.className = 'scope-swap-btn';
+      swapBtn.className = OVERLAY_CLASS.SCOPE_SWAP_BTN;
       swapBtn.type = 'button';
-      swapBtn.textContent = '← Full article';
-      swapBtn.setAttribute('aria-label', 'Switch to full article');
+      swapBtn.textContent = OVERLAY_TEXT.SWAP_GLYPH;
+      swapBtn.setAttribute('aria-label', OVERLAY_TEXT.SWAP_LABEL);
       footer.appendChild(swapBtn);
     }
 
     const playPauseBtn = doc.createElement('button');
-    playPauseBtn.className = 'play-pause-btn';
+    playPauseBtn.className = OVERLAY_CLASS.PLAY_PAUSE_BTN;
     playPauseBtn.type = 'button';
     footer.appendChild(playPauseBtn);
 
     const bottomSentinel = doc.createElement('div');
-    bottomSentinel.className = 'trap-sentinel';
+    bottomSentinel.className = OVERLAY_CLASS.TRAP_SENTINEL;
     bottomSentinel.tabIndex = 0;
 
     const children: Node[] = [topSentinel, closeBtn, header];
@@ -232,19 +232,19 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       const s = engine?.state ?? 'idle';
       if (s === 'playing') {
         playPauseBtn.setAttribute('aria-pressed', 'true');
-        playPauseBtn.setAttribute('aria-label', 'Pause reading');
-        playPauseBtn.textContent = '⏸ Pause';
+        playPauseBtn.setAttribute('aria-label', OVERLAY_TEXT.PAUSE_LABEL);
+        playPauseBtn.textContent = OVERLAY_TEXT.PAUSE_GLYPH;
         playPauseBtn.disabled = false;
       } else if (s === 'paused') {
         playPauseBtn.setAttribute('aria-pressed', 'false');
-        playPauseBtn.setAttribute('aria-label', 'Play reading');
-        playPauseBtn.textContent = '▶ Play';
+        playPauseBtn.setAttribute('aria-label', OVERLAY_TEXT.PLAY_LABEL);
+        playPauseBtn.textContent = OVERLAY_TEXT.PLAY_GLYPH;
         playPauseBtn.disabled = false;
       } else {
         // 'idle' or 'done'
         playPauseBtn.setAttribute('aria-pressed', 'false');
-        playPauseBtn.setAttribute('aria-label', 'Play reading');
-        playPauseBtn.textContent = '▶ Play';
+        playPauseBtn.setAttribute('aria-label', OVERLAY_TEXT.PLAY_LABEL);
+        playPauseBtn.textContent = OVERLAY_TEXT.PLAY_GLYPH;
         playPauseBtn.disabled = s === 'done';
       }
     };
@@ -263,7 +263,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       // handler during engine.start(). The polite live-region status fires
       // once on mount; subsequent ticks resume the per-word announcement
       // pattern.
-      ariaLive.textContent = EMPTY_SELECTION_FALLBACK_TEXT;
+      ariaLive.textContent = OVERLAY_TEXT.EMPTY_SELECTION_FALLBACK;
     }
     reflectEngineState();
 
@@ -288,7 +288,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       const fullWords = opts.fullWords ?? [];
       const title = opts.articleTitle?.trim();
       const newHeader =
-        title && title.length > 0 ? title : `Whole page — ${fullWords.length} words`;
+        title && title.length > 0 ? title : OVERLAY_TEXT.fullHeaderFallback(fullWords.length);
 
       // Render the first word of the full stream by start+pause-ing the
       // engine on the new stream. seekTo(0) on 'idle' is a silent
@@ -315,7 +315,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       // The engine.start() emission above will have set ariaLive to
       // fullWords[0]; overwrite with the swap announcement so AT users hear
       // the transition not the first word.
-      ariaLive.textContent = `Expanded to full article. Restarting from word 1 of ${fullWords.length}. Paused.`;
+      ariaLive.textContent = OVERLAY_TEXT.expandedAnnouncement(fullWords.length);
 
       reflectEngineState();
       playPauseBtn.focus();
