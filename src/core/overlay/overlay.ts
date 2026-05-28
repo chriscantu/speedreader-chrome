@@ -28,13 +28,14 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
   let engine: RsvpEngine | null = null;
   let unsubscribeSettings: (() => void) | null = null;
   let uninstallTrap: (() => void) | null = null;
-  let onEscape: ((e: KeyboardEvent) => void) | null = null;
+  let onKeydown: ((e: KeyboardEvent) => void) | null = null;
   let priorOverflow: string | null = null;
 
   function buildShadowTree(shadow: ShadowRoot): {
     modal: HTMLElement;
     word: HTMLElement;
     closeBtn: HTMLButtonElement;
+    playPauseBtn: HTMLButtonElement;
     ariaLive: HTMLElement;
   } {
     const doc = opts.doc;
@@ -78,15 +79,23 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     ariaLive.setAttribute('aria-live', 'polite');
     ariaLive.setAttribute('aria-atomic', 'true');
 
+    const footer = doc.createElement('div');
+    footer.className = 'footer';
+
+    const playPauseBtn = doc.createElement('button');
+    playPauseBtn.className = 'play-pause-btn';
+    playPauseBtn.type = 'button';
+    footer.appendChild(playPauseBtn);
+
     const bottomSentinel = doc.createElement('div');
     bottomSentinel.className = 'trap-sentinel';
     bottomSentinel.tabIndex = 0;
 
-    modal.append(topSentinel, closeBtn, word, ariaLive, bottomSentinel);
+    modal.append(topSentinel, closeBtn, word, ariaLive, footer, bottomSentinel);
     backdrop.appendChild(modal);
     shadow.appendChild(backdrop);
 
-    return { modal, word, closeBtn, ariaLive };
+    return { modal, word, closeBtn, playPauseBtn, ariaLive };
   }
 
   function mount(): void {
@@ -114,7 +123,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       throw new Error('createOverlay.mount: doc.defaultView is null (document is detached)');
     }
     const shadow = host.attachShadow({ mode: 'open' });
-    const { modal, word, closeBtn, ariaLive } = buildShadowTree(shadow);
+    const { modal, word, closeBtn, playPauseBtn, ariaLive } = buildShadowTree(shadow);
     const resolvedTheme = resolveTheme(opts.initialSettings.theme, view);
     applyTheme(resolvedTheme, modal);
 
@@ -125,26 +134,70 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     });
 
     engine = opts.engineFactory({ words: opts.words, wpm: opts.initialSettings.wpm });
+
+    const reflectEngineState = (): void => {
+      const s = engine?.state ?? 'idle';
+      if (s === 'playing') {
+        playPauseBtn.setAttribute('aria-pressed', 'true');
+        playPauseBtn.setAttribute('aria-label', 'Pause reading');
+        playPauseBtn.textContent = '⏸ Pause';
+        playPauseBtn.disabled = false;
+      } else if (s === 'paused') {
+        playPauseBtn.setAttribute('aria-pressed', 'false');
+        playPauseBtn.setAttribute('aria-label', 'Play reading');
+        playPauseBtn.textContent = '▶ Play';
+        playPauseBtn.disabled = false;
+      } else {
+        // 'idle' or 'done'
+        playPauseBtn.setAttribute('aria-pressed', 'false');
+        playPauseBtn.setAttribute('aria-label', 'Play reading');
+        playPauseBtn.textContent = '▶ Play';
+        playPauseBtn.disabled = s === 'done';
+      }
+    };
+
     engine.subscribe((ev) => {
       if (ev.type === 'word') {
         renderWord(word, ev.word);
         ariaLive.textContent = ev.word;
+      } else if (ev.type === 'done') {
+        reflectEngineState();
       }
-      // 'done' event: MVP leaves last word visible. Close is user-driven.
     });
     engine.start();
+    reflectEngineState();
+
+    const togglePlayPause = (): void => {
+      if (!engine) return;
+      if (engine.state === 'playing') {
+        engine.pause();
+      } else if (engine.state === 'paused') {
+        engine.resume();
+      } else {
+        return;
+      }
+      reflectEngineState();
+    };
+
+    playPauseBtn.addEventListener('click', togglePlayPause);
 
     uninstallTrap = installFocusTrap(modal);
 
     const close = () => unmount();
     closeBtn.addEventListener('click', close);
-    onEscape = (e: KeyboardEvent) => {
+    onKeydown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
         close();
+        return;
+      }
+      if (e.key === ' ' || e.code === 'Space') {
+        // Prevent page-scroll while the overlay owns the keyboard.
+        e.preventDefault();
+        togglePlayPause();
       }
     };
-    opts.doc.addEventListener('keydown', onEscape, true);
+    opts.doc.addEventListener('keydown', onKeydown, true);
 
     status = 'mounted';
   }
@@ -153,8 +206,8 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     if (status === 'unmounted') return;
     uninstallTrap?.();
     uninstallTrap = null;
-    if (onEscape) opts.doc.removeEventListener('keydown', onEscape, true);
-    onEscape = null;
+    if (onKeydown) opts.doc.removeEventListener('keydown', onKeydown, true);
+    onKeydown = null;
     engine?.stop();
     engine = null;
     unsubscribeSettings?.();

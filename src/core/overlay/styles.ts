@@ -59,6 +59,36 @@ export const OVERLAY_CSS = `
   outline-offset: 2px;
 }
 
+.footer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  padding-block-start: clamp(16px, 4cqi, 32px);
+}
+
+.play-pause-btn {
+  min-width: 96px;
+  min-height: 44px;
+  padding: 8px 20px;
+  border: 2px solid var(--text, #111111);
+  border-radius: 8px;
+  background: var(--accent, #2563eb);
+  color: var(--bg, #ffffff);
+  font: 700 16px / 1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.play-pause-btn:focus-visible {
+  outline: 3px solid var(--text, #111111);
+  outline-offset: 2px;
+}
+
+.play-pause-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .word-region {
   text-align: center;
   font-size: clamp(2rem, 5.5cqi + 1rem, 5.5rem);
@@ -96,6 +126,12 @@ export const OVERLAY_CSS = `
   .close-btn { border-color: ButtonText; color: ButtonText; }
   .close-btn:focus-visible { outline-color: Highlight; }
   .word-region .focus { color: Highlight; }
+  .play-pause-btn {
+    background: ButtonFace;
+    color: ButtonText;
+    border-color: ButtonText;
+  }
+  .play-pause-btn:focus-visible { outline-color: Highlight; }
 }
 
 @media (prefers-reduced-motion: reduce) {
