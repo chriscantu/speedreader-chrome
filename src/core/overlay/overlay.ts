@@ -184,9 +184,12 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     if (!view) {
       throw new Error('createOverlay.mount: doc.defaultView is null (document is detached)');
     }
-    const scopeView = buildScopeView(opts);
+    let scopeView = buildScopeView(opts);
     const shadow = host.attachShadow({ mode: 'open' });
-    const { modal, word, closeBtn, playPauseBtn, ariaLive } = buildShadowTree(shadow, scopeView);
+    const { modal, header, word, closeBtn, playPauseBtn, swapBtn, ariaLive } = buildShadowTree(
+      shadow,
+      scopeView,
+    );
     const resolvedTheme = resolveTheme(opts.initialSettings.theme, view);
     applyTheme(resolvedTheme, modal);
 
@@ -244,6 +247,48 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     };
 
     playPauseBtn.addEventListener('click', togglePlayPause);
+
+    const swapToFull = (): void => {
+      if (!engine) return;
+      if (!scopeView || scopeView.scope !== 'selection') return;
+
+      const fullWords = opts.fullWords ?? [];
+      const title = opts.articleTitle?.trim();
+      const newHeader =
+        title && title.length > 0 ? title : `Whole page — ${fullWords.length} words`;
+
+      // Render the first word of the full stream by start+pause-ing the
+      // engine on the new stream. seekTo(0) on 'idle' is a silent
+      // reposition (per engine docs) — no word event — so the word region
+      // would stay empty without the start+pause pairing.
+      if (engine.state === 'playing') engine.pause();
+      engine.setWords(fullWords);
+      if (fullWords.length > 0) {
+        engine.start();
+        if (engine.state === 'playing') engine.pause();
+      }
+
+      // Promote view-state to full and rewrite the header.
+      scopeView = {
+        scope: 'full',
+        activeWords: fullWords,
+        headerText: newHeader,
+        showSwapBtn: false,
+      };
+      header.textContent = newHeader;
+      swapBtn?.remove();
+
+      // The engine.start() emission above will have set ariaLive to
+      // fullWords[0]; overwrite with the swap announcement so AT users hear
+      // the transition not the first word.
+      ariaLive.textContent =
+        `Expanded to full article. Restarting from word 1 of ${fullWords.length}. Paused.`;
+
+      reflectEngineState();
+      playPauseBtn.focus();
+    };
+
+    swapBtn?.addEventListener('click', swapToFull);
 
     uninstallTrap = installFocusTrap(modal);
 
