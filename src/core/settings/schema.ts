@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { FONT_SIZE_MAX, FONT_SIZE_MIN, WPM_MAX, WPM_MIN, WPM_STEP } from './bounds';
 
 /**
  * V4 adds three fields for the context-menu integration (#72):
@@ -20,14 +21,14 @@ import { z } from 'zod';
  * `wpm` at the moment of a context-menu preset click, so a mismatch
  * would be a bug.
  */
-const WPM_SCHEMA = z.number().int().min(100).max(600).multipleOf(10);
+const WPM_SCHEMA = z.number().int().min(WPM_MIN).max(WPM_MAX).multipleOf(WPM_STEP);
 
 export const SettingsSchemaV4 = z.object({
   version: z.literal(4),
   wpm: WPM_SCHEMA,
   theme: z.enum(['system', 'light', 'dark', 'sepia', 'paper', 'cream', 'nord']),
   font: z.string(),
-  fontSize: z.number().int().min(12).max(48),
+  fontSize: z.number().int().min(FONT_SIZE_MIN).max(FONT_SIZE_MAX),
   openDyslexic: z.boolean(),
   punctuationPacing: z.boolean(),
   alignment: z.enum(['orp', 'center']),

@@ -6,13 +6,7 @@ import type { OverlayHandle, OverlayOptions, OverlayScope, OverlayStatus } from 
 import type { RsvpEngine } from '../rsvp-engine';
 import { renderWord } from './word';
 import { installFocusTrap } from './focus-trap';
-
-// WPM bounds mirror `SettingsSchemaV4` in `src/core/settings/schema.ts`.
-// Kept here as plain constants so the overlay's ↑/↓ shortcut can clamp
-// without a Zod dependency. Widening the schema requires widening here.
-const WPM_MIN = 100;
-const WPM_MAX = 600;
-const WPM_STEP = 10;
+import { WPM_MAX, WPM_MIN, WPM_STEP } from '../settings/bounds';
 
 /**
  * Snapshot of the scope-aware view at mount time. The CS pre-tokenizes both
@@ -229,11 +223,10 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     const resolvedTheme = resolveTheme(opts.initialSettings.theme, view);
     applyTheme(resolvedTheme, modal);
 
-    // Local WPM is the source of truth for engine cadence while the overlay
-    // is mounted. Persisted settings updates push in via `subscribeSettings`;
-    // the in-overlay ↑/↓ shortcut updates `currentWpm` + the engine without
-    // persisting (Safari-parity scope of #33 — persistence is an explicit
-    // follow-up if needed).
+    // Local WPM is the source of truth for engine cadence while mounted.
+    // Persisted settings updates push in via `subscribeSettings`; the
+    // in-overlay ↑/↓ shortcut updates `currentWpm` + the engine without
+    // persisting.
     let currentWpm = opts.initialSettings.wpm;
     unsubscribeSettings = opts.subscribeSettings((s) => {
       const resolved = resolveTheme(s.theme, view);
@@ -361,9 +354,10 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     onKeydown = (e: KeyboardEvent) => {
       // Capture-phase handler installed on opts.doc — preventDefault denies
       // page-side hotkeys (YouTube Space, Docs arrows) while overlay owns
-      // input. Ignore modifier-key combinations so OS shortcuts like
-      // Cmd+ArrowLeft (back) still work.
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // input. Modifier-key combos pass through so OS shortcuts like
+      // Cmd+ArrowLeft (back) and Shift+ArrowRight (text selection) still
+      // work.
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         close();

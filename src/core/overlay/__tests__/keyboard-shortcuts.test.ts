@@ -23,22 +23,16 @@ function defaultOpts(holder: Holder, overrides: Partial<OverlayOptions> = {}): O
 
 function dispatch(key: string, init: KeyboardEventInit = {}): void {
   // Capture-phase handler is installed on `document`, so the event must
-  // dispatch from document for the handler to see it.
-  document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init }));
+  // dispatch from document for the handler to see it. `cancelable: true`
+  // is required for `preventDefault` to have any observable effect.
+  document.dispatchEvent(
+    new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }),
+  );
 }
 
 function engineOf(holder: Holder): RsvpEngine {
   if (!holder.engine) throw new Error('engine not yet created');
   return holder.engine;
-}
-
-function getWordText(): string {
-  const host = document.body.querySelector('[data-speedreader-overlay]');
-  if (!(host instanceof HTMLElement) || !host.shadowRoot) {
-    throw new Error('overlay host missing or no shadow root');
-  }
-  const region = host.shadowRoot.querySelector('.word-region');
-  return region?.textContent ?? '';
 }
 
 describe('createOverlay — in-overlay keyboard shortcuts (#33)', () => {
@@ -261,17 +255,100 @@ describe('createOverlay — in-overlay keyboard shortcuts (#33)', () => {
     overlay.unmount();
   });
 
-  test('ArrowRight at end of stream transitions engine to done', () => {
+  test('ArrowRight on last sentence is a no-op (does NOT end the session)', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(defaultOpts(holder, { words: ['only.', 'one.'] }));
     overlay.mount();
-    dispatch(' '); // pause after first word
+    dispatch(' '); // pause
+    const stateBefore = holder.engine?.state;
+    const seekSpy = vi.spyOn(engineOf(holder), 'seekTo');
 
-    dispatch('ArrowRight'); // last sentence start = 'one.' index 1
-    dispatch('ArrowRight'); // past end → done
+    // First ArrowRight: from index 1 (paused after 'only.'), nextIndex=1 means
+    // we're at start of "one." — next-sentence walks forward from 1, finds no
+    // further boundary → no-op.
+    dispatch('ArrowRight');
+    dispatch('ArrowRight');
 
-    expect(holder.engine?.state).toBe('done');
-    expect(getWordText()).toBeDefined();
+    expect(holder.engine?.state).toBe(stateBefore);
+    expect(seekSpy).not.toHaveBeenCalled();
+    overlay.unmount();
+  });
+
+  test('Shift+Arrow passes through (text selection / scroll shortcuts preserved)', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    const seekSpy = vi.spyOn(engineOf(holder), 'seekToSentence');
+    const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
+
+    for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
+      const event = new KeyboardEvent('keydown', {
+        key,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      document.dispatchEvent(event);
+      expect(event.defaultPrevented, `Shift+${key} must not be preventDefault'd`).toBe(false);
+    }
+    expect(seekSpy).not.toHaveBeenCalled();
+    expect(setWpmSpy).not.toHaveBeenCalled();
+    overlay.unmount();
+  });
+
+  test('ArrowUp at 595 WPM clamps to 600 (not 605)', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(
+      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 590 } }),
+    );
+    overlay.mount();
+    const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
+
+    dispatch('ArrowUp'); // 590 → 600
+    dispatch('ArrowUp'); // 600 → clamped no-op
+
+    expect(setWpmSpy).toHaveBeenCalledTimes(1);
+    expect(setWpmSpy).toHaveBeenCalledWith(600);
+    overlay.unmount();
+  });
+
+  test('ArrowDown at 110 WPM clamps to 100 (not 90)', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(
+      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 110 } }),
+    );
+    overlay.mount();
+    const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
+
+    dispatch('ArrowDown'); // 110 → 100
+    dispatch('ArrowDown'); // 100 → clamped no-op
+
+    expect(setWpmSpy).toHaveBeenCalledTimes(1);
+    expect(setWpmSpy).toHaveBeenCalledWith(100);
+    overlay.unmount();
+  });
+
+  test('capture-phase handler runs before page-side bubble listener', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    // Page-side listener at bubble phase (false). If overlay's capture handler
+    // didn't preventDefault first, this would still fire on the event — but
+    // defaultPrevented should be true by the time it runs.
+    const observed: Array<{ key: string; prevented: boolean }> = [];
+    const pageListener = (e: Event): void => {
+      const ke = e as KeyboardEvent;
+      observed.push({ key: ke.key, prevented: ke.defaultPrevented });
+    };
+    document.addEventListener('keydown', pageListener, false);
+
+    dispatch(' ');
+    dispatch('ArrowRight');
+    dispatch('ArrowUp');
+
+    document.removeEventListener('keydown', pageListener, false);
+    expect(observed.length).toBe(3);
+    expect(observed.every((o) => o.prevented)).toBe(true);
     overlay.unmount();
   });
 });

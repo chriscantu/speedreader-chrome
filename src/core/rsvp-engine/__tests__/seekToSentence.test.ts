@@ -124,20 +124,20 @@ describe('seekToSentence("next")', () => {
     expect(events).toEqual([{ type: 'word', index: 4, word: 'I' }]);
   });
 
-  it('no further sentence: transitions to done', () => {
+  it('no further sentence: no-op (does NOT transition to done)', () => {
     const engine = createRsvpEngine({ words: STREAM, wpm: 300 });
     const events: RsvpEvent[] = [];
     engine.subscribe((e) => events.push(e));
     engine.start();
     engine.pause();
-    engine.seekTo(7); // start of last sentence "Bye!"
+    engine.seekTo(7); // start of last sentence "Bye!"; nextIndex=8 after paused-seek
     events.length = 0;
 
     engine.seekToSentence('next');
 
-    // No further sentence start; engine transitions to done.
-    expect(engine.state).toBe('done');
-    expect(events[events.length - 1]).toEqual({ type: 'done' });
+    // Navigation key should not accidentally end the session — no-op.
+    expect(engine.state).toBe('paused');
+    expect(events).toEqual([]);
   });
 
   it('preserves playing state and reschedules tick', () => {
@@ -190,7 +190,7 @@ describe('seekToSentence edge cases', () => {
     expect(events[0]).toEqual({ type: 'word', index: 1, word: 'How' });
   });
 
-  it('text with no sentence boundaries — next snaps to done', () => {
+  it('text with no sentence boundaries — next is a no-op', () => {
     const engine = createRsvpEngine({ words: ['no', 'periods', 'here'], wpm: 300 });
     const events: RsvpEvent[] = [];
     engine.subscribe((e) => events.push(e));
@@ -200,7 +200,9 @@ describe('seekToSentence edge cases', () => {
 
     engine.seekToSentence('next');
 
-    expect(engine.state).toBe('done');
+    // Navigation key should not accidentally end the session.
+    expect(engine.state).toBe('paused');
+    expect(events).toEqual([]);
   });
 
   it('text with no sentence boundaries — prev snaps to 0', () => {

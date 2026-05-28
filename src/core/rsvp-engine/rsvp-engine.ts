@@ -63,16 +63,22 @@ export interface RsvpEngine {
   seekTo(index: number, options?: { snapToSentence?: boolean }): void;
   /**
    * Step one sentence backward (`'prev'`) or forward (`'next'`) from the
-   * current position. State transitions match `seekTo`.
+   * current position. State transitions match `seekTo` (paused/playing
+   * still emit a replacement `word` event for the new position; idle is
+   * silent).
    *
    * Sentence model matches `seekTo({ snapToSentence: true })`: sentences end
    * at `[.!?]`, sentence-start = the word after the boundary.
    *
    * - `'prev'`: jump to the start of the current sentence. If already at a
    *   sentence start, jump to the start of the prior sentence. At index 0
-   *   this is a no-op.
+   *   the position does not change, but a replacement `word` event still
+   *   fires in paused/playing (idle remains silent) — see `seekTo`.
    * - `'next'`: jump to the start of the next sentence. If no further
-   *   sentence start exists, transition to `done`.
+   *   sentence boundary exists from the current position, this is a no-op
+   *   (does NOT transition to `done`) — a navigation key should not
+   *   accidentally end the session on punctuation-free text. Natural
+   *   playback will reach the end on its own.
    *
    * `done` → no-op (matches `seekTo`).
    */
@@ -146,13 +152,18 @@ function snapToSentenceStart(words: string[], target: number): number {
 
 // Walk forward from `from` to find the FIRST word ending in sentence-final
 // punctuation; the next-sentence start is the index immediately after it.
-// Returns `words.length` if no further boundary exists — `seekTo` treats
-// that as past-end and transitions to `done`.
+// Returns `-1` if no further boundary exists OR if the resulting next-start
+// would be past-end — `seekToSentence('next')` treats that as no-op so a
+// navigation key cannot accidentally end the session (footgun on
+// punctuation-free text AND on a terminator at the last word).
 function findNextSentenceStart(words: string[], from: number): number {
   for (let i = from; i < words.length; i++) {
-    if (SENTENCE_END.test(words[i])) return i + 1;
+    if (SENTENCE_END.test(words[i])) {
+      const next = i + 1;
+      return next < words.length ? next : -1;
+    }
   }
-  return words.length;
+  return -1;
 }
 
 function assertValidWords(words: unknown): asserts words is string[] {
@@ -330,7 +341,12 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
         }
       } else {
         target = findNextSentenceStart(words, cur);
+        if (target === -1) return; // no further boundary → no-op (see JSDoc)
       }
+      // Re-entrancy invariant: this method does NOT set `seekInFlight`; the
+      // delegate `engine.seekTo` does. If a future change adds side effects
+      // here outside that delegate, set the flag locally to preserve the
+      // guard semantics.
       engine.seekTo(target);
     },
     progress(): RsvpProgress {
