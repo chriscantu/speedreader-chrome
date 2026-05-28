@@ -43,7 +43,7 @@ function scriptQueryStub(): Plugin {
 export default defineConfig({
   plugins: [scriptQueryStub()],
   test: {
-    environment: 'node',
+    environment: 'jsdom',
     globals: false,
     include: [
       'src/core/**/*.test.ts',
