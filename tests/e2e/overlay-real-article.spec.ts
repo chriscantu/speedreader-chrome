@@ -24,6 +24,12 @@ import AxeBuilder from '@axe-core/playwright';
 
 const BUNDLE_PATH = 'dist-e2e/core-overlay-bundle.js';
 
+// Network-dependent; opt-in only. Run locally with RUN_REAL_ARTICLE=1.
+test.skip(
+  !process.env.RUN_REAL_ARTICLE,
+  'Network-dependent real-article spec — set RUN_REAL_ARTICLE=1 to run',
+);
+
 async function mountOnRealPage(page: Page, words: string[] | null = null): Promise<void> {
   // Use addInitScript so the bundle lands via CDP before any page scripts,
   // bypassing host CSP (which blocks addScriptTag on strict sites like MDN).

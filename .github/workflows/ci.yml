@@ -96,6 +96,13 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      # Build the e2e core-overlay bundle consumed by tests/e2e/overlay.spec.ts.
+      # Separate from dist/ — bundles core/overlay + core/rsvp-engine into an
+      # IIFE Playwright can addScriptTag onto about:blank for the unit-style
+      # overlay scan. See vite.e2e.config.ts.
+      - name: Build e2e core-overlay bundle
+        run: npm run build:e2e-bundle
+
       - name: Run E2E (under xvfb)
         run: xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" npm run test:e2e
 

@@ -40,6 +40,14 @@ import { mkdtempSync, rmSync, existsSync, readdirSync } from 'node:fs';
 const here = dirname(fileURLToPath(import.meta.url));
 const extensionPath = resolve(here, '..', '..', 'dist-e2e-ext');
 
+// Network-dependent + requires `npm run build:e2e-ext` upfront. Opt-in
+// only; same pattern as tests/e2e/profiling/cs-heap-fanout.spec.ts.
+// Run locally with RUN_ACTIVATION_CHAIN=1.
+test.skip(
+  !process.env.RUN_ACTIVATION_CHAIN,
+  'Network-dependent activation-chain spec — set RUN_ACTIVATION_CHAIN=1 to run',
+);
+
 function findContentScriptLoader(): string {
   // Production uses the crxjs loader chunk (index.ts-loader-*.js) which
   // dynamically imports the actual CS module via chrome.runtime.getURL.
