@@ -80,17 +80,36 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
       sendResponse(response);
       if (!response.ok) return;
 
+      // Spec §"Scoped Mini-Modal Contract" — the SW's activate-reader
+      // payload carries `scope: 'selection' | 'full'`. The CS owns
+      // selection truth (the SW's `info.selectionText` is hint-only,
+      // per `background/activation/types.ts`). Re-read the selection
+      // here and tokenize both streams up front so the scope-swap
+      // affordance is a pure local transition.
+      const rawScope = (msg as { scope?: unknown }).scope;
+      const scope: 'selection' | 'full' = rawScope === 'selection' ? 'selection' : 'full';
+      const selectionText = scope === 'selection' ? (window.getSelection()?.toString() ?? '') : '';
+      const selectionWords = scope === 'selection' ? tokenize(selectionText) : [];
+
       // Mount overlay (idempotent). MVP word source: body.innerText
       // tokenized; full Readability extraction tracked under #17.
       (async () => {
         if (activeOverlay && activeOverlay.status === 'mounted') return;
         const settings = await loadSettings();
-        const text = document.body?.innerText ?? document.body?.textContent ?? '';
-        const words = tokenize(text);
-        if (words.length === 0) return;
+        const bodyText = document.body?.innerText ?? document.body?.textContent ?? '';
+        const fullWords = tokenize(bodyText);
+        if (fullWords.length === 0 && selectionWords.length === 0) return;
+        const articleTitle = document.title?.trim() || undefined;
         activeOverlay = createOverlay({
           doc: document,
-          words,
+          // Legacy single-list field retained for the type contract; the
+          // overlay reads `fullWords` / `selectionWords` when `scope` is
+          // present and falls back to `words` only when it isn't.
+          words: fullWords,
+          scope,
+          selectionWords,
+          fullWords,
+          articleTitle,
           initialSettings: { theme: settings.theme, wpm: settings.wpm },
           subscribeSettings: (listener) =>
             subscribeSettings((s) => listener({ theme: s.theme, wpm: s.wpm })),

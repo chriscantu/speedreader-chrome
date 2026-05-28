@@ -59,6 +59,69 @@ export const OVERLAY_CSS = `
   outline-offset: 2px;
 }
 
+.footer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  padding-block-start: clamp(16px, 4cqi, 32px);
+}
+
+.play-pause-btn {
+  min-width: 96px;
+  min-height: 44px;
+  padding: 8px 20px;
+  border: 2px solid var(--text, #111111);
+  border-radius: 8px;
+  background: var(--accent, #2563eb);
+  color: var(--bg, #ffffff);
+  font: 700 16px / 1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.play-pause-btn:focus-visible {
+  outline: 3px solid var(--text, #111111);
+  outline-offset: 2px;
+}
+
+.play-pause-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.scope-header {
+  margin: 0;
+  padding-inline-end: 56px; /* leave room for top-right close button */
+  font-size: clamp(0.95rem, 1.6cqi + 0.5rem, 1.25rem);
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+}
+
+.scope-subtitle {
+  margin: 6px 0 0;
+  font-size: clamp(0.8rem, 1.2cqi + 0.4rem, 1rem);
+  font-style: italic;
+  color: var(--text, #111111);
+  opacity: 0.85;
+}
+
+.scope-swap-btn {
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 2px solid var(--text, #111111);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text, #111111);
+  font: 600 14px / 1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.scope-swap-btn:focus-visible {
+  outline: 3px solid var(--accent, #2563eb);
+  outline-offset: 2px;
+}
+
 .word-region {
   text-align: center;
   font-size: clamp(2rem, 5.5cqi + 1rem, 5.5rem);
@@ -96,6 +159,20 @@ export const OVERLAY_CSS = `
   .close-btn { border-color: ButtonText; color: ButtonText; }
   .close-btn:focus-visible { outline-color: Highlight; }
   .word-region .focus { color: Highlight; }
+  .play-pause-btn {
+    background: ButtonFace;
+    color: ButtonText;
+    border-color: ButtonText;
+  }
+  .play-pause-btn:focus-visible { outline-color: Highlight; }
+  .scope-header { color: CanvasText; }
+  .scope-subtitle { color: CanvasText; opacity: 1; }
+  .scope-swap-btn {
+    background: ButtonFace;
+    color: ButtonText;
+    border-color: ButtonText;
+  }
+  .scope-swap-btn:focus-visible { outline-color: Highlight; }
 }
 
 @media (prefers-reduced-motion: reduce) {
