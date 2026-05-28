@@ -20,7 +20,14 @@ interface ScopeView {
   readonly headerText: string;
   /** True when the `← Full article` scope-swap button should be rendered. */
   readonly showSwapBtn: boolean;
+  /**
+   * Non-null when an empty-selection fallback fired. Drives the visible
+   * subtitle and one-shot aria-live announcement (AC #15).
+   */
+  readonly fallback: 'empty-selection' | null;
 }
+
+const EMPTY_SELECTION_FALLBACK_TEXT = 'No selection detected. Reading full article instead.';
 
 function buildScopeView(opts: OverlayOptions): ScopeView | null {
   if (!opts.scope) return null;
@@ -36,15 +43,24 @@ function buildScopeView(opts: OverlayOptions): ScopeView | null {
       activeWords: selectionWords,
       headerText: `SELECTION · ${selectionWords.length} words · ~${formatSec(selectionWords.length)} sec`,
       showSwapBtn: true,
+      fallback: null,
     };
   }
 
   const title = opts.articleTitle?.trim();
+  // Empty-selection fallback: user requested 'selection' but the selection
+  // text was empty (cleared between menu open and click, or never present
+  // on a non-text context-menu invocation). Resolve to full-article scope
+  // and flag the fallback so the overlay surfaces an explanatory subtitle
+  // and a one-shot polite announcement (spec §"Selection cleared between
+  // menu open and click", AC #15).
+  const fallback = opts.scope === 'selection' ? 'empty-selection' : null;
   return {
     scope: 'full',
     activeWords: fullWords,
     headerText: title && title.length > 0 ? title : `Whole page — ${fullWords.length} words`,
     showSwapBtn: false,
+    fallback,
   };
 }
 
@@ -113,6 +129,13 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     header.className = 'scope-header';
     header.textContent = scopeView?.headerText ?? 'SpeedReader';
 
+    let subtitle: HTMLElement | null = null;
+    if (scopeView?.fallback === 'empty-selection') {
+      subtitle = doc.createElement('p');
+      subtitle.className = 'scope-subtitle';
+      subtitle.textContent = EMPTY_SELECTION_FALLBACK_TEXT;
+    }
+
     const topSentinel = doc.createElement('div');
     topSentinel.className = 'trap-sentinel';
     topSentinel.tabIndex = 0;
@@ -153,7 +176,10 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     bottomSentinel.className = 'trap-sentinel';
     bottomSentinel.tabIndex = 0;
 
-    modal.append(topSentinel, closeBtn, header, word, ariaLive, footer, bottomSentinel);
+    const children: Node[] = [topSentinel, closeBtn, header];
+    if (subtitle) children.push(subtitle);
+    children.push(word, ariaLive, footer, bottomSentinel);
+    modal.append(...children);
     backdrop.appendChild(modal);
     shadow.appendChild(backdrop);
 
@@ -232,6 +258,13 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       }
     });
     engine.start();
+    if (scopeView?.fallback === 'empty-selection') {
+      // Overrides the word[0] textContent that fired via the subscribe
+      // handler during engine.start(). The polite live-region status fires
+      // once on mount; subsequent ticks resume the per-word announcement
+      // pattern.
+      ariaLive.textContent = EMPTY_SELECTION_FALLBACK_TEXT;
+    }
     reflectEngineState();
 
     const togglePlayPause = (): void => {
@@ -274,6 +307,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         activeWords: fullWords,
         headerText: newHeader,
         showSwapBtn: false,
+        fallback: null,
       };
       header.textContent = newHeader;
       swapBtn?.remove();

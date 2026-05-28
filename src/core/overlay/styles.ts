@@ -98,6 +98,14 @@ export const OVERLAY_CSS = `
   letter-spacing: 0.02em;
 }
 
+.scope-subtitle {
+  margin: 6px 0 0;
+  font-size: clamp(0.8rem, 1.2cqi + 0.4rem, 1rem);
+  font-style: italic;
+  color: var(--text, #111111);
+  opacity: 0.85;
+}
+
 .scope-swap-btn {
   min-height: 44px;
   padding: 8px 16px;
@@ -158,6 +166,7 @@ export const OVERLAY_CSS = `
   }
   .play-pause-btn:focus-visible { outline-color: Highlight; }
   .scope-header { color: CanvasText; }
+  .scope-subtitle { color: CanvasText; opacity: 1; }
   .scope-swap-btn {
     background: ButtonFace;
     color: ButtonText;
