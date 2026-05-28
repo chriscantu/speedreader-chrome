@@ -325,6 +325,11 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     swapBtn?.addEventListener('click', swapToFull);
 
     uninstallTrap = installFocusTrap(modal);
+    // installFocusTrap auto-focuses the first DOM-order focusable (the
+    // close button at top-right). Override to land on play/pause per
+    // AC #16 — the user's single keystroke to start or pause must be the
+    // initial tab target. Same JS task as the trap install, so no flash.
+    playPauseBtn.focus();
 
     const close = () => unmount();
     closeBtn.addEventListener('click', close);
