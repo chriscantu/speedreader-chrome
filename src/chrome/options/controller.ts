@@ -1,5 +1,12 @@
 import type { SettingsV4 } from '../../core/settings/schema';
 import { DEFAULT_SETTINGS } from '../../core/settings/defaults';
+import {
+  FONT_SIZE_MAX,
+  FONT_SIZE_MIN,
+  WPM_MAX,
+  WPM_MIN,
+  WPM_STEP,
+} from '../../core/settings/bounds';
 
 export interface SettingsApi {
   load(): Promise<SettingsV4>;
@@ -37,14 +44,6 @@ type EditablePatch = Partial<Omit<SettingsV4, 'version' | 'lastUsedWpm'>>;
 
 const THEME_VALUES = ['system', 'light', 'dark', 'sepia', 'paper', 'cream', 'nord'] as const;
 const ALIGNMENT_VALUES = ['orp', 'center'] as const;
-
-// Schema range constants kept in lockstep with `SettingsSchemaV4` in
-// `src/core/settings/schema.ts`. Widening the schema requires widening here.
-const WPM_MIN = 100;
-const WPM_MAX = 600;
-const WPM_STEP = 10;
-const FONT_SIZE_MIN = 12;
-const FONT_SIZE_MAX = 48;
 
 function getInput(doc: Document, id: string): HTMLInputElement | HTMLSelectElement | null {
   const el = doc.getElementById(id);
