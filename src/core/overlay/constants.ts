@@ -64,8 +64,7 @@ export const OVERLAY_TEXT = Object.freeze({
   SWAP_LABEL: 'Switch to full article',
 
   /** Empty-selection fallback subtitle + polite live-region announcement. */
-  EMPTY_SELECTION_FALLBACK:
-    'No selection detected. Reading full article instead.',
+  EMPTY_SELECTION_FALLBACK: 'No selection detected. Reading full article instead.',
 
   /** Scoped-mode header template: `SELECTION · N words · ~M sec`. */
   scopedHeader(wordCount: number, seconds: number): string {

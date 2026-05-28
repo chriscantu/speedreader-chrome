@@ -40,7 +40,10 @@ function buildScopeView(opts: OverlayOptions): ScopeView | null {
     return {
       scope: 'selection',
       activeWords: selectionWords,
-      headerText: OVERLAY_TEXT.scopedHeader(selectionWords.length, formatSec(selectionWords.length)),
+      headerText: OVERLAY_TEXT.scopedHeader(
+        selectionWords.length,
+        formatSec(selectionWords.length),
+      ),
       showSwapBtn: true,
       fallback: null,
     };
