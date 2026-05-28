@@ -29,6 +29,12 @@ function getShadow(): ShadowRoot {
   return host.shadowRoot;
 }
 
+function requireSwapBtn(shadow: ShadowRoot): HTMLButtonElement {
+  const btn = shadow.querySelector<HTMLButtonElement>('.scope-swap-btn');
+  if (!btn) throw new Error('overlay shadow: .scope-swap-btn missing');
+  return btn;
+}
+
 describe('createOverlay — scope-swap state machine (AC #11)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -43,9 +49,8 @@ describe('createOverlay — scope-swap state machine (AC #11)', () => {
     const overlay = createOverlay(defaultOpts());
     overlay.mount();
     const shadow = getShadow();
-    const swapBtn = shadow.querySelector<HTMLButtonElement>('.scope-swap-btn');
-    expect(swapBtn).toBeTruthy();
-    swapBtn!.click();
+    const swapBtn = requireSwapBtn(shadow);
+    swapBtn.click();
     expect(shadow.querySelector('.scope-swap-btn')).toBeNull();
     overlay.unmount();
   });
@@ -54,8 +59,8 @@ describe('createOverlay — scope-swap state machine (AC #11)', () => {
     const overlay = createOverlay(defaultOpts());
     overlay.mount();
     const shadow = getShadow();
-    const swapBtn = shadow.querySelector<HTMLButtonElement>('.scope-swap-btn');
-    swapBtn!.click();
+    const swapBtn = requireSwapBtn(shadow);
+    swapBtn.click();
     const header = shadow.querySelector('#sr-scope-header');
     expect(header?.textContent).toBe('How Bees Find Flowers');
     overlay.unmount();
@@ -65,7 +70,7 @@ describe('createOverlay — scope-swap state machine (AC #11)', () => {
     const overlay = createOverlay(defaultOpts({ articleTitle: undefined }));
     overlay.mount();
     const shadow = getShadow();
-    shadow.querySelector<HTMLButtonElement>('.scope-swap-btn')!.click();
+    requireSwapBtn(shadow).click();
     const header = shadow.querySelector('#sr-scope-header');
     expect(header?.textContent).toBe(`Whole page — ${FULL_WORDS.length} words`);
     overlay.unmount();
@@ -75,7 +80,7 @@ describe('createOverlay — scope-swap state machine (AC #11)', () => {
     const overlay = createOverlay(defaultOpts());
     overlay.mount();
     const shadow = getShadow();
-    shadow.querySelector<HTMLButtonElement>('.scope-swap-btn')!.click();
+    requireSwapBtn(shadow).click();
 
     const playPauseBtn = shadow.querySelector('.play-pause-btn');
     expect(playPauseBtn?.getAttribute('aria-pressed')).toBe('false');
@@ -92,7 +97,7 @@ describe('createOverlay — scope-swap state machine (AC #11)', () => {
     const overlay = createOverlay(defaultOpts());
     overlay.mount();
     const shadow = getShadow();
-    shadow.querySelector<HTMLButtonElement>('.scope-swap-btn')!.click();
+    requireSwapBtn(shadow).click();
 
     const ariaLive = shadow.querySelector('.aria-live');
     expect(ariaLive?.textContent).toBe(
@@ -105,7 +110,7 @@ describe('createOverlay — scope-swap state machine (AC #11)', () => {
     const overlay = createOverlay(defaultOpts());
     overlay.mount();
     const shadow = getShadow();
-    shadow.querySelector<HTMLButtonElement>('.scope-swap-btn')!.click();
+    requireSwapBtn(shadow).click();
     const playPauseBtn = shadow.querySelector('.play-pause-btn');
     expect(shadow.activeElement).toBe(playPauseBtn);
     overlay.unmount();
@@ -115,7 +120,7 @@ describe('createOverlay — scope-swap state machine (AC #11)', () => {
     const overlay = createOverlay(defaultOpts());
     overlay.mount();
     const shadow = getShadow();
-    shadow.querySelector<HTMLButtonElement>('.scope-swap-btn')!.click();
+    requireSwapBtn(shadow).click();
 
     document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
     const playPauseBtn = shadow.querySelector('.play-pause-btn');
@@ -133,18 +138,16 @@ describe('createOverlay — scope-swap state machine (AC #11)', () => {
     const overlay = createOverlay(defaultOpts());
     overlay.mount();
     const shadow = getShadow();
-    const swapBtn = shadow.querySelector<HTMLButtonElement>('.scope-swap-btn');
-    swapBtn!.click();
+    const swapBtn = requireSwapBtn(shadow);
+    swapBtn.click();
     // Re-click on the (now-detached) button must not throw.
-    expect(() => swapBtn!.click()).not.toThrow();
+    expect(() => swapBtn.click()).not.toThrow();
     expect(shadow.querySelector('.scope-swap-btn')).toBeNull();
     overlay.unmount();
   });
 
   test('scope="full" mount does not render a swap button — no scope-swap path', () => {
-    const overlay = createOverlay(
-      defaultOpts({ scope: 'full', selectionWords: undefined }),
-    );
+    const overlay = createOverlay(defaultOpts({ scope: 'full', selectionWords: undefined }));
     overlay.mount();
     const shadow = getShadow();
     expect(shadow.querySelector('.scope-swap-btn')).toBeNull();

@@ -87,10 +87,8 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
       // here and tokenize both streams up front so the scope-swap
       // affordance is a pure local transition.
       const rawScope = (msg as { scope?: unknown }).scope;
-      const scope: 'selection' | 'full' =
-        rawScope === 'selection' ? 'selection' : 'full';
-      const selectionText =
-        scope === 'selection' ? (window.getSelection()?.toString() ?? '') : '';
+      const scope: 'selection' | 'full' = rawScope === 'selection' ? 'selection' : 'full';
+      const selectionText = scope === 'selection' ? (window.getSelection()?.toString() ?? '') : '';
       const selectionWords = scope === 'selection' ? tokenize(selectionText) : [];
 
       // Mount overlay (idempotent). MVP word source: body.innerText

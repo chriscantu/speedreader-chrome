@@ -101,7 +101,7 @@ describe('rsvpEngine.setWords', () => {
     // Advance well past several word-intervals; no tick should fire because
     // setWords leaves the engine in idle and clearPending() cancelled the
     // scheduled timer.
-    vi.advanceTimersByTime(60000 / 300 * 10);
+    vi.advanceTimersByTime((60000 / 300) * 10);
     expect(events.length).toBe(1); // unchanged
   });
 
@@ -173,10 +173,7 @@ describe('rsvpEngine.setWords', () => {
     expect(engine.progress()).toEqual({ index: 0, total: 0, ratio: 0 });
 
     engine.start();
-    expect(events).toEqual([
-      { type: 'word', index: 0, word: 'a' },
-      { type: 'done' },
-    ]);
+    expect(events).toEqual([{ type: 'word', index: 0, word: 'a' }, { type: 'done' }]);
     expect(engine.state).toBe('done');
   });
 });

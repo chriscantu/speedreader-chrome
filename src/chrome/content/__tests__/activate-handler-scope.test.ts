@@ -60,6 +60,11 @@ function getOverlayShadow(): ShadowRoot {
   return host.shadowRoot;
 }
 
+function invokeListener(l: Listener | undefined): Listener {
+  if (!l) throw new Error('activate-reader listener not registered');
+  return l;
+}
+
 async function waitForOverlay(): Promise<void> {
   for (let i = 0; i < 20; i++) {
     if (document.querySelector('[data-speedreader-overlay]')) return;
@@ -88,7 +93,7 @@ describe('content script — scope plumbing (#131)', () => {
   test('scope omitted (legacy): mounts overlay with full-article scope', async () => {
     const { listenerRef } = installChromeMock();
     await import('../index');
-    listenerRef.current!({ type: 'activate-reader' }, { id: 'test-ext' }, vi.fn());
+    invokeListener(listenerRef.current)({ type: 'activate-reader' }, { id: 'test-ext' }, vi.fn());
     await waitForOverlay();
 
     const header = getOverlayShadow().querySelector('#sr-scope-header');
@@ -101,7 +106,7 @@ describe('content script — scope plumbing (#131)', () => {
   test('scope="full" payload: overlay renders article-title header, no swap button', async () => {
     const { listenerRef } = installChromeMock();
     await import('../index');
-    listenerRef.current!(
+    invokeListener(listenerRef.current)(
       { type: 'activate-reader', scope: 'full' },
       { id: 'test-ext' },
       vi.fn(),
@@ -127,7 +132,7 @@ describe('content script — scope plumbing (#131)', () => {
     expect(window.getSelection()?.toString().length).toBeGreaterThan(0);
 
     await import('../index');
-    listenerRef.current!(
+    invokeListener(listenerRef.current)(
       { type: 'activate-reader', scope: 'selection' },
       { id: 'test-ext' },
       vi.fn(),
@@ -148,7 +153,7 @@ describe('content script — scope plumbing (#131)', () => {
     expect(window.getSelection()?.toString()).toBe('');
 
     await import('../index');
-    listenerRef.current!(
+    invokeListener(listenerRef.current)(
       { type: 'activate-reader', scope: 'selection' },
       { id: 'test-ext' },
       vi.fn(),

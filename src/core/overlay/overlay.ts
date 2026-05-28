@@ -315,8 +315,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       // The engine.start() emission above will have set ariaLive to
       // fullWords[0]; overwrite with the swap announcement so AT users hear
       // the transition not the first word.
-      ariaLive.textContent =
-        `Expanded to full article. Restarting from word 1 of ${fullWords.length}. Paused.`;
+      ariaLive.textContent = `Expanded to full article. Restarting from word 1 of ${fullWords.length}. Paused.`;
 
       reflectEngineState();
       playPauseBtn.focus();

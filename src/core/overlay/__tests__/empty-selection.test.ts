@@ -89,9 +89,7 @@ describe('createOverlay — empty-selection fallback (AC #15)', () => {
   });
 
   test('scope="selection" with non-empty selectionWords does NOT render a subtitle (normal scoped mode)', () => {
-    const overlay = createOverlay(
-      defaultOpts({ selectionWords: ['hello', 'world'] }),
-    );
+    const overlay = createOverlay(defaultOpts({ selectionWords: ['hello', 'world'] }));
     overlay.mount();
     const shadow = getShadow();
     expect(shadow.querySelector('.scope-subtitle')).toBeNull();
@@ -99,9 +97,7 @@ describe('createOverlay — empty-selection fallback (AC #15)', () => {
   });
 
   test('scope="full" on mount renders no subtitle (no fallback occurred)', () => {
-    const overlay = createOverlay(
-      defaultOpts({ scope: 'full', selectionWords: undefined }),
-    );
+    const overlay = createOverlay(defaultOpts({ scope: 'full', selectionWords: undefined }));
     overlay.mount();
     const shadow = getShadow();
     expect(shadow.querySelector('.scope-subtitle')).toBeNull();
