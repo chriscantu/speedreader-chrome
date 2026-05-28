@@ -7,6 +7,13 @@ import type { RsvpEngine } from '../rsvp-engine';
 import { renderWord } from './word';
 import { installFocusTrap } from './focus-trap';
 
+// WPM bounds mirror `SettingsSchemaV4` in `src/core/settings/schema.ts`.
+// Kept here as plain constants so the overlay's ↑/↓ shortcut can clamp
+// without a Zod dependency. Widening the schema requires widening here.
+const WPM_MIN = 100;
+const WPM_MAX = 600;
+const WPM_STEP = 10;
+
 /**
  * Snapshot of the scope-aware view at mount time. The CS pre-tokenizes both
  * selection and full streams, so building the header text and choosing the
@@ -222,14 +229,23 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     const resolvedTheme = resolveTheme(opts.initialSettings.theme, view);
     applyTheme(resolvedTheme, modal);
 
+    // Local WPM is the source of truth for engine cadence while the overlay
+    // is mounted. Persisted settings updates push in via `subscribeSettings`;
+    // the in-overlay ↑/↓ shortcut updates `currentWpm` + the engine without
+    // persisting (Safari-parity scope of #33 — persistence is an explicit
+    // follow-up if needed).
+    let currentWpm = opts.initialSettings.wpm;
     unsubscribeSettings = opts.subscribeSettings((s) => {
       const resolved = resolveTheme(s.theme, view);
       applyTheme(resolved, modal);
-      // wpm change handling lands with #33/#118; MVP applies theme only.
+      if (s.wpm !== currentWpm) {
+        currentWpm = s.wpm;
+        engine?.setWpm(s.wpm);
+      }
     });
 
     const engineWords = scopeView ? scopeView.activeWords : opts.words;
-    engine = opts.engineFactory({ words: engineWords, wpm: opts.initialSettings.wpm });
+    engine = opts.engineFactory({ words: engineWords, wpm: currentWpm });
 
     const reflectEngineState = (): void => {
       const s = engine?.state ?? 'idle';
@@ -335,16 +351,48 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
 
     const close = () => unmount();
     closeBtn.addEventListener('click', close);
+    const stepWpm = (delta: number): void => {
+      if (!engine) return;
+      const next = Math.max(WPM_MIN, Math.min(WPM_MAX, currentWpm + delta));
+      if (next === currentWpm) return;
+      currentWpm = next;
+      engine.setWpm(next);
+    };
     onKeydown = (e: KeyboardEvent) => {
+      // Capture-phase handler installed on opts.doc — preventDefault denies
+      // page-side hotkeys (YouTube Space, Docs arrows) while overlay owns
+      // input. Ignore modifier-key combinations so OS shortcuts like
+      // Cmd+ArrowLeft (back) still work.
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         close();
         return;
       }
       if (e.key === ' ' || e.code === 'Space') {
-        // Prevent page-scroll while the overlay owns the keyboard.
         e.preventDefault();
         togglePlayPause();
+        return;
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        engine?.seekToSentence('prev');
+        return;
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        engine?.seekToSentence('next');
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        stepWpm(WPM_STEP);
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        stepWpm(-WPM_STEP);
+        return;
       }
     };
     opts.doc.addEventListener('keydown', onKeydown, true);

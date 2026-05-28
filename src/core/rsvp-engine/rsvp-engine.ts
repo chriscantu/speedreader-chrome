@@ -62,6 +62,22 @@ export interface RsvpEngine {
    */
   seekTo(index: number, options?: { snapToSentence?: boolean }): void;
   /**
+   * Step one sentence backward (`'prev'`) or forward (`'next'`) from the
+   * current position. State transitions match `seekTo`.
+   *
+   * Sentence model matches `seekTo({ snapToSentence: true })`: sentences end
+   * at `[.!?]`, sentence-start = the word after the boundary.
+   *
+   * - `'prev'`: jump to the start of the current sentence. If already at a
+   *   sentence start, jump to the start of the prior sentence. At index 0
+   *   this is a no-op.
+   * - `'next'`: jump to the start of the next sentence. If no further
+   *   sentence start exists, transition to `done`.
+   *
+   * `done` → no-op (matches `seekTo`).
+   */
+  seekToSentence(direction: 'prev' | 'next'): void;
+  /**
    * Replace the engine's word stream in place. Resets `nextIndex` to 0 and
    * transitions to `idle` regardless of prior state. Emits no events — the
    * next `start()` or `seekTo()` is responsible for the first emission on
@@ -128,6 +144,17 @@ function snapToSentenceStart(words: string[], target: number): number {
   return 0;
 }
 
+// Walk forward from `from` to find the FIRST word ending in sentence-final
+// punctuation; the next-sentence start is the index immediately after it.
+// Returns `words.length` if no further boundary exists — `seekTo` treats
+// that as past-end and transitions to `done`.
+function findNextSentenceStart(words: string[], from: number): number {
+  for (let i = from; i < words.length; i++) {
+    if (SENTENCE_END.test(words[i])) return i + 1;
+  }
+  return words.length;
+}
+
 function assertValidWords(words: unknown): asserts words is string[] {
   if (!Array.isArray(words)) {
     throw new TypeError(`Invalid words: expected an array, got ${typeof words}.`);
@@ -186,7 +213,7 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
     scheduleNext();
   };
 
-  return {
+  const engine: RsvpEngine = {
     get state() {
       return state;
     },
@@ -288,6 +315,24 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
         seekInFlight = false;
       }
     },
+    seekToSentence(direction: 'prev' | 'next'): void {
+      if (state === RSVP_STATE.DONE) return;
+      if (seekInFlight) return;
+      const cur = nextIndex;
+      let target: number;
+      if (direction === 'prev') {
+        const sentenceStart = snapToSentenceStart(words, cur);
+        if (sentenceStart === cur && cur > 0) {
+          // Already at a sentence start — back up one more sentence.
+          target = snapToSentenceStart(words, cur - 1);
+        } else {
+          target = sentenceStart;
+        }
+      } else {
+        target = findNextSentenceStart(words, cur);
+      }
+      engine.seekTo(target);
+    },
     progress(): RsvpProgress {
       const total = words.length;
       if (total === 0) {
@@ -306,4 +351,5 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
       return remaining * msPerWord();
     },
   };
+  return engine;
 }
