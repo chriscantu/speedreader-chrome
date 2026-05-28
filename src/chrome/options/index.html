@@ -40,11 +40,10 @@
         font-size: 14px;
         padding: 6px 8px;
       }
-      .saved {
+      .toast {
         position: fixed;
         bottom: 16px;
         right: 16px;
-        background: #2a9d3a;
         color: white;
         padding: 6px 12px;
         border-radius: 4px;
@@ -53,11 +52,31 @@
         transition: opacity 200ms ease;
         pointer-events: none;
       }
-      .saved.visible {
+      .toast.visible {
         opacity: 1;
       }
+      .toast.saved {
+        background: #2a9d3a;
+      }
+      .toast.error {
+        background: #c0392b;
+        bottom: 56px;
+      }
+      .load-error-banner {
+        display: none;
+        background: #c0392b;
+        color: white;
+        padding: 10px 14px;
+        border-radius: 4px;
+        margin-bottom: 16px;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      .load-error-banner.visible {
+        display: block;
+      }
       @media (prefers-reduced-motion: reduce) {
-        .saved {
+        .toast {
           transition: none;
         }
       }
@@ -65,6 +84,16 @@
   </head>
   <body>
     <h1>SpeedReader Options</h1>
+
+    <div
+      class="load-error-banner"
+      id="load-error-banner"
+      role="alert"
+      aria-live="assertive"
+    >
+      Couldn't load your saved settings. Editing is disabled to avoid overwriting
+      stored values. Reload the page to retry.
+    </div>
 
     <div class="field">
       <label for="wpm">Words per minute (100–600, step 10)</label>
@@ -122,7 +151,10 @@
       <label for="startFromWordOne">Always start from word one</label>
     </div>
 
-    <div class="saved" id="saved" role="status" aria-live="polite">Saved</div>
+    <div class="toast saved" id="saved" role="status" aria-live="polite">Saved</div>
+    <div class="toast error" id="save-error" role="alert" aria-live="assertive">
+      Save failed. Your last change was not stored.
+    </div>
 
     <script type="module" src="./index.ts"></script>
   </body>

@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS } from '../../../core/settings/defaults';
 import type { SettingsV4 } from '../../../core/settings/schema';
 
 const HTML = `
+  <div id="load-error-banner"></div>
   <input type="number" id="${FIELD_IDS.wpm}" />
   <select id="${FIELD_IDS.theme}">
     <option value="system"></option>
@@ -25,6 +26,7 @@ const HTML = `
   <input type="checkbox" id="${FIELD_IDS.contextLine}" />
   <input type="checkbox" id="${FIELD_IDS.startFromWordOne}" />
   <div id="saved"></div>
+  <div id="save-error"></div>
 `;
 
 interface Stub extends SettingsApi {
@@ -69,160 +71,339 @@ function fire(el: HTMLElement, type: string): void {
   el.dispatchEvent(new Event(type, { bubbles: true }));
 }
 
+function setVisibility(state: 'visible' | 'hidden'): void {
+  Object.defineProperty(document, 'visibilityState', {
+    value: state,
+    configurable: true,
+  });
+}
+
 describe('options controller', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     setBody(HTML);
+    setVisibility('visible');
   });
   afterEach(() => {
     vi.useRealTimers();
     document.body.innerHTML = '';
   });
 
-  it('populates every editable field from loaded settings', async () => {
-    const stub = makeStub({
-      ...DEFAULT_SETTINGS,
-      wpm: 350,
-      theme: 'nord',
-      font: 'Georgia',
-      fontSize: 22,
-      openDyslexic: true,
-      punctuationPacing: false,
-      alignment: 'center',
-      contextLine: true,
-      startFromWordOne: true,
+  describe('populate', () => {
+    it('populates every editable field from loaded settings', async () => {
+      const stub = makeStub({
+        ...DEFAULT_SETTINGS,
+        wpm: 350,
+        theme: 'nord',
+        font: 'Georgia',
+        fontSize: 22,
+        openDyslexic: true,
+        punctuationPacing: false,
+        alignment: 'center',
+        contextLine: true,
+        startFromWordOne: true,
+      });
+      await bindOptionsForm(document, window, stub);
+
+      expect((document.getElementById(FIELD_IDS.wpm) as HTMLInputElement).value).toBe('350');
+      expect((document.getElementById(FIELD_IDS.theme) as HTMLSelectElement).value).toBe('nord');
+      expect((document.getElementById(FIELD_IDS.font) as HTMLInputElement).value).toBe('Georgia');
+      expect((document.getElementById(FIELD_IDS.fontSize) as HTMLInputElement).value).toBe('22');
+      expect((document.getElementById(FIELD_IDS.alignment) as HTMLSelectElement).value).toBe(
+        'center',
+      );
+      expect((document.getElementById(FIELD_IDS.openDyslexic) as HTMLInputElement).checked).toBe(
+        true,
+      );
+      expect(
+        (document.getElementById(FIELD_IDS.punctuationPacing) as HTMLInputElement).checked,
+      ).toBe(false);
+      expect((document.getElementById(FIELD_IDS.contextLine) as HTMLInputElement).checked).toBe(
+        true,
+      );
+      expect(
+        (document.getElementById(FIELD_IDS.startFromWordOne) as HTMLInputElement).checked,
+      ).toBe(true);
     });
-    await bindOptionsForm(document, window, stub);
-
-    expect((document.getElementById(FIELD_IDS.wpm) as HTMLInputElement).value).toBe('350');
-    expect((document.getElementById(FIELD_IDS.theme) as HTMLSelectElement).value).toBe('nord');
-    expect((document.getElementById(FIELD_IDS.font) as HTMLInputElement).value).toBe('Georgia');
-    expect((document.getElementById(FIELD_IDS.fontSize) as HTMLInputElement).value).toBe('22');
-    expect((document.getElementById(FIELD_IDS.alignment) as HTMLSelectElement).value).toBe(
-      'center',
-    );
-    expect((document.getElementById(FIELD_IDS.openDyslexic) as HTMLInputElement).checked).toBe(
-      true,
-    );
-    expect((document.getElementById(FIELD_IDS.punctuationPacing) as HTMLInputElement).checked).toBe(
-      false,
-    );
-    expect((document.getElementById(FIELD_IDS.contextLine) as HTMLInputElement).checked).toBe(true);
-    expect((document.getElementById(FIELD_IDS.startFromWordOne) as HTMLInputElement).checked).toBe(
-      true,
-    );
   });
 
-  it('falls back to defaults when load rejects', async () => {
-    const stub = makeStub();
-    stub.loadMock.mockRejectedValueOnce(new Error('boom'));
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    await bindOptionsForm(document, window, stub);
-    expect((document.getElementById(FIELD_IDS.wpm) as HTMLInputElement).value).toBe(
-      String(DEFAULT_SETTINGS.wpm),
-    );
-    expect(warn).toHaveBeenCalled();
-    warn.mockRestore();
-  });
+  describe('load failure (degraded mode)', () => {
+    it('shows load-error banner and suppresses save when load rejects', async () => {
+      const stub = makeStub();
+      stub.loadMock.mockRejectedValueOnce(new Error('quota'));
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      await bindOptionsForm(document, window, stub);
 
-  it('saves partial update on number change', async () => {
-    const stub = makeStub();
-    await bindOptionsForm(document, window, stub);
-    const wpm = document.getElementById(FIELD_IDS.wpm) as HTMLInputElement;
-    wpm.value = '400';
-    fire(wpm, 'change');
-    // Save call is sync-dispatched; resolution is microtask.
-    await Promise.resolve();
-    expect(stub.saveMock).toHaveBeenCalledWith({ wpm: 400 });
-  });
+      expect(document.getElementById('load-error-banner')?.classList.contains('visible')).toBe(
+        true,
+      );
+      // Defaults shown for orientation.
+      expect((document.getElementById(FIELD_IDS.wpm) as HTMLInputElement).value).toBe(
+        String(DEFAULT_SETTINGS.wpm),
+      );
 
-  it('saves partial update on checkbox toggle', async () => {
-    const stub = makeStub();
-    await bindOptionsForm(document, window, stub);
-    const cb = document.getElementById(FIELD_IDS.openDyslexic) as HTMLInputElement;
-    cb.checked = true;
-    fire(cb, 'change');
-    await Promise.resolve();
-    expect(stub.saveMock).toHaveBeenCalledWith({ openDyslexic: true });
-  });
-
-  it('saves partial update on select change', async () => {
-    const stub = makeStub();
-    await bindOptionsForm(document, window, stub);
-    const theme = document.getElementById(FIELD_IDS.theme) as HTMLSelectElement;
-    theme.value = 'sepia';
-    fire(theme, 'change');
-    await Promise.resolve();
-    expect(stub.saveMock).toHaveBeenCalledWith({ theme: 'sepia' });
-  });
-
-  it('does NOT save when number input is NaN', async () => {
-    const stub = makeStub();
-    await bindOptionsForm(document, window, stub);
-    const wpm = document.getElementById(FIELD_IDS.wpm) as HTMLInputElement;
-    wpm.value = '';
-    fire(wpm, 'change');
-    await Promise.resolve();
-    expect(stub.saveMock).not.toHaveBeenCalled();
-  });
-
-  it('repopulates from subscribe callback on external change', async () => {
-    const stub = makeStub();
-    await bindOptionsForm(document, window, stub);
-    stub.emit({ ...DEFAULT_SETTINGS, wpm: 500, theme: 'dark' });
-    expect((document.getElementById(FIELD_IDS.wpm) as HTMLInputElement).value).toBe('500');
-    expect((document.getElementById(FIELD_IDS.theme) as HTMLSelectElement).value).toBe('dark');
-  });
-
-  it('flushes pending saves when document becomes hidden', async () => {
-    const stub = makeStub();
-    await bindOptionsForm(document, window, stub);
-    Object.defineProperty(document, 'visibilityState', {
-      value: 'hidden',
-      configurable: true,
+      const wpm = document.getElementById(FIELD_IDS.wpm) as HTMLInputElement;
+      wpm.value = '420';
+      fire(wpm, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).not.toHaveBeenCalled();
+      expect(err).toHaveBeenCalled();
+      err.mockRestore();
     });
-    document.dispatchEvent(new Event('visibilitychange'));
-    expect(stub.flushMock).toHaveBeenCalledTimes(1);
   });
 
-  it('does NOT flush when document is still visible', async () => {
-    const stub = makeStub();
-    await bindOptionsForm(document, window, stub);
-    Object.defineProperty(document, 'visibilityState', {
-      value: 'visible',
-      configurable: true,
+  describe('save (per-field)', () => {
+    it('saves wpm on valid in-range step-aligned change', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      const wpm = document.getElementById(FIELD_IDS.wpm) as HTMLInputElement;
+      wpm.value = '400';
+      fire(wpm, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).toHaveBeenCalledWith({ wpm: 400 });
     });
-    document.dispatchEvent(new Event('visibilitychange'));
-    expect(stub.flushMock).not.toHaveBeenCalled();
+
+    it('saves checkbox toggle', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      const cb = document.getElementById(FIELD_IDS.openDyslexic) as HTMLInputElement;
+      cb.checked = true;
+      fire(cb, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).toHaveBeenCalledWith({ openDyslexic: true });
+    });
+
+    it('saves theme select change', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      const theme = document.getElementById(FIELD_IDS.theme) as HTMLSelectElement;
+      theme.value = 'sepia';
+      fire(theme, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).toHaveBeenCalledWith({ theme: 'sepia' });
+    });
+
+    it('saves alignment select change', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      const align = document.getElementById(FIELD_IDS.alignment) as HTMLSelectElement;
+      align.value = 'center';
+      fire(align, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).toHaveBeenCalledWith({ alignment: 'center' });
+    });
+
+    it('saves font text change', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      const font = document.getElementById(FIELD_IDS.font) as HTMLInputElement;
+      font.value = 'Georgia';
+      fire(font, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).toHaveBeenCalledWith({ font: 'Georgia' });
+    });
   });
 
-  it('shows the saved indicator briefly after save resolves', async () => {
-    const stub = makeStub();
-    await bindOptionsForm(document, window, stub);
-    const wpm = document.getElementById(FIELD_IDS.wpm) as HTMLInputElement;
-    wpm.value = '300';
-    fire(wpm, 'change');
-    // Await the save mock's returned promise + one extra microtask turn so the
-    // `.then(() => showSaved)` chain runs before assertions.
-    const saveResult = stub.saveMock.mock.results[0]?.value as Promise<void>;
-    await saveResult;
-    await Promise.resolve();
-    expect(document.getElementById('saved')?.classList.contains('visible')).toBe(true);
-    vi.advanceTimersByTime(1600);
-    expect(document.getElementById('saved')?.classList.contains('visible')).toBe(false);
+  describe('input validation (reject on invalid)', () => {
+    it.each([
+      ['empty string', ''],
+      ['non-numeric', 'abc'],
+      ['below min', '50'],
+      ['above max', '999'],
+      ['not step-aligned', '425'],
+      ['non-integer', '250.5'],
+    ])('rejects wpm: %s', async (_, raw) => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      const wpm = document.getElementById(FIELD_IDS.wpm) as HTMLInputElement;
+      wpm.value = raw;
+      fire(wpm, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['below min', '8'],
+      ['above max', '99'],
+      ['non-integer', '14.5'],
+      ['empty', ''],
+    ])('rejects fontSize: %s', async (_, raw) => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      const fs = document.getElementById(FIELD_IDS.fontSize) as HTMLInputElement;
+      fs.value = raw;
+      fire(fs, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects theme value outside the V4 enum', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      const theme = document.getElementById(FIELD_IDS.theme) as HTMLSelectElement;
+      // Inject an option to simulate HTML drift; controller must reject.
+      const option = document.createElement('option');
+      option.value = 'rainbow';
+      theme.appendChild(option);
+      theme.value = 'rainbow';
+      fire(theme, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects alignment value outside the V4 enum', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      const align = document.getElementById(FIELD_IDS.alignment) as HTMLSelectElement;
+      const option = document.createElement('option');
+      option.value = 'left';
+      align.appendChild(option);
+      align.value = 'left';
+      fire(align, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects empty font (avoids accidental clobber)', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      const font = document.getElementById(FIELD_IDS.font) as HTMLInputElement;
+      font.value = '   ';
+      fire(font, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).not.toHaveBeenCalled();
+    });
   });
 
-  it('teardown removes change listeners and unsubscribes', async () => {
-    const stub = makeStub();
-    const teardown = await bindOptionsForm(document, window, stub);
-    teardown();
-    const wpm = document.getElementById(FIELD_IDS.wpm) as HTMLInputElement;
-    wpm.value = '450';
-    fire(wpm, 'change');
-    await Promise.resolve();
-    expect(stub.saveMock).not.toHaveBeenCalled();
-    // Emitting a subscribe update after teardown must be a no-op (listener cleared).
-    stub.emit({ ...DEFAULT_SETTINGS, wpm: 600 });
-    expect((document.getElementById(FIELD_IDS.wpm) as HTMLInputElement).value).toBe('450');
+  describe('save failure UX', () => {
+    it('flashes the save-error indicator when save rejects', async () => {
+      const stub = makeStub();
+      stub.saveMock.mockRejectedValueOnce(new Error('quota'));
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      await bindOptionsForm(document, window, stub);
+      const wpm = document.getElementById(FIELD_IDS.wpm) as HTMLInputElement;
+      wpm.value = '300';
+      fire(wpm, 'change');
+      const saveResult = stub.saveMock.mock.results[0]?.value as Promise<unknown>;
+      await saveResult.catch(() => undefined);
+      await Promise.resolve();
+      expect(document.getElementById('save-error')?.classList.contains('visible')).toBe(true);
+      expect(document.getElementById('saved')?.classList.contains('visible')).toBe(false);
+      expect(err).toHaveBeenCalled();
+      err.mockRestore();
+    });
+
+    it('flashes the saved indicator and clears it after the timeout', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      const wpm = document.getElementById(FIELD_IDS.wpm) as HTMLInputElement;
+      wpm.value = '300';
+      fire(wpm, 'change');
+      const saveResult = stub.saveMock.mock.results[0]?.value as Promise<void>;
+      await saveResult;
+      await Promise.resolve();
+      expect(document.getElementById('saved')?.classList.contains('visible')).toBe(true);
+      vi.advanceTimersByTime(1600);
+      expect(document.getElementById('saved')?.classList.contains('visible')).toBe(false);
+    });
+  });
+
+  describe('subscribe', () => {
+    it('repopulates from subscribe callback on external change', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      stub.emit({ ...DEFAULT_SETTINGS, wpm: 500, theme: 'dark' });
+      expect((document.getElementById(FIELD_IDS.wpm) as HTMLInputElement).value).toBe('500');
+      expect((document.getElementById(FIELD_IDS.theme) as HTMLSelectElement).value).toBe('dark');
+    });
+  });
+
+  describe('flush triggers', () => {
+    it('flushes when document becomes hidden', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(stub.flushMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT flush on visibilitychange when still visible', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      setVisibility('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(stub.flushMock).not.toHaveBeenCalled();
+    });
+
+    it('flushes on pagehide regardless of visibility', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      window.dispatchEvent(new Event('pagehide'));
+      expect(stub.flushMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('logs an error when flush rejects on visibility-hidden', async () => {
+      const stub = makeStub();
+      stub.flushMock.mockRejectedValueOnce(new Error('quota'));
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      await bindOptionsForm(document, window, stub);
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(err).toHaveBeenCalled();
+      err.mockRestore();
+    });
+
+    it('logs an error when flush rejects on pagehide', async () => {
+      const stub = makeStub();
+      stub.flushMock.mockRejectedValueOnce(new Error('quota'));
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      await bindOptionsForm(document, window, stub);
+      window.dispatchEvent(new Event('pagehide'));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(err).toHaveBeenCalled();
+      err.mockRestore();
+    });
+  });
+
+  describe('HTML drift surfacing', () => {
+    it('console-errors when a FIELD_IDS element is missing from the DOM', async () => {
+      // Remove the wpm input to simulate HTML drift.
+      document.getElementById(FIELD_IDS.wpm)?.remove();
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      expect(err).toHaveBeenCalledWith(
+        expect.stringContaining('HTML missing field elements'),
+        expect.arrayContaining(['wpm']),
+      );
+      err.mockRestore();
+    });
+  });
+
+  describe('teardown', () => {
+    it('removes listeners and unsubscribes', async () => {
+      const stub = makeStub();
+      const teardown = await bindOptionsForm(document, window, stub);
+      teardown();
+
+      const wpm = document.getElementById(FIELD_IDS.wpm) as HTMLInputElement;
+      wpm.value = '450';
+      fire(wpm, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).not.toHaveBeenCalled();
+
+      stub.emit({ ...DEFAULT_SETTINGS, wpm: 600 });
+      expect((document.getElementById(FIELD_IDS.wpm) as HTMLInputElement).value).toBe('450');
+
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(stub.flushMock).not.toHaveBeenCalled();
+
+      window.dispatchEvent(new Event('pagehide'));
+      expect(stub.flushMock).not.toHaveBeenCalled();
+    });
   });
 });

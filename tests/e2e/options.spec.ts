@@ -71,7 +71,9 @@ test('options page persists WPM + theme across reload', async () => {
   await page.locator('#wpm').dispatchEvent('change');
   await page.locator('#theme').selectOption('nord');
 
-  // Visibility-hidden flushes the 300ms debounce window deterministically.
+  // Visibility-hidden triggers `flushSettings()`, which cancels the 300ms
+  // debounce timer and forces an immediate `chrome.storage.sync.set()` —
+  // bypasses the debounce window rather than waiting it out.
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', {
       value: 'hidden',
