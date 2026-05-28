@@ -62,6 +62,18 @@ export interface RsvpEngine {
    */
   seekTo(index: number, options?: { snapToSentence?: boolean }): void;
   /**
+   * Replace the engine's word stream in place. Resets `nextIndex` to 0 and
+   * transitions to `idle` regardless of prior state. Emits no events — the
+   * next `start()` or `seekTo()` is responsible for the first emission on
+   * the new stream. Any pending scheduled tick is cleared. Validates the
+   * argument via the same boundary check used at construction.
+   *
+   * Use case: scope-swap in the scoped mini-modal — selection tokens swap
+   * out for full-article tokens without recreating the engine instance, so
+   * existing subscribers remain wired.
+   */
+  setWords(words: string[]): void;
+  /**
    * Snapshot of word-stream progress at the current call site. Live getter —
    * each call reflects the engine's current state.
    */
@@ -131,7 +143,7 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
   assertValidWpm(options.wpm);
   assertValidWords(options.words);
 
-  const words = options.words.slice();
+  let words = options.words.slice();
   let wpm = options.wpm;
   let state: RsvpState = RSVP_STATE.IDLE;
   let nextIndex = 0;
@@ -218,6 +230,13 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
         clearPending();
         scheduleNext();
       }
+    },
+    setWords(next: string[]): void {
+      assertValidWords(next);
+      clearPending();
+      words = next.slice();
+      nextIndex = 0;
+      state = RSVP_STATE.IDLE;
     },
     subscribe(listener: RsvpListener): () => void {
       listeners.add(listener);
