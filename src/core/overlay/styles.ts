@@ -89,6 +89,31 @@ export const OVERLAY_CSS = `
   cursor: not-allowed;
 }
 
+.scope-header {
+  margin: 0;
+  padding-inline-end: 56px; /* leave room for top-right close button */
+  font-size: clamp(0.95rem, 1.6cqi + 0.5rem, 1.25rem);
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+}
+
+.scope-swap-btn {
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 2px solid var(--text, #111111);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text, #111111);
+  font: 600 14px / 1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.scope-swap-btn:focus-visible {
+  outline: 3px solid var(--accent, #2563eb);
+  outline-offset: 2px;
+}
+
 .word-region {
   text-align: center;
   font-size: clamp(2rem, 5.5cqi + 1rem, 5.5rem);
@@ -132,6 +157,13 @@ export const OVERLAY_CSS = `
     border-color: ButtonText;
   }
   .play-pause-btn:focus-visible { outline-color: Highlight; }
+  .scope-header { color: CanvasText; }
+  .scope-swap-btn {
+    background: ButtonFace;
+    color: ButtonText;
+    border-color: ButtonText;
+  }
+  .scope-swap-btn:focus-visible { outline-color: Highlight; }
 }
 
 @media (prefers-reduced-motion: reduce) {

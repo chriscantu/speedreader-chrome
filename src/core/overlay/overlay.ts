@@ -1,10 +1,52 @@
 import { applyTheme } from '../theme';
 import type { ThemeId } from '../theme';
 import { OVERLAY_CSS } from './styles';
-import type { OverlayHandle, OverlayOptions, OverlayStatus } from './types';
+import type { OverlayHandle, OverlayOptions, OverlayScope, OverlayStatus } from './types';
 import type { RsvpEngine } from '../rsvp-engine';
 import { renderWord } from './word';
 import { installFocusTrap } from './focus-trap';
+
+/**
+ * Snapshot of the scope-aware view at mount time. The CS pre-tokenizes both
+ * selection and full streams, so building the header text and choosing the
+ * active engine words is purely local.
+ */
+interface ScopeView {
+  /** Resolved scope: 'selection' or 'full'. */
+  readonly scope: OverlayScope;
+  /** Engine word stream chosen by the resolved scope. */
+  readonly activeWords: string[];
+  /** Text rendered inside the scoped header h2. */
+  readonly headerText: string;
+  /** True when the `← Full article` scope-swap button should be rendered. */
+  readonly showSwapBtn: boolean;
+}
+
+function buildScopeView(opts: OverlayOptions): ScopeView | null {
+  if (!opts.scope) return null;
+
+  const wpm = opts.initialSettings.wpm;
+  const selectionWords = opts.selectionWords ?? [];
+  const fullWords = opts.fullWords ?? [];
+  const formatSec = (n: number): number => Math.round((n * 60) / wpm);
+
+  if (opts.scope === 'selection' && selectionWords.length > 0) {
+    return {
+      scope: 'selection',
+      activeWords: selectionWords,
+      headerText: `SELECTION · ${selectionWords.length} words · ~${formatSec(selectionWords.length)} sec`,
+      showSwapBtn: true,
+    };
+  }
+
+  const title = opts.articleTitle?.trim();
+  return {
+    scope: 'full',
+    activeWords: fullWords,
+    headerText: title && title.length > 0 ? title : `Whole page — ${fullWords.length} words`,
+    showSwapBtn: false,
+  };
+}
 
 /**
  * Resolve the 'system' sentinel to a concrete ThemeId using
@@ -31,11 +73,16 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
   let onKeydown: ((e: KeyboardEvent) => void) | null = null;
   let priorOverflow: string | null = null;
 
-  function buildShadowTree(shadow: ShadowRoot): {
+  function buildShadowTree(
+    shadow: ShadowRoot,
+    scopeView: ScopeView | null,
+  ): {
     modal: HTMLElement;
+    header: HTMLElement;
     word: HTMLElement;
     closeBtn: HTMLButtonElement;
     playPauseBtn: HTMLButtonElement;
+    swapBtn: HTMLButtonElement | null;
     ariaLive: HTMLElement;
   } {
     const doc = opts.doc;
@@ -59,7 +106,12 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     modal.className = 'modal';
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
-    modal.setAttribute('aria-label', 'SpeedReader');
+    modal.setAttribute('aria-labelledby', 'sr-scope-header');
+
+    const header = doc.createElement('h2');
+    header.id = 'sr-scope-header';
+    header.className = 'scope-header';
+    header.textContent = scopeView?.headerText ?? 'SpeedReader';
 
     const topSentinel = doc.createElement('div');
     topSentinel.className = 'trap-sentinel';
@@ -82,6 +134,16 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     const footer = doc.createElement('div');
     footer.className = 'footer';
 
+    let swapBtn: HTMLButtonElement | null = null;
+    if (scopeView?.showSwapBtn) {
+      swapBtn = doc.createElement('button');
+      swapBtn.className = 'scope-swap-btn';
+      swapBtn.type = 'button';
+      swapBtn.textContent = '← Full article';
+      swapBtn.setAttribute('aria-label', 'Switch to full article');
+      footer.appendChild(swapBtn);
+    }
+
     const playPauseBtn = doc.createElement('button');
     playPauseBtn.className = 'play-pause-btn';
     playPauseBtn.type = 'button';
@@ -91,11 +153,11 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     bottomSentinel.className = 'trap-sentinel';
     bottomSentinel.tabIndex = 0;
 
-    modal.append(topSentinel, closeBtn, word, ariaLive, footer, bottomSentinel);
+    modal.append(topSentinel, closeBtn, header, word, ariaLive, footer, bottomSentinel);
     backdrop.appendChild(modal);
     shadow.appendChild(backdrop);
 
-    return { modal, word, closeBtn, playPauseBtn, ariaLive };
+    return { modal, header, word, closeBtn, playPauseBtn, swapBtn, ariaLive };
   }
 
   function mount(): void {
@@ -122,8 +184,9 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     if (!view) {
       throw new Error('createOverlay.mount: doc.defaultView is null (document is detached)');
     }
+    const scopeView = buildScopeView(opts);
     const shadow = host.attachShadow({ mode: 'open' });
-    const { modal, word, closeBtn, playPauseBtn, ariaLive } = buildShadowTree(shadow);
+    const { modal, word, closeBtn, playPauseBtn, ariaLive } = buildShadowTree(shadow, scopeView);
     const resolvedTheme = resolveTheme(opts.initialSettings.theme, view);
     applyTheme(resolvedTheme, modal);
 
@@ -133,7 +196,8 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       // wpm change handling lands with #33/#118; MVP applies theme only.
     });
 
-    engine = opts.engineFactory({ words: opts.words, wpm: opts.initialSettings.wpm });
+    const engineWords = scopeView ? scopeView.activeWords : opts.words;
+    engine = opts.engineFactory({ words: engineWords, wpm: opts.initialSettings.wpm });
 
     const reflectEngineState = (): void => {
       const s = engine?.state ?? 'idle';
