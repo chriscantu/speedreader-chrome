@@ -1,16 +1,17 @@
 /**
- * SpeedReader — Options Page Script
+ * SpeedReader — Options Page Entry
  *
- * Entry point for the options page.  Handles saving/loading user preferences
- * via chrome.storage.sync.
+ * Thin DOM bind. All logic lives in `controller.ts` so it can be unit-tested
+ * against a stub SettingsApi.
  */
-
-// TODO(#5): Implement options logic
-// - Load saved settings on page load
-// - Save settings when user clicks "Save"
-// - Persist: wpm, fontSize, theme, fontFamily
+import { bindOptionsForm } from './controller';
+import { loadSettings, saveSettings, flushSettings, subscribeSettings } from '../settings/storage';
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Stub: load settings from storage
-  console.log('[SpeedReader] Options page loaded');
+  void bindOptionsForm(document, window, {
+    load: loadSettings,
+    save: saveSettings,
+    flush: flushSettings,
+    subscribe: subscribeSettings,
+  });
 });

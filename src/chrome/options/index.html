@@ -1,80 +1,161 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SpeedReader Options</title>
-  <style>
-    body {
-      width: 600px;
-      padding: 24px;
-      font-family: system-ui, -apple-system, sans-serif;
-      margin: 0;
-    }
-    h1 {
-      font-size: 20px;
-      margin: 0 0 16px 0;
-    }
-    .field {
-      margin-bottom: 16px;
-    }
-    label {
-      display: block;
-      font-size: 13px;
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-    input, select {
-      font-size: 14px;
-      padding: 6px 8px;
-      width: 100%;
-      box-sizing: border-box;
-    }
-    .saved {
-      font-size: 12px;
-      color: #2a9d3a;
-      margin-top: 8px;
-      display: none;
-    }
-  </style>
-</head>
-<body>
-  <h1>SpeedReader Options</h1>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SpeedReader Options</title>
+    <style>
+      body {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 24px;
+        font-family: system-ui, -apple-system, sans-serif;
+        color-scheme: light dark;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 24px 0;
+      }
+      .field {
+        margin-bottom: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .field.inline {
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+      }
+      label {
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .field.inline label {
+        font-weight: 400;
+      }
+      input[type='number'],
+      input[type='text'],
+      select {
+        font-size: 14px;
+        padding: 6px 8px;
+      }
+      .toast {
+        position: fixed;
+        bottom: 16px;
+        right: 16px;
+        color: white;
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 13px;
+        opacity: 0;
+        transition: opacity 200ms ease;
+        pointer-events: none;
+      }
+      .toast.visible {
+        opacity: 1;
+      }
+      .toast.saved {
+        background: #2a9d3a;
+      }
+      .toast.error {
+        background: #c0392b;
+        bottom: 56px;
+      }
+      .load-error-banner {
+        display: none;
+        background: #c0392b;
+        color: white;
+        padding: 10px 14px;
+        border-radius: 4px;
+        margin-bottom: 16px;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      .load-error-banner.visible {
+        display: block;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .toast {
+          transition: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>SpeedReader Options</h1>
 
-  <div class="field">
-    <label for="wpm">Words per minute</label>
-    <input type="number" id="wpm" min="60" max="1500" value="300" />
-  </div>
+    <div
+      class="load-error-banner"
+      id="load-error-banner"
+      role="alert"
+      aria-live="assertive"
+    >
+      Couldn't load your saved settings. Editing is disabled to avoid overwriting
+      stored values. Reload the page to retry.
+    </div>
 
-  <div class="field">
-    <label for="fontSize">Font size</label>
-    <select id="fontSize">
-      <option value="12">Small</option>
-      <option value="16" selected>Medium</option>
-      <option value="20">Large</option>
-      <option value="24">X-Large</option>
-    </select>
-  </div>
+    <div class="field">
+      <label for="wpm">Words per minute (100–600, step 10)</label>
+      <input type="number" id="wpm" min="100" max="600" step="10" />
+    </div>
 
-  <div class="field">
-    <label for="theme">Theme</label>
-    <select id="theme">
-      <option value="light">Light</option>
-      <option value="dark">Dark</option>
-      <option value="sepia">Sepia</option>
-    </select>
-  </div>
+    <div class="field">
+      <label for="theme">Theme</label>
+      <select id="theme">
+        <option value="system">System</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+        <option value="sepia">Sepia</option>
+        <option value="paper">Paper</option>
+        <option value="cream">Cream</option>
+        <option value="nord">Nord</option>
+      </select>
+    </div>
 
-  <div class="field">
-    <label for="fontFamily">Font</label>
-    <select id="fontFamily">
-      <option value="system">System Default</option>
-      <option value="open-dyslexic">OpenDyslexic</option>
-    </select>
-  </div>
+    <div class="field">
+      <label for="font">Font family</label>
+      <input type="text" id="font" />
+    </div>
 
-  <div class="saved" id="saved">Settings saved!</div>
+    <div class="field">
+      <label for="fontSize">Font size (12–48 px)</label>
+      <input type="number" id="fontSize" min="12" max="48" step="1" />
+    </div>
 
-  <script type="module" src="./index.ts"></script>
-</body>
+    <div class="field">
+      <label for="alignment">Word alignment</label>
+      <select id="alignment">
+        <option value="orp">Optimal Recognition Point</option>
+        <option value="center">Centered</option>
+      </select>
+    </div>
+
+    <div class="field inline">
+      <input type="checkbox" id="openDyslexic" />
+      <label for="openDyslexic">Use OpenDyslexic font</label>
+    </div>
+
+    <div class="field inline">
+      <input type="checkbox" id="punctuationPacing" />
+      <label for="punctuationPacing">Slow down at punctuation</label>
+    </div>
+
+    <div class="field inline">
+      <input type="checkbox" id="contextLine" />
+      <label for="contextLine">Show line of context around current word</label>
+    </div>
+
+    <div class="field inline">
+      <input type="checkbox" id="startFromWordOne" />
+      <label for="startFromWordOne">Always start from word one</label>
+    </div>
+
+    <div class="toast saved" id="saved" role="status" aria-live="polite">Saved</div>
+    <div class="toast error" id="save-error" role="alert" aria-live="assertive">
+      Save failed. Your last change was not stored.
+    </div>
+
+    <script type="module" src="./index.ts"></script>
+  </body>
 </html>
