@@ -2,7 +2,13 @@ import { applyTheme } from '../theme';
 import type { ThemeId } from '../theme';
 import { OVERLAY_CSS } from './styles';
 import { OVERLAY_ATTR, OVERLAY_CLASS, OVERLAY_ID, OVERLAY_TEXT } from './constants';
-import type { OverlayHandle, OverlayOptions, OverlayScope, OverlayStatus } from './types';
+import type {
+  OverlayCloseSnapshot,
+  OverlayHandle,
+  OverlayOptions,
+  OverlayScope,
+  OverlayStatus,
+} from './types';
 import type { RsvpEngine } from '../rsvp-engine';
 import { renderWord } from './word';
 import { installFocusTrap } from './focus-trap';
@@ -92,6 +98,13 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
   let uninstallTrap: (() => void) | null = null;
   let onKeydown: ((e: KeyboardEvent) => void) | null = null;
   let priorOverflow: string | null = null;
+  // Lifted into the outer closure so `unmount()` can build the close
+  // snapshot for `onClose` (#25). Reassigned on scope-swap so the
+  // snapshot reflects the active stream at close time, not the mount
+  // time scope. `null` when the caller used the legacy single-stream
+  // form (no `scope` in OverlayOptions) — snapshot is suppressed in
+  // that case since there's no scope key for the host to map under.
+  let currentScope: OverlayScope | null = null;
 
   function buildShadowTree(
     shadow: ShadowRoot,
@@ -215,6 +228,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       throw new Error('createOverlay.mount: doc.defaultView is null (document is detached)');
     }
     let scopeView = buildScopeView(opts);
+    currentScope = scopeView?.scope ?? null;
     const shadow = host.attachShadow({ mode: 'open' });
     const { modal, header, word, closeBtn, playPauseBtn, swapBtn, ariaLive } = buildShadowTree(
       shadow,
@@ -269,6 +283,24 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         reflectEngineState();
       }
     });
+    // #25 — resume the engine at the saved session position. Idle seekTo
+    // is silent and sets nextIndex; the subsequent `start()` then emits
+    // exactly one word event for words[resume]. Running seekTo AFTER start
+    // (the prior shape) emitted words[0] first, then a replacement for
+    // words[resume] — the subscriber's aria-live wrote twice, which can
+    // cause a screen-reader double-announce on resume. seekTo's own
+    // finite-integer + range guards belt-and-brace the check below; the
+    // conditional is here so we skip the no-op when there's nothing to
+    // restore.
+    const resume = opts.initialIndex;
+    if (
+      typeof resume === 'number' &&
+      Number.isInteger(resume) &&
+      resume > 0 &&
+      resume < engineWords.length
+    ) {
+      engine.seekTo(resume);
+    }
     engine.start();
     if (scopeView?.fallback === 'empty-selection') {
       // Overrides the word[0] textContent that fired via the subscribe
@@ -335,6 +367,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         showSwapBtn: false,
         fallback: null,
       };
+      currentScope = 'full';
       header.textContent = newHeader;
       swapBtn?.remove();
 
@@ -414,8 +447,25 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     uninstallTrap = null;
     if (onKeydown) opts.doc.removeEventListener('keydown', onKeydown, true);
     onKeydown = null;
+    // #25 — capture progress + active scope BEFORE stopping the engine
+    // so the host can build a session-resume snapshot. `engine.stop()`
+    // does not reset `nextIndex`, so reading `progress()` after stop
+    // would still work in practice, but capturing pre-stop keeps the
+    // contract self-evident.
+    let snapshot: OverlayCloseSnapshot | undefined;
+    if (engine && currentScope) {
+      const progress = engine.progress();
+      if (progress.total > 0) {
+        snapshot = {
+          index: progress.index,
+          total: progress.total,
+          scope: currentScope,
+        };
+      }
+    }
     engine?.stop();
     engine = null;
+    currentScope = null;
     unsubscribeSettings?.();
     unsubscribeSettings = null;
     host?.remove();
@@ -425,7 +475,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       priorOverflow = null;
     }
     status = 'unmounted';
-    opts.onClose?.();
+    opts.onClose?.(snapshot);
   }
 
   return {

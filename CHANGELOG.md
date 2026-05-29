@@ -21,6 +21,9 @@ heading and a fresh `[Unreleased]` block is opened above it.
 - Punctuation-aware RSVP pacing (Safari parity) — words ending in `.!?`
   pause 1.5× the base delay, `,;:` pause 1.2×, gated via the existing
   `punctuationPacing` settings flag (#15).
+- Overlay close (Esc + ✕) preserves reading position in memory for the
+  session — reopening on the same document and scope resumes where the
+  user left off. `chrome.storage` persistence remains deferred (#25).
 
 ### Changed
 
