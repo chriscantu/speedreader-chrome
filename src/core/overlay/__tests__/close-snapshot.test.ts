@@ -154,6 +154,47 @@ describe('createOverlay — onClose snapshot (#25)', () => {
     expect(onClose.mock.calls[0][0]).toBeUndefined();
   });
 
+  test('snapshot index matches a concrete tick count (not tautological with progress())', () => {
+    // Regression guard from PR #164 review: prior tests asserted
+    // `snapshot.index === engine.progress().index`, which is circular if
+    // both reads come from the same call site. This test advances a known
+    // tick count and asserts the absolute index, so a future refactor that
+    // captures the wrong value (e.g. `nextIndex - 1`) would fail.
+    const holder: Holder = { engine: null };
+    const onClose = vi.fn();
+    const overlay = createOverlay(defaultOpts(holder, { onClose }));
+    overlay.mount();
+    // First word emits synchronously inside start() → nextIndex moves to 1.
+    // At 600 wpm (100ms/word) three more ticks advance through indices 1,
+    // 2, 3 → nextIndex == 4 after the third tick.
+    vi.advanceTimersByTime(300);
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    const snapshot = onClose.mock.calls[0][0] as OverlayCloseSnapshot | undefined;
+    expect(snapshot?.index).toBe(4);
+    expect(snapshot?.total).toBe(STREAM.length);
+  });
+
+  test('double-close (Esc then ✕) fires onClose exactly once', () => {
+    // Regression guard from PR #164 review: the `status === 'unmounted'`
+    // guard in unmount() makes the second close a no-op, but no test asserted
+    // it. A future refactor that moves the guard could double-fire onClose
+    // and double-record the snapshot in the content script.
+    const holder: Holder = { engine: null };
+    const onClose = vi.fn();
+    const overlay = createOverlay(defaultOpts(holder, { onClose }));
+    overlay.mount();
+    vi.advanceTimersByTime(100);
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    // Second close via direct unmount call (the ✕ button is gone with the
+    // shadow root; this stands in for any second-close path).
+    overlay.unmount();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   test('empty-stream mount reports onClose with undefined snapshot', () => {
     const holder: Holder = { engine: null };
     const onClose = vi.fn();
@@ -179,13 +220,37 @@ describe('createOverlay — initialIndex resume (#25)', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(defaultOpts(holder, { initialIndex: 4 }));
     overlay.mount();
-    // After mount() the engine has emitted words[0] from start() and then
-    // the seekTo(4) replacement word event for words[4]. The word region
-    // reflects the most recent emission.
+    // After mount() the engine has emitted exactly ONE word event for
+    // words[4] — idle-seek-then-start, no flash. Word region shows STREAM[4]
+    // and progress().index advances to 5 from the single tick.
     const wordRegion = getShadow().querySelector('.word-region');
     expect(wordRegion?.textContent).toBe(STREAM[4]);
-    // progress().index advances to 5 after the seekTo emission.
     expect(holder.engine?.progress().index).toBe(5);
+    overlay.unmount();
+  });
+
+  test('initialIndex: N emits exactly one word event on mount (no words[0] flash)', () => {
+    // Regression guard from PR #164 review: the prior shape called
+    // engine.start() FIRST (emits words[0]) then seekTo(N) (emits words[N]).
+    // The subscriber saw two events and wrote aria-live twice. Idle seek
+    // before start collapses to a single emission for words[N].
+    const events: string[] = [];
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(
+      defaultOpts(holder, {
+        initialIndex: 4,
+        engineFactory: (engineOpts: RsvpEngineOptions) => {
+          const engine = createRsvpEngine(engineOpts);
+          holder.engine = engine;
+          engine.subscribe((ev) => {
+            if (ev.type === 'word') events.push(ev.word);
+          });
+          return engine;
+        },
+      }),
+    );
+    overlay.mount();
+    expect(events).toEqual([STREAM[4]]);
     overlay.unmount();
   });
 

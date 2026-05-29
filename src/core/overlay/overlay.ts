@@ -283,13 +283,15 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         reflectEngineState();
       }
     });
-    engine.start();
-    // #25 — resume the engine at the saved session position. Must run
-    // after `start()` so the engine is in a non-idle state (idle seek is
-    // silent and would defer the first emission until the user pressed
-    // Space). seekTo's own finite-integer + range guards belt-and-brace
-    // the check below; the conditional is here so we skip the no-op
-    // emission path entirely when there's nothing to restore.
+    // #25 — resume the engine at the saved session position. Idle seekTo
+    // is silent and sets nextIndex; the subsequent `start()` then emits
+    // exactly one word event for words[resume]. Running seekTo AFTER start
+    // (the prior shape) emitted words[0] first, then a replacement for
+    // words[resume] — the subscriber's aria-live wrote twice, which can
+    // cause a screen-reader double-announce on resume. seekTo's own
+    // finite-integer + range guards belt-and-brace the check below; the
+    // conditional is here so we skip the no-op when there's nothing to
+    // restore.
     const resume = opts.initialIndex;
     if (
       typeof resume === 'number' &&
@@ -299,6 +301,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     ) {
       engine.seekTo(resume);
     }
+    engine.start();
     if (scopeView?.fallback === 'empty-selection') {
       // Overrides the word[0] textContent that fired via the subscribe
       // handler during engine.start(). The polite live-region status fires
