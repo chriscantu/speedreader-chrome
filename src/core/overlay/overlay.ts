@@ -586,13 +586,16 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     engine?.stop();
     engine = null;
     currentScope = null;
-    // #26 — detach the OS theme listener before dropping the settings
-    // subscription so a late matchMedia change cannot race against an
-    // already-torn-down modal.
-    uninstallSystemThemeListener?.();
-    uninstallSystemThemeListener = null;
+    // #26 — drop the settings subscription BEFORE detaching the OS theme
+    // listener. The settings callback can re-install the matchMedia
+    // listener (when `s.theme === 'system'`); if we tore down matchMedia
+    // first, a synchronous settings echo or microtask-drained emission
+    // landing between the two calls would re-attach against a modal we're
+    // about to remove, leaking a closure that pins the shadow root + engine.
     unsubscribeSettings?.();
     unsubscribeSettings = null;
+    uninstallSystemThemeListener?.();
+    uninstallSystemThemeListener = null;
     host?.remove();
     host = null;
     if (priorOverflow !== null) {

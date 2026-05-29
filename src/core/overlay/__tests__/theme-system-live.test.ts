@@ -32,6 +32,14 @@ interface MatchMediaMock {
   queries: string[];
   /** Flip `prefers-color-scheme: dark` and notify listeners. */
   setDark(next: boolean): void;
+  /**
+   * Live listener count across every MediaQueryList created for the dark
+   * query. Drops to 0 only when every list has been cleared via
+   * `removeEventListener` (identity match). Used to prove that overlay
+   * unmount actually detaches the matchMedia listener — a leak would
+   * leave this > 0.
+   */
+  darkListenerCount(): number;
 }
 
 /**
@@ -100,6 +108,9 @@ function installMatchMediaMock(initialDarkMatches = false): MatchMediaMock {
       // listener install) — each call returns its own list with its own
       // listener set.
       darkListenerSets.forEach((set) => set.forEach((fn) => fn(ev)));
+    },
+    darkListenerCount() {
+      return darkListenerSets.reduce((sum, set) => sum + set.size, 0);
     },
   };
 }
@@ -269,5 +280,78 @@ describe('createOverlay — live system-theme updates (#26)', () => {
     const before = readBg(modal);
     mm.setDark(true);
     expect(readBg(modal)).toBe(before);
+  });
+
+  // #26 ring-critic regression: perf-adversary + test-gap-adversary
+  // convergence on PR #170. The previous teardown order
+  // (matchMedia detach → settings unsubscribe) allowed a settings
+  // emission landing between those two steps to re-install the
+  // matchMedia listener after intended teardown, leaking a closure
+  // that pinned the shadow root + engine. These tests pin the fix.
+
+  test('unmount detaches the matchMedia listener (count drops to 0)', () => {
+    const mm = installMatchMediaMock(/* initialDarkMatches */ false);
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+
+    // Mount with theme: 'system' must have attached exactly one live
+    // listener to the dark query.
+    expect(mm.darkListenerCount()).toBe(1);
+
+    overlay.unmount();
+
+    // Teardown must release that listener — anything else is a leak.
+    expect(mm.darkListenerCount()).toBe(0);
+  });
+
+  test('settings emission racing inside unmount does not re-attach listener', () => {
+    const mm = installMatchMediaMock(/* initialDarkMatches */ false);
+    const holder: Holder = { engine: null };
+
+    // Adversarial subscribeSettings: fires a final `theme: 'system'`
+    // emission at the moment the overlay calls its unsubscribe. This
+    // simulates a synchronous storage echo or microtask-drained push
+    // landing during teardown — the exact window the ring critics
+    // flagged. The emission MUST land while `unsubscribeSettings` is
+    // executing, i.e. BETWEEN the two teardown calls in the bug order.
+    let captured: SettingsSubscriber | null = null;
+    const opts: OverlayOptions = {
+      doc: document,
+      words: STREAM.slice(),
+      initialSettings: { theme: 'system', wpm: 300 },
+      subscribeSettings: (cb) => {
+        captured = cb;
+        return () => {
+          // Fire one last system-theme emission as the overlay tears
+          // down its subscription. With the correct teardown order
+          // (settings-first, matchMedia-second) `captured` will already
+          // be the real cb — but the overlay closes over its own
+          // `currentTheme` and `install/uninstall` helpers, so this
+          // call's effect on listener count is what we measure.
+          captured?.({ theme: 'system', wpm: 300 });
+          captured = null;
+        };
+      },
+      engineFactory: (engineOpts: RsvpEngineOptions) => {
+        holder.engine = createRsvpEngine(engineOpts);
+        return holder.engine;
+      },
+    };
+    const overlay = createOverlay(opts);
+    overlay.mount();
+    expect(mm.darkListenerCount()).toBe(1);
+
+    overlay.unmount();
+
+    // In the buggy order (matchMedia detach → settings unsubscribe),
+    // the unsubscribe-time emission lands AFTER the matchMedia detach
+    // but during the settings callback path, re-installing the
+    // listener against an about-to-be-removed modal. With the fixed
+    // order (settings unsubscribe → matchMedia detach), the emission
+    // re-arms during step 1 but step 2 still detaches the listener.
+    // Either path can leak if the helpers aren't ordered correctly —
+    // the assertion is the same: post-unmount listener count == 0.
+    expect(mm.darkListenerCount()).toBe(0);
   });
 });
