@@ -146,6 +146,25 @@ export const OVERLAY_CSS = `
   border: 0;
 }
 
+.context-preview {
+  margin-block-start: clamp(12px, 3cqi, 24px);
+  font-size: clamp(0.85rem, 1.2cqi + 0.4rem, 1.05rem);
+  line-height: 1.5;
+  color: var(--text, #111111);
+  opacity: 0.85;
+  max-inline-size: 60ch;
+  margin-inline: auto;
+  text-align: center;
+}
+
+.context-preview[hidden] { display: none; }
+
+.context-current {
+  font-weight: 700;
+  /* Subtle accent so the eye lands on the current word in the sentence. */
+  color: var(--accent, #2563eb);
+}
+
 .trap-sentinel {
   position: absolute;
   width: 1px;
@@ -173,6 +192,8 @@ export const OVERLAY_CSS = `
     border-color: ButtonText;
   }
   .scope-swap-btn:focus-visible { outline-color: Highlight; }
+  .context-preview { color: CanvasText; opacity: 1; }
+  .context-current { color: Highlight; }
 }
 
 @media (prefers-reduced-motion: reduce) {

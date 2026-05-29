@@ -25,6 +25,8 @@ export const OVERLAY_CLASS = Object.freeze({
   FOOTER: 'footer',
   SCOPE_SWAP_BTN: 'scope-swap-btn',
   PLAY_PAUSE_BTN: 'play-pause-btn',
+  CONTEXT_PREVIEW: 'context-preview',
+  CONTEXT_CURRENT: 'context-current',
 });
 
 /** DOM ids referenced by ARIA relationships (e.g., aria-labelledby). */
@@ -65,6 +67,9 @@ export const OVERLAY_TEXT = Object.freeze({
 
   /** Empty-selection fallback subtitle + polite live-region announcement. */
   EMPTY_SELECTION_FALLBACK: 'No selection detected. Reading full article instead.',
+
+  /** Surrounding-sentence preview region label (#20). */
+  CONTEXT_LABEL: 'Surrounding sentence',
 
   /** Scoped-mode header template: `SELECTION · N words · ~M sec`. */
   scopedHeader(wordCount: number, seconds: number): string {
