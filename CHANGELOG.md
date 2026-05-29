@@ -18,6 +18,9 @@ heading and a fresh `[Unreleased]` block is opened above it.
 - `PRIVACY.md` documenting Chrome Web Store privacy claims (no data
   egress, no analytics, no network, no account, no tracking) — required
   for the initial store submission (#44).
+- Punctuation-aware RSVP pacing (Safari parity) — words ending in `.!?`
+  pause 1.5× the base delay, `,;:` pause 1.2×, gated via the existing
+  `punctuationPacing` settings flag (#15).
 
 ### Changed
 
