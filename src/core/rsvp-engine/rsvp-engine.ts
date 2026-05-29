@@ -362,6 +362,12 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
           tick();
         } else if (state === RSVP_STATE.PAUSED) {
           emit({ type: 'word', index: target, word: words[target] });
+          // Keep `lastEmittedWord` in sync with the just-emitted word so that
+          // a subsequent `resume()` schedules its first tick against the
+          // correct punctuation multiplier — without this, the gap after a
+          // paused-seek onto a sentence-final word silently used the stale
+          // pre-seek word's punctuation.
+          lastEmittedWord = words[target];
           nextIndex = target + 1;
         }
         // idle: silent reposition; first start() will tick from new nextIndex.

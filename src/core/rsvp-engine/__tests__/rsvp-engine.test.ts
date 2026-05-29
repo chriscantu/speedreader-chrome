@@ -305,6 +305,60 @@ describe('createRsvpEngine', () => {
       expect(events).toHaveLength(2);
     });
 
+    it('paused seekTo onto a sentence-final word — resume uses the seeked word\'s multiplier', () => {
+      // Regression guard for the paused-seek lastEmittedWord defect found in
+      // PR #163 review: the PAUSED branch of seekTo emits the new word but,
+      // before the fix, did NOT update lastEmittedWord. resume() then
+      // scheduled its first tick against the stale pre-seek word, so a
+      // paused-seek onto "Hello." resumed at 1.0× instead of 1.5×.
+      const words = ['cat', 'dog', 'Hello.', 'world'];
+      const wpm = 300;
+      const msPerWord = 60000 / wpm; // 200
+      const engine = createRsvpEngine({ words, wpm, punctuationPacing: true });
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start(); // emits 'cat'
+      engine.pause();
+      engine.seekTo(2); // jumps to 'Hello.', emits it (paused-branch)
+      // events so far: ['cat', 'Hello.']
+      expect(events).toHaveLength(2);
+      expect(events[1]).toEqual({ type: 'word', index: 2, word: 'Hello.' });
+
+      engine.resume();
+      // Gap before 'world' MUST be 1.5× msPerWord = 300ms, not the stale 'cat' 1.0×.
+      vi.advanceTimersByTime(msPerWord); // 200ms
+      expect(events).toHaveLength(2);
+      vi.advanceTimersByTime(msPerWord * 0.5 - 1); // 299ms
+      expect(events).toHaveLength(2);
+      vi.advanceTimersByTime(1); // 300ms
+      expect(events).toHaveLength(3);
+      expect(events[2]).toEqual({ type: 'word', index: 3, word: 'world' });
+    });
+
+    it('setWords clears stale punctuation state — first tick on new stream uses default multiplier', () => {
+      // Regression guard from PR #163 review: setWords resets lastEmittedWord
+      // to null. Otherwise a stream swap whose prior last-emit was "Hello."
+      // would silently apply 1.5× to the first gap of the new stream.
+      const wpm = 300;
+      const msPerWord = 60000 / wpm; // 200
+      const engine = createRsvpEngine({ words: ['Hello.'], wpm, punctuationPacing: true });
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start(); // emits 'Hello.', lastEmittedWord = 'Hello.'
+
+      engine.setWords(['plain', 'next']); // resets lastEmittedWord to null
+      events.length = 0;
+      engine.start(); // emits 'plain'
+      expect(events).toHaveLength(1);
+
+      // Gap before 'next' must be 1.0× (200ms), not 1.5× (300ms).
+      vi.advanceTimersByTime(msPerWord - 1);
+      expect(events).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      expect(events).toHaveLength(2);
+      expect(events[1]).toEqual({ type: 'word', index: 1, word: 'next' });
+    });
+
     it('pause/resume cycles compose into a togglePlayPause equivalent', () => {
       // Equivalent Safari cases: `togglePlayPause` (plays when paused, pauses
       // when playing). Chrome composes `pause()` / `resume()` against the
