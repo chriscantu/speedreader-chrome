@@ -305,7 +305,7 @@ describe('createRsvpEngine', () => {
       expect(events).toHaveLength(2);
     });
 
-    it('paused seekTo onto a sentence-final word — resume uses the seeked word\'s multiplier', () => {
+    it("paused seekTo onto a sentence-final word — resume uses the seeked word's multiplier", () => {
       // Regression guard for the paused-seek lastEmittedWord defect found in
       // PR #163 review: the PAUSED branch of seekTo emits the new word but,
       // before the fix, did NOT update lastEmittedWord. resume() then
