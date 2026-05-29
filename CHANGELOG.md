@@ -15,6 +15,12 @@ heading and a fresh `[Unreleased]` block is opened above it.
 ### Added
 
 - `CHANGELOG.md` seeded with keep-a-changelog scaffolding (#42).
+- `PRIVACY.md` documenting Chrome Web Store privacy claims (no data
+  egress, no analytics, no network, no account, no tracking) — required
+  for the initial store submission (#44).
+- Punctuation-aware RSVP pacing (Safari parity) — words ending in `.!?`
+  pause 1.5× the base delay, `,;:` pause 1.2×, gated via the existing
+  `punctuationPacing` settings flag (#15).
 - Overlay close (Esc + ✕) preserves reading position in memory for the
   session — reopening on the same document and scope resumes where the
   user left off. `chrome.storage` persistence remains deferred (#25).
