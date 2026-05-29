@@ -99,7 +99,7 @@ function defaultOpts(overrides: Partial<OverlayOptions> = {}): OverlayOptions {
   return {
     doc: document,
     words: ['the', 'quick', 'brown', 'fox.', 'jumped', 'over.', 'the', 'lazy', 'dog.'],
-    initialSettings: { theme: 'system', wpm: 300 },
+    initialSettings: { theme: 'system', wpm: 300, fontSize: 20 },
     subscribeSettings: () => () => undefined,
     engineFactory: createRsvpEngine,
     ...overrides,

@@ -25,6 +25,8 @@ export const OVERLAY_CLASS = Object.freeze({
   FOOTER: 'footer',
   SCOPE_SWAP_BTN: 'scope-swap-btn',
   PLAY_PAUSE_BTN: 'play-pause-btn',
+  FONT_DEC_BTN: 'font-dec-btn',
+  FONT_INC_BTN: 'font-inc-btn',
   CONTEXT_PREVIEW: 'context-preview',
   CONTEXT_CURRENT: 'context-current',
 });
@@ -64,6 +66,12 @@ export const OVERLAY_TEXT = Object.freeze({
   /** Scope-swap button label + accessible name. */
   SWAP_GLYPH: '← Full article',
   SWAP_LABEL: 'Switch to full article',
+
+  /** Font-size stepper glyphs + accessible labels (#29). */
+  FONT_DEC_GLYPH: 'A−',
+  FONT_INC_GLYPH: 'A+',
+  FONT_DEC_LABEL: 'Decrease font size',
+  FONT_INC_LABEL: 'Increase font size',
 
   /** Empty-selection fallback subtitle + polite live-region announcement. */
   EMPTY_SELECTION_FALLBACK: 'No selection detected. Reading full article instead.',

@@ -32,7 +32,7 @@
 import { handleActivateReader } from './activate-handler';
 import { createOverlay, type OverlayHandle } from '../../core/overlay';
 import { createRsvpEngine } from '../../core/rsvp-engine';
-import { loadSettings, subscribeSettings } from '../settings/storage';
+import { loadSettings, saveSettings, subscribeSettings } from '../settings/storage';
 import { tokenize } from '../../core/tokenize';
 import { recordClose, resumeIndex } from './session-position';
 
@@ -117,13 +117,26 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
           fullWords,
           articleTitle,
           initialIndex,
-          initialSettings: { theme: settings.theme, wpm: settings.wpm },
+          initialSettings: {
+            theme: settings.theme,
+            wpm: settings.wpm,
+            fontSize: settings.fontSize,
+          },
           subscribeSettings: (listener) =>
-            subscribeSettings((s) => listener({ theme: s.theme, wpm: s.wpm })),
+            subscribeSettings((s) =>
+              listener({ theme: s.theme, wpm: s.wpm, fontSize: s.fontSize }),
+            ),
           engineFactory: createRsvpEngine,
           onClose: (snapshot) => {
             activeOverlay = null;
             recordClose(snapshot);
+          },
+          // Font-size stepper (#29) — overlay clamps to FONT_SIZE_MIN/MAX
+          // before invoking. saveSettings is debounced (300 ms trailing
+          // edge) so rapid stepper presses coalesce into a single
+          // chrome.storage.sync.set, well under the 120 writes/min quota.
+          onFontSizeChange: (next) => {
+            void saveSettings({ fontSize: next });
           },
         });
         activeOverlay.mount();
