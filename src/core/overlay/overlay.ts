@@ -11,6 +11,7 @@ import type {
 } from './types';
 import type { RsvpEngine } from '../rsvp-engine';
 import { renderWord } from './word';
+import { buildSentenceContext } from './sentence-context';
 import { installFocusTrap } from './focus-trap';
 import { WPM_MAX, WPM_MIN, WPM_STEP } from '../settings/bounds';
 
@@ -117,6 +118,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     playPauseBtn: HTMLButtonElement;
     swapBtn: HTMLButtonElement | null;
     ariaLive: HTMLElement;
+    preview: HTMLElement;
   } {
     const doc = opts.doc;
 
@@ -166,6 +168,16 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     const word = doc.createElement('div');
     word.className = OVERLAY_CLASS.WORD_REGION;
 
+    // Surrounding-sentence preview (#20). Hidden by default; the pause
+    // hook in mount() shows it with before/<strong>current</strong>/after.
+    // Built with textContent + a single appended <strong> (no innerHTML,
+    // no XSS surface).
+    const preview = doc.createElement('div');
+    preview.className = OVERLAY_CLASS.CONTEXT_PREVIEW;
+    preview.setAttribute('role', 'region');
+    preview.setAttribute('aria-label', OVERLAY_TEXT.CONTEXT_LABEL);
+    preview.hidden = true;
+
     const ariaLive = doc.createElement('div');
     ariaLive.className = OVERLAY_CLASS.ARIA_LIVE;
     ariaLive.setAttribute('aria-live', 'polite');
@@ -195,12 +207,12 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
 
     const children: Node[] = [topSentinel, closeBtn, header];
     if (subtitle) children.push(subtitle);
-    children.push(word, ariaLive, footer, bottomSentinel);
+    children.push(word, preview, ariaLive, footer, bottomSentinel);
     modal.append(...children);
     backdrop.appendChild(modal);
     shadow.appendChild(backdrop);
 
-    return { modal, header, word, closeBtn, playPauseBtn, swapBtn, ariaLive };
+    return { modal, header, word, closeBtn, playPauseBtn, swapBtn, ariaLive, preview };
   }
 
   function mount(): void {
@@ -230,10 +242,8 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     let scopeView = buildScopeView(opts);
     currentScope = scopeView?.scope ?? null;
     const shadow = host.attachShadow({ mode: 'open' });
-    const { modal, header, word, closeBtn, playPauseBtn, swapBtn, ariaLive } = buildShadowTree(
-      shadow,
-      scopeView,
-    );
+    const { modal, header, word, closeBtn, playPauseBtn, swapBtn, ariaLive, preview } =
+      buildShadowTree(shadow, scopeView);
     const resolvedTheme = resolveTheme(opts.initialSettings.theme, view);
     applyTheme(resolvedTheme, modal);
 
@@ -275,12 +285,73 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       }
     };
 
+    const clearPreview = (): void => {
+      // Idempotency guard — clearPreview can be called on every state
+      // transition; skip the layout-touching property writes when the
+      // node is already in the cleared state. Matters when callers fan
+      // out (toggle, swap, paused-state seek-driven word emits) — the
+      // hot path stays free of redundant DOM writes.
+      if (preview.hidden && preview.firstChild === null) return;
+      preview.hidden = true;
+      // textContent='' removes children too, dropping the <strong>.
+      preview.textContent = '';
+    };
+
+    // #20 — render the surrounding-sentence preview. Caller MUST gate
+    // on `engine.state === 'paused'`. The internal early-return below
+    // is belt-and-braces only; the per-word hot path should never reach
+    // this function (perf-adversary F1 + scope-adversary F1).
+    const renderPreview = (): void => {
+      if (!engine) return;
+      if (engine.state !== 'paused') {
+        clearPreview();
+        return;
+      }
+      const progress = engine.progress();
+      if (progress.total === 0) {
+        clearPreview();
+        return;
+      }
+      const currentIndex = progress.index - 1;
+      // Active stream: scopeView's activeWords reflects swap-to-full;
+      // fall back to the legacy single-stream path when no scope.
+      const activeWords = scopeView ? scopeView.activeWords : opts.words;
+      const ctx = buildSentenceContext(activeWords, currentIndex);
+      if (!ctx) {
+        clearPreview();
+        return;
+      }
+      // Build via textContent + a single appended <strong>. No innerHTML.
+      clearPreview();
+      const beforeText = ctx.before.length > 0 ? ctx.before.join(' ') + ' ' : '';
+      const afterText = ctx.after.length > 0 ? ' ' + ctx.after.join(' ') : '';
+      preview.appendChild(opts.doc.createTextNode(beforeText));
+      const strong = opts.doc.createElement('strong');
+      strong.className = OVERLAY_CLASS.CONTEXT_CURRENT;
+      strong.textContent = ctx.current;
+      preview.appendChild(strong);
+      preview.appendChild(opts.doc.createTextNode(afterText));
+      preview.hidden = false;
+    };
+
     engine.subscribe((ev) => {
       if (ev.type === 'word') {
         renderWord(word, ev.word);
         ariaLive.textContent = ev.word;
+        // Only re-render the preview if the just-emitted word landed
+        // while the engine was already paused (paused-state seekTo emits
+        // a replacement `word` event — see RsvpEngine.seekTo docs). On
+        // the per-word PLAYING tick path we MUST skip the call entirely;
+        // clearPreview's idempotency guard makes the no-op cheap, but
+        // not calling it at all is cheaper still (perf-adversary F1).
+        if (engine?.state === 'paused') renderPreview();
       } else if (ev.type === 'done') {
         reflectEngineState();
+        // Done is reached by playback; the preview was never visible if
+        // we were playing. If a future caller can land in `done` from a
+        // paused state, the idempotent clearPreview below is the safety
+        // net.
+        clearPreview();
       }
     });
     // #25 — resume the engine at the saved session position. Idle seekTo
@@ -310,6 +381,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       ariaLive.textContent = OVERLAY_TEXT.EMPTY_SELECTION_FALLBACK;
     }
     reflectEngineState();
+    renderPreview();
 
     const togglePlayPause = (): void => {
       if (!engine) return;
@@ -321,6 +393,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         return;
       }
       reflectEngineState();
+      renderPreview();
     };
 
     playPauseBtn.addEventListener('click', togglePlayPause);
@@ -377,6 +450,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       ariaLive.textContent = OVERLAY_TEXT.expandedAnnouncement(fullWords.length);
 
       reflectEngineState();
+      renderPreview();
       playPauseBtn.focus();
     };
 
