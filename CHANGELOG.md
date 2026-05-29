@@ -32,6 +32,11 @@ heading and a fresh `[Unreleased]` block is opened above it.
   shows the surrounding sentence (previous + current + up to 3 next
   words) with the current word bolded so the user can re-orient before
   resuming. Hides on resume / done (#20).
+- Popup gains a "Read selection" affordance — when the active tab has a
+  non-empty selection, the popup offers a fallback path that reads just
+  the selection instead of the auto-extracted article. Useful on SPAs,
+  paywalls, and pages where extraction misses the user's intended text.
+  Keyboard-shortcut variant deferred (#18).
 
 ### Changed
 
