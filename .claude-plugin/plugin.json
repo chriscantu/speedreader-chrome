@@ -4,5 +4,8 @@
   "description": "Chrome MV3 port of speed-reader RSVP extension for neurodivergent readers",
   "skills": [
     "./skills/"
+  ],
+  "commands": [
+    "./commands/"
   ]
 }
