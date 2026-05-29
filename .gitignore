@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Parallel-builder worktrees (sandbox requires in-repo path; see CLAUDE.md swarm config)
+.worktrees/
+
 # Build output
 dist/
 dist-e2e/
@@ -74,6 +77,10 @@ experiments/**/.claude/
 ruvector.db
 .harness-mem/
 .ring-output/
+
+# Ruflo AgentDB / RVF vector containers (regenerable cache; never tracked)
+*.rvf
+*.rvf.lock
 
 # Coverage / profiling
 default.profraw
