@@ -238,6 +238,73 @@ describe('createRsvpEngine', () => {
       expect(events).toHaveLength(2);
     });
 
+    it('punctuationPacing=true scales the gap after a sentence-final word by 1.5×', () => {
+      // Safari-parity case: after a word ending in `.`, the engine must wait
+      // msPerWord * 1.5 before emitting the next word. Validates the wiring
+      // between `calculatePunctuationDelay` and `scheduleNext`.
+      const words = ['Hello.', 'world'];
+      const wpm = 300;
+      const msPerWord = 60000 / wpm; // 200
+      const engine = createRsvpEngine({ words, wpm, punctuationPacing: true });
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start();
+      // 'Hello.' emits synchronously on start.
+      expect(events).toHaveLength(1);
+
+      // At 1.5× cadence (200ms × 1.5 = 300ms), 'world' must NOT emit at 299ms
+      // and MUST emit at exactly 300ms.
+      vi.advanceTimersByTime(msPerWord); // 200ms — still inside the 300ms gap
+      expect(events).toHaveLength(1);
+      vi.advanceTimersByTime(msPerWord * 0.5 - 1); // 99ms more = 299ms
+      expect(events).toHaveLength(1);
+      vi.advanceTimersByTime(1); // 300ms total
+      expect(events).toHaveLength(2);
+      expect(events[1]).toEqual({ type: 'word', index: 1, word: 'world' });
+    });
+
+    it('punctuationPacing=false (default) keeps uniform cadence even on punctuated words', () => {
+      // Regression guard: existing call sites that don't opt in MUST see
+      // unchanged timing. A word ending in `.` should not extend the gap.
+      const words = ['Hello.', 'world'];
+      const wpm = 300;
+      const msPerWord = 60000 / wpm;
+      const engine = createRsvpEngine({ words, wpm });
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start();
+      expect(events).toHaveLength(1);
+
+      // At plain cadence, 'world' must emit at exactly msPerWord (200ms).
+      vi.advanceTimersByTime(msPerWord - 1);
+      expect(events).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      expect(events).toHaveLength(2);
+      expect(events[1]).toEqual({ type: 'word', index: 1, word: 'world' });
+    });
+
+    it('setPunctuationPacing toggles pacing at runtime', () => {
+      // Mirrors the setWpm-mid-stream test: changing the flag while playing
+      // should reschedule the pending tick at the new cadence.
+      const words = ['Hello.', 'world'];
+      const wpm = 300;
+      const msPerWord = 60000 / wpm;
+      const engine = createRsvpEngine({ words, wpm }); // pacing off
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start();
+      expect(events).toHaveLength(1);
+
+      // Flip pacing on AFTER 'Hello.' has been emitted but before its gap fires.
+      engine.setPunctuationPacing(true);
+
+      // Gap now 1.5× = 300ms. 'world' should not appear at 200ms.
+      vi.advanceTimersByTime(msPerWord);
+      expect(events).toHaveLength(1);
+      vi.advanceTimersByTime(msPerWord * 0.5);
+      expect(events).toHaveLength(2);
+    });
+
     it('pause/resume cycles compose into a togglePlayPause equivalent', () => {
       // Equivalent Safari cases: `togglePlayPause` (plays when paused, pauses
       // when playing). Chrome composes `pause()` / `resume()` against the

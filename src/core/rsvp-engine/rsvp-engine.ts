@@ -8,6 +8,8 @@
  * No DOM, no chrome.* / browser.* — safe for src/core/.
  */
 
+import { calculatePunctuationDelay } from './punctuation-pacing';
+
 export const RSVP_STATE = {
   IDLE: 'idle',
   PLAYING: 'playing',
@@ -24,6 +26,12 @@ export type RsvpListener = (event: RsvpEvent) => void;
 export interface RsvpEngineOptions {
   words: string[];
   wpm: number;
+  /**
+   * Apply Safari-style 1.2× / 1.5× pacing after punctuation. Default `false`
+   * to preserve cadence semantics for call sites that haven't opted in.
+   * See `./punctuation-pacing.ts` for the multiplier rules.
+   */
+  punctuationPacing?: boolean;
 }
 
 /**
@@ -45,6 +53,13 @@ export interface RsvpEngine {
   resume(): void;
   stop(): void;
   setWpm(wpm: number): void;
+  /**
+   * Toggle Safari-style punctuation pacing at runtime. Mirrors the `setWpm`
+   * shape: if currently `PLAYING` with a pending tick, the pending tick is
+   * rescheduled at the new cadence (so the change applies to the next gap,
+   * not after one stale interval).
+   */
+  setPunctuationPacing(enabled: boolean): void;
   subscribe(listener: RsvpListener): () => void;
   /**
    * Reposition the engine to `index`. State semantics:
@@ -183,10 +198,15 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
 
   let words = options.words.slice();
   let wpm = options.wpm;
+  let punctuationPacing = options.punctuationPacing ?? false;
   let state: RsvpState = RSVP_STATE.IDLE;
   let nextIndex = 0;
   let timerId: ReturnType<typeof setTimeout> | null = null;
   let seekInFlight = false;
+  // Word just emitted to subscribers — drives Safari-style pacing for the
+  // gap BEFORE the next word. `null` when no word has been emitted yet
+  // (engine idle pre-start, post-reposition before first tick).
+  let lastEmittedWord: string | null = null;
   const listeners = new Set<RsvpListener>();
 
   const emit = (event: RsvpEvent): void => {
@@ -205,12 +225,22 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
     }
   };
 
+  // Per-gap delay = base cadence (`msPerWord`) optionally scaled by the
+  // multiplier for the just-emitted word. When pacing is off OR no word
+  // has been emitted yet, falls through to the base cadence — preserves
+  // the legacy timing path bit-for-bit.
+  const nextDelay = (): number => {
+    const base = msPerWord();
+    if (!punctuationPacing) return base;
+    return calculatePunctuationDelay(lastEmittedWord, base);
+  };
+
   const scheduleNext = (): void => {
     timerId = setTimeout(() => {
       timerId = null;
       if (state !== RSVP_STATE.PLAYING) return;
       tick();
-    }, msPerWord());
+    }, nextDelay());
   };
 
   const tick = (): void => {
@@ -220,7 +250,9 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
       return;
     }
     const index = nextIndex++;
-    emit({ type: 'word', index, word: words[index] });
+    const word = words[index];
+    lastEmittedWord = word;
+    emit({ type: 'word', index, word });
     scheduleNext();
   };
 
@@ -269,11 +301,22 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
         scheduleNext();
       }
     },
+    setPunctuationPacing(enabled: boolean): void {
+      if (punctuationPacing === enabled) return;
+      punctuationPacing = enabled;
+      // Mirror `setWpm`: a pending tick is reset so the new pacing rule
+      // applies to the very next gap rather than after one stale interval.
+      if (state === RSVP_STATE.PLAYING && timerId !== null) {
+        clearPending();
+        scheduleNext();
+      }
+    },
     setWords(next: string[]): void {
       assertValidWords(next);
       clearPending();
       words = next.slice();
       nextIndex = 0;
+      lastEmittedWord = null;
       state = RSVP_STATE.IDLE;
     },
     subscribe(listener: RsvpListener): () => void {
