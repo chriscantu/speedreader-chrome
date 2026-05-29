@@ -46,6 +46,11 @@ function getShadow(): ShadowRoot {
   return host.shadowRoot;
 }
 
+function engineOf(holder: Holder): RsvpEngine {
+  if (!holder.engine) throw new Error('engine not yet created');
+  return holder.engine;
+}
+
 function getWordRegion(): HTMLElement {
   const shadow = getShadow();
   const el = shadow.querySelector<HTMLElement>('.word-region');
@@ -58,12 +63,19 @@ function getWordRegion(): HTMLElement {
  * the viewport is touch-primary. The overlay reads
  * `(pointer: coarse) and (hover: none)` — the WCAG-aligned signal that
  * the primary input is touch.
+ *
+ * Returns the list of queries the overlay actually asked about so tests
+ * can assert the EXACT query string (not just a substring) — guards
+ * against a production regression to `(pointer: coarse)` alone, which
+ * would re-introduce the hybrid-laptop false positive.
  */
-function mockMatchMedia(matches: (query: string) => boolean): void {
+function mockMatchMedia(matches: (query: string) => boolean): { queries: string[] } {
+  const queries: string[] = [];
   // jsdom does not implement matchMedia; install a writable stub on
   // window so vi.spyOn / direct assignment both work, then replace it.
-  const stub = (query: string): MediaQueryList =>
-    ({
+  const stub = (query: string): MediaQueryList => {
+    queries.push(query);
+    return {
       matches: matches(query),
       media: query,
       onchange: null,
@@ -72,12 +84,14 @@ function mockMatchMedia(matches: (query: string) => boolean): void {
       addEventListener: () => undefined,
       removeEventListener: () => undefined,
       dispatchEvent: () => false,
-    }) as MediaQueryList;
+    } as MediaQueryList;
+  };
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     writable: true,
     value: stub,
   });
+  return { queries };
 }
 
 describe('createOverlay — touch-primary controls (#36)', () => {
@@ -92,7 +106,11 @@ describe('createOverlay — touch-primary controls (#36)', () => {
   });
 
   test('tap on word region toggles play/pause when pointer is coarse', () => {
-    mockMatchMedia((q) => q.includes('coarse') || q.includes('hover: none'));
+    // Match by EXACT query string — guards against a production regression
+    // to `(pointer: coarse)` alone (would re-introduce hybrid-laptop false
+    // positives where the touchscreen reports coarse but a precise mouse
+    // is also attached).
+    const captured = mockMatchMedia((q) => q === '(pointer: coarse) and (hover: none)');
     const holder: Holder = { engine: null };
     const overlay = createOverlay(defaultOpts(holder));
     overlay.mount();
@@ -104,6 +122,32 @@ describe('createOverlay — touch-primary controls (#36)', () => {
 
     word.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     expect(holder.engine?.state).toBe('playing');
+
+    // Lock the contract: the overlay must ask for the combined coarse+no-hover
+    // signal, not either condition alone.
+    expect(captured.queries).toContain('(pointer: coarse) and (hover: none)');
+
+    overlay.unmount();
+  });
+
+  test('tap-to-pause uses the exact (pointer: coarse) and (hover: none) query', () => {
+    // Independent assertion: even on non-touch viewports the overlay must
+    // call matchMedia with the precise compound query. Guards against the
+    // theme-resolver's own matchMedia calls masking a regression in the
+    // touch-primary query string.
+    const captured = mockMatchMedia(() => false);
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+
+    const word = getWordRegion();
+    // Trigger the predicate at least once.
+    word.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(captured.queries).toContain('(pointer: coarse) and (hover: none)');
+    // Negative: the loose `(pointer: coarse)` alone must NOT be what we
+    // asked. If a future refactor splits the query, this assertion fails.
+    expect(captured.queries).not.toContain('(pointer: coarse)');
 
     overlay.unmount();
   });
@@ -134,6 +178,77 @@ describe('createOverlay — touch-primary controls (#36)', () => {
       new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
     );
     expect(holder.engine?.state).toBe('paused');
+
+    overlay.unmount();
+  });
+
+  test('Arrow keys + Escape still work on non-touch (no #33 regression)', () => {
+    // #33 (commit 9771a68) handler surface = Space, Escape, ArrowLeft/Right
+    // (seekToSentence prev/next), ArrowUp/Down (WPM ±10). Space is covered
+    // above; this test locks the remaining keys.
+    mockMatchMedia(() => false);
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    // Pause first so the engine is in a deterministic state and we can spy
+    // on seekToSentence before the arrow dispatch.
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
+    );
+    expect(holder.engine?.state).toBe('paused');
+
+    const engine = engineOf(holder);
+    const seekSpy = vi.spyOn(engine, 'seekToSentence');
+    const setWpmSpy = vi.spyOn(engine, 'setWpm');
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }),
+    );
+    expect(seekSpy).toHaveBeenCalledWith('next');
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }),
+    );
+    expect(seekSpy).toHaveBeenCalledWith('prev');
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }),
+    );
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+    );
+    // ArrowUp +10, ArrowDown -10 from initial 300.
+    expect(setWpmSpy).toHaveBeenCalledWith(310);
+    expect(setWpmSpy).toHaveBeenCalledWith(300);
+
+    // Escape closes the overlay (host removed from DOM).
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    expect(document.body.querySelector('[data-speedreader-overlay]')).toBeNull();
+  });
+
+  test('keyboard shortcuts still work on touch-primary viewports (attached-keyboard coexistence)', () => {
+    // Touch laptops report (pointer: coarse) AND (hover: none) but may
+    // also have an attached keyboard. The tap-to-pause click listener
+    // must not stop-propagation kill the capture-phase keydown handler.
+    mockMatchMedia((q) => q === '(pointer: coarse) and (hover: none)');
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    expect(holder.engine?.state).toBe('playing');
+
+    // Space on the overlay surface still toggles even when touch-primary
+    // is active.
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
+    );
+    expect(holder.engine?.state).toBe('paused');
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
+    );
+    expect(holder.engine?.state).toBe('playing');
 
     overlay.unmount();
   });
