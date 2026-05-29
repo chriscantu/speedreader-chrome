@@ -15,6 +15,9 @@ heading and a fresh `[Unreleased]` block is opened above it.
 ### Added
 
 - `CHANGELOG.md` seeded with keep-a-changelog scaffolding (#42).
+- `PRIVACY.md` documenting Chrome Web Store privacy claims (no data
+  egress, no analytics, no network, no account, no tracking) — required
+  for the initial store submission (#44).
 
 ### Changed
 
