@@ -69,6 +69,20 @@ export interface ContextMenuActivationIntent {
 export interface PopupActivationIntent {
   source: 'popup';
   tabId: number;
+  /**
+   * Issue #18 — popup-driven scope selection.
+   *
+   * The popup surfaces both "Read article" (full extraction) and "Read
+   * selection" (fallback when auto-extraction fails on SPAs / paywalls /
+   * odd DOM). Forwarded to `intentToActivatePayload` so the CS receives
+   * `scope: 'selection'` instead of defaulting to `'full'`.
+   *
+   * Required — every popup producer in this PR sets it explicitly, and
+   * the type system catches a future caller that forgets. The CS already
+   * handles empty-selection fallback when `scope === 'selection'` and
+   * `window.getSelection()` is empty (see `activate-handler-scope.test.ts`).
+   */
+  scope: 'selection' | 'full';
 }
 
 /** Normalized activation intent — discriminated union over `source`. */

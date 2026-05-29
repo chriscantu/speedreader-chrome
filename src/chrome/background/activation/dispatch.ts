@@ -380,7 +380,11 @@ function intentToActivatePayload(intent: ActivationIntent): ActivateReaderMessag
     intent.source === 'contextMenu' &&
     intent.selectionText !== undefined &&
     intent.menuItemId.startsWith('speedreader.ctx.preset.');
-  const scope: ActivateReaderMessage['scope'] = isPresetSelection ? 'selection' : 'full';
+  // Issue #18 — popup carries its own scope (Read article vs Read selection).
+  // Default to `'full'` when omitted to preserve prior popup behavior.
+  const isPopupSelection = intent.source === 'popup' && intent.scope === 'selection';
+  const scope: ActivateReaderMessage['scope'] =
+    isPresetSelection || isPopupSelection ? 'selection' : 'full';
   const base = { type: 'activate-reader' as const, scope };
   return intent.source === 'contextMenu' && intent.overrides
     ? { ...base, overrides: intent.overrides }

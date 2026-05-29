@@ -73,7 +73,22 @@ export function route(
         return;
       }
 
-      const intent: ActivationIntent = { source: 'popup', tabId: intentTabId };
+      // Issue #18 — popup carries scope ('full' for Read article,
+      // 'selection' for Read selection). The runtime guard validates the
+      // wire shape because the provenance gate above only enforced
+      // popup-shape, not field values; a buggy/compromised popup could
+      // still send a bogus scope. Reject the message rather than silently
+      // coerce — silent coercion loses the audit trail (security
+      // adversary F2). Matches the invalid-tabId branch above.
+      if (msg.scope !== 'selection' && msg.scope !== 'full') {
+        sendResponse({ ok: false, error: { kind: 'invalid-payload' } });
+        return;
+      }
+      const intent: ActivationIntent = {
+        source: 'popup',
+        tabId: intentTabId,
+        scope: msg.scope,
+      };
       const result = await deps.dispatchActivation(intent);
       if (result.ok) {
         sendResponse({ ok: true, data: result.data });

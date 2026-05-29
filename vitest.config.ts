@@ -60,6 +60,7 @@ export default defineConfig({
       'src/chrome/background/state/**/__tests__/**/*.test.ts',
       'src/chrome/content/**/__tests__/**/*.test.ts',
       'src/chrome/options/**/__tests__/**/*.test.ts',
+      'src/chrome/popup/**/__tests__/**/*.test.ts',
     ],
     exclude: ['node_modules/**', 'dist/**'],
   },
