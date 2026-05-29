@@ -110,7 +110,7 @@ describe('dispatchActivation', () => {
   it('rejects with restricted-page error for the Chrome Web Store', async () => {
     stub = installChromeStub({ tabUrl: 'https://chromewebstore.google.com/category/extensions' });
     const { dispatchActivation } = await import('../dispatch');
-    const intent: ActivationIntent = { source: 'popup', tabId: 7 };
+    const intent: ActivationIntent = { source: 'popup', tabId: 7, scope: 'full' };
 
     const result = await dispatchActivation(intent);
 
@@ -123,7 +123,7 @@ describe('dispatchActivation', () => {
   it('allows chrome-extension URLs from our own ID', async () => {
     stub = installChromeStub({ tabUrl: `chrome-extension://${OWN_ID}/popup.html` });
     const { dispatchActivation } = await import('../dispatch');
-    const intent: ActivationIntent = { source: 'popup', tabId: 9 };
+    const intent: ActivationIntent = { source: 'popup', tabId: 9, scope: 'full' };
 
     const result = await dispatchActivation(intent);
 
@@ -167,7 +167,7 @@ describe('dispatchActivation', () => {
   it('converts a tabs.sendMessage rejection to a handoff-failed error', async () => {
     stub = installChromeStub({ sendMessageRejects: new Error('Could not establish connection') });
     const { dispatchActivation } = await import('../dispatch');
-    const intent: ActivationIntent = { source: 'popup', tabId: 5 };
+    const intent: ActivationIntent = { source: 'popup', tabId: 5, scope: 'full' };
 
     const result = await dispatchActivation(intent);
 
@@ -220,7 +220,7 @@ describe('dispatchActivation', () => {
   it('#135: popup source executeScript target has no allFrames / frameIds', async () => {
     const { dispatchActivation } = await import('../dispatch');
 
-    await dispatchActivation({ source: 'popup', tabId: 122 });
+    await dispatchActivation({ source: 'popup', tabId: 122, scope: 'full' });
 
     const callArg = stub.scripting.executeScript.mock.calls[0]?.[0] as {
       target: Record<string, unknown>;
@@ -248,13 +248,35 @@ describe('dispatchActivation', () => {
     const { dispatchActivation } = await import('../dispatch');
 
     await dispatchActivation({ source: 'command', tabId: 1 });
-    await dispatchActivation({ source: 'popup', tabId: 2 });
+    await dispatchActivation({ source: 'popup', tabId: 2, scope: 'full' });
 
     expect(stub.tabs.sendMessage.mock.calls).toHaveLength(2);
     const [, p1] = stub.tabs.sendMessage.mock.calls[0] ?? [];
     const [, p2] = stub.tabs.sendMessage.mock.calls[1] ?? [];
     expect(p1).toMatchObject({ type: 'activate-reader', scope: 'full' });
     expect(p2).toMatchObject({ type: 'activate-reader', scope: 'full' });
+  });
+
+  // Issue #18 — popup "Read selection" flows scope='selection' through the
+  // funnel to the wire payload, mirroring the contextMenu-with-selection path.
+  it('forwards popup intent scope="selection" into the wire payload', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+
+    await dispatchActivation({ source: 'popup', tabId: 3, scope: 'selection' });
+
+    const [, payload] = stub.tabs.sendMessage.mock.calls[0] ?? [];
+    expect(payload).toMatchObject({ type: 'activate-reader', scope: 'selection' });
+    // The popup path does NOT carry overrides — only contextMenu presets do.
+    expect(payload).not.toHaveProperty('overrides');
+  });
+
+  it('forwards popup intent scope="full" explicitly into the wire payload', async () => {
+    const { dispatchActivation } = await import('../dispatch');
+
+    await dispatchActivation({ source: 'popup', tabId: 4, scope: 'full' });
+
+    const [, payload] = stub.tabs.sendMessage.mock.calls[0] ?? [];
+    expect(payload).toMatchObject({ type: 'activate-reader', scope: 'full' });
   });
 
   // Context-menu integration spec §"Activation Payload Extension" — preset
@@ -286,7 +308,7 @@ describe('dispatchActivation', () => {
   it('omits overrides key for popup source', async () => {
     const { dispatchActivation } = await import('../dispatch');
 
-    const result = await dispatchActivation({ source: 'popup', tabId: 14 });
+    const result = await dispatchActivation({ source: 'popup', tabId: 14, scope: 'full' });
 
     expect(result.ok).toBe(true);
     const [, payload] = stub.tabs.sendMessage.mock.calls[0] ?? [];

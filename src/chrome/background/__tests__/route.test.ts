@@ -53,11 +53,80 @@ describe('route — activate-reader handler', () => {
     const deps = makeDeps({ ok: true, data: undefined }, { activeTabId: 42 });
     const { promise, sendResponse } = waitForResponse();
 
-    route({ type: 'activate-reader', tabId: 42 }, popupSender(), sendResponse, deps);
+    route({ type: 'activate-reader', tabId: 42, scope: 'full' }, popupSender(), sendResponse, deps);
 
     const resp = await promise;
     expect(resp).toEqual({ ok: true, data: undefined });
-    expect(deps.dispatchActivation).toHaveBeenCalledWith({ source: 'popup', tabId: 42 });
+    expect(deps.dispatchActivation).toHaveBeenCalledWith({
+      source: 'popup',
+      tabId: 42,
+      scope: 'full',
+    });
+  });
+
+  // Issue #18 — popup-driven scope selection.
+  it('forwards scope="selection" from popup payload into the intent', async () => {
+    const deps = makeDeps({ ok: true, data: undefined }, { activeTabId: 42 });
+    const { promise, sendResponse } = waitForResponse();
+
+    route(
+      { type: 'activate-reader', tabId: 42, scope: 'selection' },
+      popupSender(),
+      sendResponse,
+      deps,
+    );
+
+    await promise;
+    expect(deps.dispatchActivation).toHaveBeenCalledWith({
+      source: 'popup',
+      tabId: 42,
+      scope: 'selection',
+    });
+  });
+
+  it('forwards scope="full" from popup payload into the intent', async () => {
+    const deps = makeDeps({ ok: true, data: undefined }, { activeTabId: 42 });
+    const { promise, sendResponse } = waitForResponse();
+
+    route({ type: 'activate-reader', tabId: 42, scope: 'full' }, popupSender(), sendResponse, deps);
+
+    await promise;
+    expect(deps.dispatchActivation).toHaveBeenCalledWith({
+      source: 'popup',
+      tabId: 42,
+      scope: 'full',
+    });
+  });
+
+  it('rejects bogus scope values with invalid-payload — does NOT silently coerce', async () => {
+    // Adversarial-ring scope F1 + security F2: the prior shape silently
+    // coerced any non-whitelisted scope to `'full'`. That hid a buggy /
+    // compromised popup sending an unknown scope. Reject with the same
+    // envelope used for missing-tabId.
+    const deps = makeDeps({ ok: true, data: undefined }, { activeTabId: 42 });
+    const { promise, sendResponse } = waitForResponse();
+
+    route(
+      { type: 'activate-reader', tabId: 42, scope: 'bogus' },
+      popupSender(),
+      sendResponse,
+      deps,
+    );
+
+    const resp = await promise;
+    expect(resp).toEqual({ ok: false, error: { kind: 'invalid-payload' } });
+    expect(deps.dispatchActivation).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing scope with invalid-payload — scope is required at the wire', async () => {
+    const deps = makeDeps({ ok: true, data: undefined }, { activeTabId: 42 });
+    const { promise, sendResponse } = waitForResponse();
+
+    route({ type: 'activate-reader', tabId: 42 }, popupSender(), sendResponse, deps);
+
+    const resp = await promise;
+    expect(resp).toEqual({ ok: false, error: { kind: 'invalid-payload' } });
+    expect(deps.dispatchActivation).not.toHaveBeenCalled();
   });
 
   it('forwards restricted-page error verbatim under activation-failed envelope', async () => {
@@ -68,7 +137,7 @@ describe('route — activate-reader handler', () => {
     const deps = makeDeps({ ok: false, error: activationError }, { activeTabId: 7 });
     const { promise, sendResponse } = waitForResponse();
 
-    route({ type: 'activate-reader', tabId: 7 }, popupSender(), sendResponse, deps);
+    route({ type: 'activate-reader', tabId: 7, scope: 'full' }, popupSender(), sendResponse, deps);
 
     const resp = await promise;
     expect(resp).toEqual({
@@ -90,7 +159,7 @@ describe('route — activate-reader handler', () => {
     const deps = makeDeps({ ok: false, error: activationError }, { activeTabId: 11 });
     const { promise, sendResponse } = waitForResponse();
 
-    route({ type: 'activate-reader', tabId: 11 }, popupSender(), sendResponse, deps);
+    route({ type: 'activate-reader', tabId: 11, scope: 'full' }, popupSender(), sendResponse, deps);
 
     const resp = await promise;
     if (resp.ok) throw new Error('unreachable');
@@ -106,7 +175,12 @@ describe('route — activate-reader handler', () => {
       const deps = makeDeps({ ok: false, error: activationError }, { activeTabId: 1 });
       const { promise, sendResponse } = waitForResponse();
 
-      route({ type: 'activate-reader', tabId: 1 }, popupSender(), sendResponse, deps);
+      route(
+        { type: 'activate-reader', tabId: 1, scope: 'full' },
+        popupSender(),
+        sendResponse,
+        deps,
+      );
 
       const resp = await promise;
       if (resp.ok) throw new Error('unreachable');
