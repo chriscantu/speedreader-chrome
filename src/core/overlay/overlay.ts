@@ -293,6 +293,25 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
 
     playPauseBtn.addEventListener('click', togglePlayPause);
 
+    // #36 — tap-to-pause on touch-primary viewports. The combined query
+    // (pointer: coarse) and (hover: none) is the WCAG-aligned touch-primary
+    // signal: it excludes hybrid laptops whose touchscreen reports `coarse`
+    // alongside a precise mouse (those still satisfy `hover: hover`). On
+    // mouse viewports the listener is wired but the guard short-circuits,
+    // so accidental clicks on the word region during text-selection
+    // gestures do not pause the reader.
+    const isTouchPrimary = (): boolean => {
+      try {
+        return view.matchMedia('(pointer: coarse) and (hover: none)').matches;
+      } catch {
+        return false;
+      }
+    };
+    word.addEventListener('click', () => {
+      if (!isTouchPrimary()) return;
+      togglePlayPause();
+    });
+
     const swapToFull = (): void => {
       if (!engine) return;
       if (!scopeView || scopeView.scope !== 'selection') return;

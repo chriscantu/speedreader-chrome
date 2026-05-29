@@ -178,4 +178,59 @@ export const OVERLAY_CSS = `
 @media (prefers-reduced-motion: reduce) {
   .backdrop, .modal { transition: none !important; animation: none !important; }
 }
+
+/*
+ * Touch-primary viewports (#36). The combined query targets devices whose
+ * primary input is touch (phones, most tablets) without catching hybrid
+ * laptops that report \`pointer: coarse\` on their touchscreen alongside
+ * a precise mouse — \`hover: none\` further narrows to "no precise hover
+ * available," which is the WCAG-aligned touch-primary signal.
+ *
+ * - Tap targets bumped to 48 CSS px (WCAG 2.2 AA target-size minimum is
+ *   44; the extra 4 px is thumb-comfort headroom and gives a single
+ *   knob to tune without re-auditing the minimum).
+ * - Footer bottom-anchored within the modal and padded by
+ *   \`env(safe-area-inset-bottom)\` so the control bar stays
+ *   thumb-reachable on devices with a home indicator.
+ * - Backdrop padding shrinks to give the modal more inline space at
+ *   handset widths; the modal itself fills the viewport vertically so
+ *   the footer can dock at the bottom.
+ */
+@media (pointer: coarse) and (hover: none) {
+  .backdrop {
+    padding: 0;
+    place-items: stretch;
+  }
+  .modal {
+    border-radius: 0;
+    min-block-size: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .close-btn {
+    width: 48px;
+    height: 48px;
+  }
+  .word-region {
+    flex: 1 1 auto;
+    display: grid;
+    place-items: center;
+    /* Tap target hint for assistive tech / a11y devtools — the click
+     * handler is wired in JS. */
+    cursor: pointer;
+  }
+  .footer {
+    padding-block-end: max(16px, env(safe-area-inset-bottom));
+    padding-inline: 16px;
+  }
+  .play-pause-btn {
+    min-width: 128px;
+    min-height: 48px;
+    padding: 12px 24px;
+  }
+  .scope-swap-btn {
+    min-height: 48px;
+    padding: 12px 20px;
+  }
+}
 `;
