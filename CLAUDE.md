@@ -25,7 +25,7 @@ For a fuller repo-layout reference (every directory and its role), see [`STRUCTU
 
 ## Agent routing (for Claude / swarm dispatch)
 
-Hierarchical swarm, max 6, specialized strategy. Queen: `extension-architect`.
+For routine extension work, prefer hierarchical dispatch, ~6 agents, Queen: `extension-architect`. Full daemon envelope (hierarchical-mesh, max 15, consensus) lives in [`.claude-flow/config.yaml`](docs/ruflo-setup.md#runtime-topology-claude-flowconfigyaml).
 
 | Task | Specialist |
 |---|---|
