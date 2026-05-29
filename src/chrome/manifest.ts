@@ -83,11 +83,17 @@ export default {
 
   // --- Web accessible resources -------------------------------------------
   // Fonts bundled with the extension so content scripts can reference them
-  // via chrome.runtime.getURL().  See issue #10.
+  // via chrome.runtime.getURL() from injected overlay styles.  See issue #10.
+  //
+  // `<all_urls>` matches matches the MVP scope: the overlay can be activated
+  // on any page the user grants access to via activeTab, so the font asset
+  // URL must be reachable from any origin. Tightening this list to specific
+  // origins would require enumerating every page the overlay can ever run on,
+  // which the lazy-injection model intentionally avoids.
   web_accessible_resources: [
     {
       resources: ['fonts/*'],
-      matches: [], // limited per-site in production; <all_urls> for MVP
+      matches: ['<all_urls>'],
     },
   ],
 

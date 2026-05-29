@@ -51,6 +51,7 @@ export default defineConfig({
       // Narrow inclusion: settings adapter + background activation/messaging/
       // state modules. Rest of src/chrome/** stays excluded — those surfaces
       // are integration-tested via Playwright (#38).
+      'src/chrome/__tests__/**/*.test.ts',
       'src/chrome/settings/**/__tests__/**/*.test.ts',
       'src/chrome/background/__tests__/**/*.test.ts',
       'src/chrome/background/activation/**/__tests__/**/*.test.ts',
