@@ -1,2 +1,9 @@
 export { createOverlay } from './overlay';
-export type { OverlayHandle, OverlayOptions, OverlaySettings, OverlayStatus } from './types';
+export type {
+  OverlayCloseSnapshot,
+  OverlayHandle,
+  OverlayOptions,
+  OverlayScope,
+  OverlaySettings,
+  OverlayStatus,
+} from './types';

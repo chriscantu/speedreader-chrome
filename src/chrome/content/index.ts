@@ -34,6 +34,7 @@ import { createOverlay, type OverlayHandle } from '../../core/overlay';
 import { createRsvpEngine } from '../../core/rsvp-engine';
 import { loadSettings, subscribeSettings } from '../settings/storage';
 import { tokenize } from '../../core/tokenize';
+import { recordClose, resumeIndex } from './session-position';
 
 console.log('[SpeedReader] Content script loaded');
 
@@ -100,6 +101,11 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
         const fullWords = tokenize(bodyText);
         if (fullWords.length === 0 && selectionWords.length === 0) return;
         const articleTitle = document.title?.trim() || undefined;
+        // #25 — session resume. Key per scope against the freshly-tokenized
+        // stream length so a mutated page falls back to start-of-stream
+        // rather than seeking into a stale offset.
+        const activeStreamLength = scope === 'selection' ? selectionWords.length : fullWords.length;
+        const initialIndex = resumeIndex(scope, activeStreamLength);
         activeOverlay = createOverlay({
           doc: document,
           // Legacy single-list field retained for the type contract; the
@@ -110,12 +116,14 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
           selectionWords,
           fullWords,
           articleTitle,
+          initialIndex,
           initialSettings: { theme: settings.theme, wpm: settings.wpm },
           subscribeSettings: (listener) =>
             subscribeSettings((s) => listener({ theme: s.theme, wpm: s.wpm })),
           engineFactory: createRsvpEngine,
-          onClose: () => {
+          onClose: (snapshot) => {
             activeOverlay = null;
+            recordClose(snapshot);
           },
         });
         activeOverlay.mount();

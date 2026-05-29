@@ -71,11 +71,53 @@ export interface OverlayOptions {
    * `Whole page — N words` when undefined.
    */
   articleTitle?: string;
+  /**
+   * Resume the engine at this word index on mount. Used by the content
+   * script to restore the session reading position after the user closed
+   * and reopened the overlay on the same document (#25). Clamped to
+   * `[0, activeWords.length - 1]`; out-of-range, non-finite, or
+   * non-integer values are ignored. `0` is treated as no-op (no seek
+   * needed when starting from the beginning).
+   *
+   * In-memory only — persistence across page reloads is deferred to #48.
+   */
+  initialIndex?: number;
   initialSettings: OverlaySettings;
   subscribeSettings: SettingsSubscribe;
   engineFactory: EngineFactory;
-  /** Called after teardown so the host (CS) can drop its handle. */
-  onClose?: () => void;
+  /**
+   * Called after teardown so the host (CS) can drop its handle.
+   *
+   * When the overlay had an active engine at close time, `snapshot`
+   * captures the engine's progress and the currently-active scope so the
+   * host can restore the position on a later remount. `snapshot` is
+   * `undefined` when mount aborted (engine never created) or the stream
+   * was empty (`total === 0`). Existing callers that ignore the argument
+   * remain source-compatible.
+   */
+  onClose?: (snapshot?: OverlayCloseSnapshot) => void;
+}
+
+/**
+ * Snapshot of the engine state at overlay close time. Captured before
+ * `engine.stop()` in `unmount()` so the host (content script) can resume
+ * the reading position on a subsequent mount in the same document.
+ *
+ * - `index` matches `engine.progress().index` — the count of words
+ *   emitted so far on the active stream.
+ * - `total` is the active stream's word count at close time. Used by
+ *   the host as a safety check before resuming: if the stream length
+ *   changed between mounts (dynamic page content), the host should skip
+ *   the resume rather than seek into a stale offset.
+ * - `scope` is whichever stream was driving the engine at close —
+ *   selection or full. Lets the host key session positions per-scope so
+ *   that closing in selection mode and reopening in full mode does NOT
+ *   restore the selection's index against the full stream.
+ */
+export interface OverlayCloseSnapshot {
+  readonly index: number;
+  readonly total: number;
+  readonly scope: OverlayScope;
 }
 
 export type OverlayStatus = 'mounted' | 'unmounted';
