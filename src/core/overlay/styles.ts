@@ -28,7 +28,7 @@ export const OVERLAY_CSS = `
 }
 
 .modal {
-  background: var(--bg, #ffffff);
+  background: var(--surface, #ffffff);
   color: var(--text, #111111);
   border-radius: 12px;
   padding: clamp(24px, 6cqi, 64px);
@@ -54,6 +54,11 @@ export const OVERLAY_CSS = `
   cursor: pointer;
 }
 
+.close-btn:hover {
+  background: var(--accent-soft, rgba(37, 99, 235, 0.12));
+  color: var(--text, #111111);
+}
+
 .close-btn:focus-visible {
   outline: 3px solid var(--accent, #2563eb);
   outline-offset: 2px;
@@ -77,6 +82,11 @@ export const OVERLAY_CSS = `
   color: var(--bg, #ffffff);
   font: 700 16px / 1 system-ui, sans-serif;
   cursor: pointer;
+}
+
+.play-pause-btn:hover {
+  background: var(--accent-soft, rgba(37, 99, 235, 0.12));
+  color: var(--text, #111111);
 }
 
 .play-pause-btn:focus-visible {
@@ -115,6 +125,11 @@ export const OVERLAY_CSS = `
   color: var(--text, #111111);
   font: 600 14px / 1 system-ui, sans-serif;
   cursor: pointer;
+}
+
+.scope-swap-btn:hover {
+  background: var(--accent-soft, rgba(37, 99, 235, 0.12));
+  color: var(--text, #111111);
 }
 
 .scope-swap-btn:focus-visible {
