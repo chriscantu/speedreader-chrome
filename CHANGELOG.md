@@ -24,6 +24,14 @@ heading and a fresh `[Unreleased]` block is opened above it.
 - Overlay close (Esc + ✕) preserves reading position in memory for the
   session — reopening on the same document and scope resumes where the
   user left off. `chrome.storage` persistence remains deferred (#25).
+- Overlay now consumes the `--surface` and `--accent-soft` theme slots
+  written by the applier — `.modal` background tracks `--surface`, and
+  transport buttons render a tinted `--accent-soft` background on hover
+  (#150).
+- Context preview on pause — when the reader is paused, the overlay
+  shows the surrounding sentence (previous + current + up to 3 next
+  words) with the current word bolded so the user can re-orient before
+  resuming. Hides on resume / done (#20).
 
 ### Changed
 
