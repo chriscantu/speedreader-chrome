@@ -300,13 +300,8 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // mouse viewports the listener is wired but the guard short-circuits,
     // so accidental clicks on the word region during text-selection
     // gestures do not pause the reader.
-    const isTouchPrimary = (): boolean => {
-      try {
-        return view.matchMedia('(pointer: coarse) and (hover: none)').matches;
-      } catch {
-        return false;
-      }
-    };
+    const isTouchPrimary = (): boolean =>
+      view.matchMedia('(pointer: coarse) and (hover: none)').matches;
     word.addEventListener('click', () => {
       if (!isTouchPrimary()) return;
       togglePlayPause();
