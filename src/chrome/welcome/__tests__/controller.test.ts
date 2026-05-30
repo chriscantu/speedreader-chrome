@@ -319,4 +319,86 @@ describe('welcome controller', () => {
       expect(api.flushMock).not.toHaveBeenCalled();
     });
   });
+
+  // Ring fixes — second-pass behaviors added after the tier-2 antagonistic
+  // review on PR #184 (decision-challenger #2/#3, scope-adversary #3/#4).
+  describe('slider disable in DONE (ring decision-challenger #2)', () => {
+    it('disables the slider when the loop cap fires and re-enables on Replay', async () => {
+      const api = makeStub();
+      await bindWelcome(document, window, api);
+      click(get(WELCOME_IDS.getStarted));
+      click(get(WELCOME_IDS.startPreview));
+      const words = SAMPLE_PASSAGE.split(/\s+/);
+      // Drive past the 2-pass cap.
+      vi.advanceTimersByTime(words.length * 240 * 3);
+      const slider = get<HTMLInputElement>(WELCOME_IDS.wpmSlider);
+      expect(slider.disabled).toBe(true);
+      // Replay re-enables.
+      click(get(WELCOME_IDS.replay));
+      expect(slider.disabled).toBe(false);
+    });
+  });
+
+  describe('late loadSettings does not race playback (ring decision-challenger #3)', () => {
+    it('skips the slider reseat if loadSettings resolves after Start preview', async () => {
+      const api = makeStub({ deferLoad: true });
+      await bindWelcome(document, window, api);
+      click(get(WELCOME_IDS.getStarted));
+      click(get(WELCOME_IDS.startPreview));
+      // Engine is now PLAYING at default 250. Late load lands.
+      api.resolveLoad({ ...DEFAULT_SETTINGS, wpm: 450 });
+      await flushMicrotasks();
+      // Slider must NOT have jumped under the user's gaze.
+      expect(get<HTMLInputElement>(WELCOME_IDS.wpmSlider).value).toBe('250');
+    });
+  });
+
+  describe('pause toggle (ring scope-adversary #3)', () => {
+    it('pauses an active engine and resumes it on the second click', async () => {
+      const api = makeStub();
+      await bindWelcome(document, window, api);
+      click(get(WELCOME_IDS.getStarted));
+      click(get(WELCOME_IDS.startPreview));
+      const words = SAMPLE_PASSAGE.split(/\s+/);
+      // Let one tick fire so we know engine is mid-stream.
+      vi.advanceTimersByTime(240);
+      const pauseBtn = get<HTMLButtonElement>(WELCOME_IDS.pauseToggle);
+      expect(pauseBtn.hidden).toBe(false);
+      expect(pauseBtn.textContent).toBe('Pause');
+      // Pause.
+      click(pauseBtn);
+      expect(pauseBtn.textContent).toBe('Play');
+      const frozen = get(WELCOME_IDS.wordDisplay).textContent;
+      // Word display does NOT advance while paused.
+      vi.advanceTimersByTime(1000);
+      expect(get(WELCOME_IDS.wordDisplay).textContent).toBe(frozen);
+      // Resume — the next tick lands a new word.
+      click(pauseBtn);
+      expect(pauseBtn.textContent).toBe('Pause');
+      vi.advanceTimersByTime(240);
+      const advanced = get(WELCOME_IDS.wordDisplay).textContent;
+      expect(advanced).not.toBe(frozen);
+      expect(words).toContain(advanced);
+    });
+  });
+
+  describe('teardown releases engine subscription (ring scope-adversary #4)', () => {
+    it('engine word events stop driving the DOM after teardown', async () => {
+      const api = makeStub();
+      const teardown = await bindWelcome(document, window, api);
+      click(get(WELCOME_IDS.getStarted));
+      click(get(WELCOME_IDS.startPreview));
+      // Tick once so a word lands.
+      vi.advanceTimersByTime(240);
+      const beforeTeardown = get(WELCOME_IDS.wordDisplay).textContent;
+      // Teardown: stops the engine and unsubscribes the word listener. The
+      // word display MUST NOT update even if a stray event fires.
+      teardown();
+      get(WELCOME_IDS.wordDisplay).textContent = 'SENTINEL';
+      vi.advanceTimersByTime(2000);
+      expect(get(WELCOME_IDS.wordDisplay).textContent).toBe('SENTINEL');
+      // Sanity — confirm we captured a valid playback word before teardown.
+      expect(beforeTeardown).not.toBe('');
+    });
+  });
 });

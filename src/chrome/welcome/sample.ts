@@ -1,7 +1,7 @@
 /**
  * Canned sample passage for the Calibrate view's preview stream.
  *
- * Project-neutral, no proper nouns, no rare words. Word count is ~60 so
+ * Project-neutral, no proper nouns, no rare words. Word count is 62 so
  * two passes at 250 wpm take roughly half a minute — long enough for the
  * user to feel the cadence, short enough that the WCAG 2.2.2 two-loop
  * cap doesn't strand them in motion they didn't ask for.

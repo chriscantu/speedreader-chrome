@@ -145,6 +145,10 @@ export async function bindWelcome(
     if (pauseToggleBtn) pauseToggleBtn.hidden = !visible;
   };
 
+  // Captured from engine.subscribe() so teardown can release the listener;
+  // production discards teardown but tests use it for clean isolation.
+  let engineUnsubscribe: (() => void) | null = null;
+
   const mountEngine = (): void => {
     if (engine !== null) return;
     const initialWpm = Number($slider.value);
@@ -152,20 +156,32 @@ export async function bindWelcome(
       words,
       wpm: previewWpm(initialWpm),
     });
-    engine.subscribe((event) => {
+    engineUnsubscribe = engine.subscribe((event) => {
       if (event.type === 'word') {
         $wordDisplay.textContent = event.word;
       } else if (event.type === 'done') {
         doneCount += 1;
         if (doneCount < LOOP_LIMIT) {
-          // Reset to IDLE then start() again. setWords() resets nextIndex + state.
+          // Loop the sample (spec §"Loop policy — capped at 2 passes").
+          // The engine's start() is guarded by `state === IDLE`, so we
+          // can't literally "re-call start()" as the spec phrases it —
+          // the engine sits in DONE after emitting 'done'. setWords()
+          // resets nextIndex + transitions back to IDLE, and the
+          // subsequent start() then ticks from the top. Functionally
+          // the spec's contract; mechanically a deviation worth naming.
           engine?.setWords(words);
           engine?.start();
         } else {
-          // Cap reached — leave engine in DONE, surface Replay.
+          // Cap reached — leave engine in DONE, surface Replay, and
+          // disable the slider. Per ring decision-challenger #2: in
+          // DONE the engine's setWpm() stores the new wpm but cannot
+          // reschedule a non-existent tick, so a drag here is a
+          // dead control until Replay. Disabling is the WCAG-clean
+          // signal that the slider is out of effect right now.
           showReplay(true);
           showStartPreview(false);
           showPauseToggle(false);
+          $slider.disabled = true;
         }
       }
     });
@@ -209,6 +225,7 @@ export async function bindWelcome(
     engine.setWords(words);
     showReplay(false);
     showPauseToggle(true);
+    $slider.disabled = false;
     engine.start();
   };
   if (replayBtn) replayBtn.addEventListener('click', onReplay);
@@ -255,11 +272,16 @@ export async function bindWelcome(
   $saveFinishBtn.addEventListener('click', onSaveFinish);
 
   // Non-blocking load. Slider stays at default until resolved; on resolve,
-  // reseat both slider and engine (engine remains IDLE either way — load
-  // completion does NOT auto-start playback).
+  // reseat both slider and engine — but only if the engine has not yet
+  // started playback. Per ring decision-challenger #3: if loadSettings
+  // resolves AFTER the user has clicked Start preview, a late reseat
+  // would visibly jump the slider mid-stream under the user's gaze. Once
+  // the user has committed to a preview cadence, the stored setting
+  // doesn't get to retro-apply.
   void api
     .load()
     .then((loaded) => {
+      if (engine && engine.state !== 'idle') return;
       setSliderValue(loaded.wpm);
       if (engine) {
         engine.setWpm(previewWpm(loaded.wpm));
@@ -277,6 +299,7 @@ export async function bindWelcome(
     if (pauseToggleBtn) pauseToggleBtn.removeEventListener('click', onPauseToggle);
     $slider.removeEventListener('input', onSliderInput);
     $saveFinishBtn.removeEventListener('click', onSaveFinish);
+    engineUnsubscribe?.();
     engine?.stop();
   };
 }
