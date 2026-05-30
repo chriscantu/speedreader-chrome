@@ -39,7 +39,7 @@ This spec **composes** with — and does NOT supersede — the following already
 
 ## Surface Layout
 
-`welcome.html` is a single HTML page with two named views. View transitions are local DOM state changes; the page does not navigate. The URL hash (`#welcome` / `#calibrate`) is updated as a convenience for back-button parity and shareable links, but the source of truth is in-memory state in the controller.
+`welcome.html` is a single HTML page with two named views. View transitions are local DOM state changes; the page does not navigate. The URL stays at `welcome.html` for the entire onboarding flow.
 
 ### View 1 — Welcome
 
@@ -54,8 +54,8 @@ Static intro. No engine reuse. Renders:
 
 Interactive WPM picker exercising the real RSVP engine. Renders:
 
-- Sample passage — a canned 80-100 word paragraph bundled as a string constant in the welcome module. NOT extracted from any page (no extraction path involved). The text is project-neutral, chosen for readability balance (no rare words, no proper nouns, no punctuation pacing edge cases that would inflate ETA).
-- Live RSVP stream — `src/core/overlay/` engine mounted into a contained region (NOT a Shadow DOM overlay over the whole page — the welcome page is privileged, not a content script). Engine boots playing at the current settings WPM. Looping playback (when the sample ends, restart).
+- Sample passage — a short canned paragraph bundled as a string constant in the welcome module. NOT extracted from any page (no extraction path involved).
+- Live RSVP stream — `src/core/overlay/` engine mounted into a contained region (NOT a Shadow DOM overlay over the whole page — the welcome page is privileged, not a content script). Engine boots playing at the current settings WPM. End-of-sample behavior (loop, pause, replay button) is implementer's choice — not pinned by this spec.
 - Slider — `<input type="range" min="100" max="600" step="10">`. Live label "`{wpm} wpm`". Slider drag immediately reseats the engine's WPM (no save yet — debounced visual preview only).
 - Primary CTA — `Save & finish` button. Calls `saveSettings({ wpm: <sliderValue> })` and then `window.close()`. The save fires before the close, but the close does NOT block on the save promise — `saveSettings` is debounced and the chrome.storage write may complete after the tab is gone; the V4 contract handles this (storage write is fire-and-forget from the caller's POV).
 - Dismiss control — header `✕`. Closes the tab. NO settings written. The user's slider drags up to that point are NOT persisted.
@@ -103,15 +103,13 @@ calibrate --[✕]--> closed (tab closes; nothing saved)
 
 No state machine library. A `<main>` element with two sibling `<section data-view="welcome">` and `<section data-view="calibrate">` is sufficient — controller toggles `hidden` attribute on each. The Calibrate engine is lazily mounted on first transition into `'calibrate'` (do NOT mount on page load — boot cost goes to the user only if they reach the view).
 
-`window.location.hash` is updated to `#welcome` / `#calibrate` on transition for back-button parity. The hash is read-only on initial load (we do NOT honor a `#calibrate` direct link — the page always boots in `'welcome'` state regardless of hash, so a stale bookmark doesn't bypass the intro).
-
 ## Settings Round-Trip
 
 Calibrate view loads settings via `loadSettings()` at mount. The slider's initial position is `settings.wpm`. The Calibrate UI MUST NOT block on the load — if `loadSettings()` is still in flight at render, the slider is rendered with the V4 default (250) and updated when the promise resolves (re-seat slider value + restart engine playback at the loaded WPM). This satisfies AC #3.
 
 `Save & finish` calls `saveSettings({ wpm: sliderValue })`. The `saveSettings` API debounces internally (300ms per the settings-schema spec); the welcome page does NOT need to await it. The page closes via `window.close()` synchronously after dispatching `saveSettings`. Storage propagation completes in the service worker after the tab is gone; the popup's next read will see the new value via the existing `chrome.storage.onChanged` broadcast.
 
-**`lastUsedWpm` is NOT updated by Calibrate.** `lastUsedWpm` tracks the WPM the user last activated a reader at (per the V4 schema notes). Calibrating in onboarding sets the persistent default `wpm`, but does NOT count as an activation. The first popup activation after onboarding will update `lastUsedWpm` via the normal path.
+Note: Calibrate writes `wpm` only. `lastUsedWpm` semantics (when it bumps, by which path) are owned by `2026-05-08-settings-schema.md`; this spec does not legislate them.
 
 ## File Layout
 
@@ -125,8 +123,7 @@ src/chrome/welcome/
 ├── controller.ts        # View state machine + Calibrate engine wiring; unit-testable against stub SettingsApi + DOM
 ├── sample.ts            # Canned passage constant (export const SAMPLE_PASSAGE: string)
 └── __tests__/
-    ├── controller.test.ts
-    └── sample.test.ts   # Asserts passage is within length/word-count bounds for sane ETA
+    └── controller.test.ts
 ```
 
 Service-worker delta (additive only):
@@ -149,21 +146,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 All logic lives in `controller.ts` so it tests against an injected `SettingsApi` + DOM, matching options-page testing patterns.
 
-## Vite / crxjs Bundling
-
-`welcome.html` is NOT referenced from `manifest.ts` (it's neither the action popup nor the options page). Two options for bundling:
-
-- **Recommended:** Add to `web_accessible_resources` in the manifest with the welcome-surface paths. This declares it as an addressable extension page and lets crxjs pick it up for bundling. `web_accessible_resources` is required only for cross-origin embedding (iframe-from-web-page), but declaring it here is the cleanest way to tell crxjs to emit the asset.
-- Alternative: Add `src/chrome/welcome/index.html` to `build.rollupOptions.input` in `vite.config.ts`. Lower-level, but matches what other crxjs adopters do for non-manifest pages.
-
-The implementation PR picks one — both work; this spec does not pin the choice. The verification step is `chrome-extension://<id>/src/chrome/welcome/index.html` resolves in a manually-loaded `dist/` unpacked extension and renders the welcome view.
-
-## Restricted-Page Guard
-
-The welcome page is an extension-owned page. It is not subject to the `chrome://*` / `chrome-extension://*` restricted-URL guard that applies to content-script injection — the welcome page IS extension content, not page content. No guard logic needed here.
-
-The popup CTA on the welcome page (if we added a "Read this page" button) would hit the restricted-URL guard, but **this spec does not add a popup-style CTA to the welcome page**. The only RSVP rendering on welcome is the canned sample played via the in-page engine, which involves zero `chrome.scripting.executeScript`.
-
 ## Failure Modes
 
 | Mode | Behavior | Recovery |
@@ -172,7 +154,7 @@ The popup CTA on the welcome page (if we added a "Read this page" button) would 
 | `loadSettings()` rejects in Calibrate | Slider stays at V4 default (250). | User can still drag and save — `saveSettings` writes from slider value regardless. |
 | `saveSettings()` rejects on `Save & finish` | Tab closes anyway; storage write is fire-and-forget. | Lossy — user's calibrated value is lost. This is the same failure mode as Options-page WPM persistence; covered by the settings-schema spec's retry behavior. |
 | User dismisses Calibrate without saving | Settings unchanged. `wpm` stays at V4 default 250. | User can change WPM via Options. |
-| User opens `welcome.html` URL manually (not via install trigger) | Page renders normally in welcome view. | This is fine — it's not a privileged trigger; the page is harmless. The hash-stale-link guard (always boot in `'welcome'`) prevents direct-to-calibrate exploitation. |
+| User opens `welcome.html` URL manually (not via install trigger) | Page renders normally in welcome view. | This is fine — it's not a privileged trigger; the page is harmless. The page always boots in `'welcome'` state regardless of how it was reached. |
 
 ## Non-Goals
 
@@ -183,25 +165,19 @@ The popup CTA on the welcome page (if we added a "Read this page" button) would 
 - **Per-OS install path differentiation** (Chrome vs Edge vs Brave on Chromium). The welcome surface renders identically across all Chromium-based browsers; no special-case branches.
 - **Welcome surface accessibility audit.** Standard WCAG application (per-issue `a11y-extension-designer` routing in `CLAUDE.md`) — covered by the implementation PR, not the spec.
 
-## Open Questions
-
-- **OQ-1:** Should Calibrate's engine loop the sample, or stop and offer a `Replay` button when it reaches the end? Looping is the recommended default (lets the user drag the slider without restarting), but a `Replay` button is friendlier for users with motion sensitivity who'd prefer not to have the stream running continuously. **Recommendation:** loop by default + a `Pause` button. Defer the `Replay` variant unless a11y review pushes back.
-- **OQ-2:** Vite bundling — `web_accessible_resources` vs `build.rollupOptions.input`. **Recommendation:** the implementation PR picks one and explains the choice in the PR body. Spec does not pin.
-
 ## Verification (for the implementation PR)
 
 The implementation PR's test plan MUST cover (and must NOT mark complete without observable evidence):
 
 - [ ] Fresh install (`chrome://extensions` → Remove → Load unpacked) opens `welcome.html` in a new tab. Screenshot the tab.
 - [ ] Welcome view renders title + body + `Get started →` + header `✕`. Screenshot.
-- [ ] Clicking `Get started →` transitions to Calibrate view in the same tab; URL hash becomes `#calibrate`. Screenshot.
+- [ ] Clicking `Get started →` transitions to Calibrate view in the same tab; the URL stays at `welcome.html` (no navigation). Screenshot.
 - [ ] Calibrate view renders the sample passage in an active RSVP stream. Screenshot mid-playback.
 - [ ] Slider drag updates the live label and reseats the engine's WPM. Manually verify visually at multiple positions (e.g., 150, 350, 550).
 - [ ] `Save & finish` writes `wpm` to chrome.storage. Verify by reopening `chrome://extensions` → Options for the extension, confirming the saved value.
 - [ ] Header `✕` on either view closes the tab without writing settings. Verify by opening Options afterward — `wpm` unchanged.
 - [ ] After dismissing onboarding (without saving), popup CTAs still work on a normal page. Verify by clicking `Read article` on a sample article URL.
 - [ ] Re-loading the extension (`Reload` button in `chrome://extensions`) does NOT re-open the welcome tab. Verify (`reason === 'update'` no-op).
-- [ ] axe-core scan on the rendered `welcome.html` reports zero violations. CI-equivalent verification.
 
 ## References
 
