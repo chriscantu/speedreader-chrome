@@ -28,7 +28,7 @@ function defaultOpts(holder: Holder, overrides: Partial<OverlayOptions> = {}): O
   return {
     doc: document,
     words: STREAM.slice(),
-    initialSettings: { theme: 'system', wpm: 300 },
+    initialSettings: { theme: 'system', wpm: 300, fontSize: 20 },
     subscribeSettings: () => () => undefined,
     engineFactory: (engineOpts: RsvpEngineOptions) => {
       holder.engine = createRsvpEngine(engineOpts);

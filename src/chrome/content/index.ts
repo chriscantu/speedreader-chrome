@@ -32,7 +32,7 @@
 import { handleActivateReader } from './activate-handler';
 import { createOverlay, type OverlayHandle } from '../../core/overlay';
 import { createRsvpEngine } from '../../core/rsvp-engine';
-import { loadSettings, subscribeSettings } from '../settings/storage';
+import { loadSettings, saveSettings, subscribeSettings } from '../settings/storage';
 import { tokenize } from '../../core/tokenize';
 import { recordClose, resumeIndex } from './session-position';
 
@@ -117,13 +117,35 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
           fullWords,
           articleTitle,
           initialIndex,
-          initialSettings: { theme: settings.theme, wpm: settings.wpm },
+          initialSettings: {
+            theme: settings.theme,
+            wpm: settings.wpm,
+            fontSize: settings.fontSize,
+          },
           subscribeSettings: (listener) =>
-            subscribeSettings((s) => listener({ theme: s.theme, wpm: s.wpm })),
+            subscribeSettings((s) =>
+              listener({ theme: s.theme, wpm: s.wpm, fontSize: s.fontSize }),
+            ),
           engineFactory: createRsvpEngine,
           onClose: (snapshot) => {
             activeOverlay = null;
             recordClose(snapshot);
+          },
+          // Font-size stepper (#29) — overlay clamps to FONT_SIZE_MIN/MAX
+          // before invoking. saveSettings is debounced (300 ms trailing
+          // edge) so rapid stepper presses coalesce into a single
+          // chrome.storage.sync.set, well under the 120 writes/min quota.
+          //
+          // Review H1 — surface persistence failures (quota exhaustion at
+          // 8 KB/item or 120 writes/min, sync-disabled) instead of
+          // dropping them via fire-and-forget `void`. The overlay UI has
+          // already mutated by the time this callback fires, so the user
+          // sees the new font size; logging gives us a breadcrumb when
+          // the next page reload doesn't reflect it.
+          onFontSizeChange: (next) => {
+            saveSettings({ fontSize: next }).catch((err: unknown) => {
+              console.warn('[speedreader] fontSize persist failed', err);
+            });
           },
         });
         activeOverlay.mount();

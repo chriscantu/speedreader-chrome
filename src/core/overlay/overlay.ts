@@ -13,7 +13,14 @@ import type { RsvpEngine } from '../rsvp-engine';
 import { renderWord } from './word';
 import { buildSentenceContext } from './sentence-context';
 import { installFocusTrap } from './focus-trap';
-import { WPM_MAX, WPM_MIN, WPM_STEP } from '../settings/bounds';
+import {
+  FONT_SIZE_MAX,
+  FONT_SIZE_MIN,
+  FONT_SIZE_STEP,
+  WPM_MAX,
+  WPM_MIN,
+  WPM_STEP,
+} from '../settings/bounds';
 
 /**
  * Snapshot of the scope-aware view at mount time. The CS pre-tokenizes both
@@ -98,6 +105,11 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
   let unsubscribeSettings: (() => void) | null = null;
   let uninstallTrap: (() => void) | null = null;
   let onKeydown: ((e: KeyboardEvent) => void) | null = null;
+  // #26 — live OS theme listener teardown. Attached during mount when
+  // matchMedia is available; the same closure is invoked by
+  // `subscribeSettings` to swap behaviour when the user toggles the
+  // theme between `'system'` and an explicit override.
+  let uninstallSystemThemeListener: (() => void) | null = null;
   let priorOverflow: string | null = null;
   // Lifted into the outer closure so `unmount()` can build the close
   // snapshot for `onClose` (#25). Reassigned on scope-swap so the
@@ -117,6 +129,8 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     closeBtn: HTMLButtonElement;
     playPauseBtn: HTMLButtonElement;
     swapBtn: HTMLButtonElement | null;
+    fontDecBtn: HTMLButtonElement;
+    fontIncBtn: HTMLButtonElement;
     ariaLive: HTMLElement;
     preview: HTMLElement;
   } {
@@ -196,6 +210,24 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       footer.appendChild(swapBtn);
     }
 
+    // Font-size stepper (#29). Placed before play/pause so the visual
+    // order in LTR reading is [A−] [A+] [Play/Pause]; tab order matches
+    // DOM order. Both ≥44×44 px via the .font-step-btn CSS rules in
+    // styles.ts (mirrors the close-btn dimensions to satisfy WCAG 2.5.5).
+    const fontDecBtn = doc.createElement('button');
+    fontDecBtn.className = OVERLAY_CLASS.FONT_DEC_BTN;
+    fontDecBtn.type = 'button';
+    fontDecBtn.textContent = OVERLAY_TEXT.FONT_DEC_GLYPH;
+    fontDecBtn.setAttribute('aria-label', OVERLAY_TEXT.FONT_DEC_LABEL);
+    footer.appendChild(fontDecBtn);
+
+    const fontIncBtn = doc.createElement('button');
+    fontIncBtn.className = OVERLAY_CLASS.FONT_INC_BTN;
+    fontIncBtn.type = 'button';
+    fontIncBtn.textContent = OVERLAY_TEXT.FONT_INC_GLYPH;
+    fontIncBtn.setAttribute('aria-label', OVERLAY_TEXT.FONT_INC_LABEL);
+    footer.appendChild(fontIncBtn);
+
     const playPauseBtn = doc.createElement('button');
     playPauseBtn.className = OVERLAY_CLASS.PLAY_PAUSE_BTN;
     playPauseBtn.type = 'button';
@@ -212,7 +244,18 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     backdrop.appendChild(modal);
     shadow.appendChild(backdrop);
 
-    return { modal, header, word, closeBtn, playPauseBtn, swapBtn, ariaLive, preview };
+    return {
+      modal,
+      header,
+      word,
+      closeBtn,
+      playPauseBtn,
+      swapBtn,
+      fontDecBtn,
+      fontIncBtn,
+      ariaLive,
+      preview,
+    };
   }
 
   function mount(): void {
@@ -242,22 +285,106 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     let scopeView = buildScopeView(opts);
     currentScope = scopeView?.scope ?? null;
     const shadow = host.attachShadow({ mode: 'open' });
-    const { modal, header, word, closeBtn, playPauseBtn, swapBtn, ariaLive, preview } =
-      buildShadowTree(shadow, scopeView);
+    const {
+      modal,
+      header,
+      word,
+      closeBtn,
+      playPauseBtn,
+      swapBtn,
+      fontDecBtn,
+      fontIncBtn,
+      ariaLive,
+      preview,
+    } = buildShadowTree(shadow, scopeView);
     const resolvedTheme = resolveTheme(opts.initialSettings.theme, view);
     applyTheme(resolvedTheme, modal);
+
+    // #26 — live re-apply when the user's effective theme is `'system'`
+    // and the OS prefers-color-scheme flips. Track the current setting
+    // in a closure so the matchMedia change handler can short-circuit
+    // when the user has picked an explicit override (a user who chose
+    // Light does NOT want the OS to override them).
+    //
+    // `currentTheme` reflects the SETTING value (`'system' | ThemeId`),
+    // not the resolved value, so the gate stays accurate across
+    // settings.theme → 'system' ↔ explicit transitions.
+    let currentTheme: ThemeId | 'system' = opts.initialSettings.theme;
+    const installSystemThemeListener = (): void => {
+      if (uninstallSystemThemeListener) return;
+      let mql: MediaQueryList;
+      try {
+        mql = view.matchMedia('(prefers-color-scheme: dark)');
+      } catch {
+        // No matchMedia (jsdom without a stub, very old WebView). The
+        // mount-time resolveTheme already chose a sensible fallback;
+        // there is nothing to subscribe to.
+        return;
+      }
+      const onChange = (): void => {
+        // Belt-and-braces: the settings push path also detaches the
+        // listener when transitioning away from 'system', but if a
+        // change arrives in the same microtask we don't want to
+        // re-apply against an explicit override.
+        if (currentTheme !== 'system') return;
+        applyTheme(resolveTheme('system', view), modal);
+      };
+      mql.addEventListener('change', onChange);
+      uninstallSystemThemeListener = () => mql.removeEventListener('change', onChange);
+    };
+    const removeSystemThemeListener = (): void => {
+      uninstallSystemThemeListener?.();
+      uninstallSystemThemeListener = null;
+    };
+    if (currentTheme === 'system') installSystemThemeListener();
 
     // Local WPM is the source of truth for engine cadence while mounted.
     // Persisted settings updates push in via `subscribeSettings`; the
     // in-overlay ↑/↓ shortcut updates `currentWpm` + the engine without
     // persisting.
     let currentWpm = opts.initialSettings.wpm;
+
+    // Font-size stepper (#29). Local cache so the subscribeSettings
+    // handler can short-circuit no-op emissions and so the A−/A+
+    // buttons read+clamp from a single source. The applyFontSize helper
+    // also updates the boundary-disabled state on the buttons.
+    let currentFontSize = opts.initialSettings.fontSize;
+    const clampFontSize = (n: number): number => {
+      // Defend against NaN/Infinity/negatives from caller-supplied
+      // initialSettings (review M4): Math.max/min propagate NaN, so a
+      // bare clamp here would still emit garbage CSS. Fall back to MIN.
+      if (!Number.isFinite(n)) return FONT_SIZE_MIN;
+      return Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, n));
+    };
+    const applyFontSize = (n: number): void => {
+      currentFontSize = n;
+      // Write the custom property on the modal ancestor rather than the
+      // hot `word` element (review M3). `.word-region` reads
+      // `var(--rsvp-font-size)` via CSS custom-property inheritance, so
+      // moving the write up one level keeps the cascade working while
+      // avoiding inline-style invalidation on every RSVP tick (~10 Hz
+      // at 600 wpm).
+      modal.style.setProperty('--rsvp-font-size', `${n}px`);
+      fontDecBtn.disabled = n <= FONT_SIZE_MIN;
+      fontIncBtn.disabled = n >= FONT_SIZE_MAX;
+    };
+    // Clamp at mount-time too (review M4) — subscribeSettings clamps but
+    // initialSettings flows in unclamped from caller, so a bad value
+    // (NaN, Infinity, negative) would otherwise write garbage CSS once.
+    applyFontSize(clampFontSize(currentFontSize));
+
     unsubscribeSettings = opts.subscribeSettings((s) => {
       const resolved = resolveTheme(s.theme, view);
       applyTheme(resolved, modal);
+      currentTheme = s.theme;
+      if (s.theme === 'system') installSystemThemeListener();
+      else removeSystemThemeListener();
       if (s.wpm !== currentWpm) {
         currentWpm = s.wpm;
         engine?.setWpm(s.wpm);
+      }
+      if (s.fontSize !== currentFontSize) {
+        applyFontSize(clampFontSize(s.fontSize));
       }
     });
 
@@ -465,6 +592,21 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
 
     const close = () => unmount();
     closeBtn.addEventListener('click', close);
+
+    // Font-size stepper handlers (#29). Apply locally for instant
+    // visual feedback, then dispatch upstream so the chrome glue can
+    // persist to chrome.storage.sync. The applied value is the clamped
+    // result — buttons are also disabled at the boundary, so a
+    // boundary-press is the no-op safety net for assistive tech that
+    // ignores `disabled`.
+    const stepFontSize = (delta: number): void => {
+      const next = clampFontSize(currentFontSize + delta);
+      if (next === currentFontSize) return;
+      applyFontSize(next);
+      opts.onFontSizeChange?.(next);
+    };
+    fontDecBtn.addEventListener('click', () => stepFontSize(-FONT_SIZE_STEP));
+    fontIncBtn.addEventListener('click', () => stepFontSize(FONT_SIZE_STEP));
     const stepWpm = (delta: number): void => {
       if (!engine) return;
       const next = Math.max(WPM_MIN, Math.min(WPM_MAX, currentWpm + delta));
@@ -540,8 +682,16 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     engine?.stop();
     engine = null;
     currentScope = null;
+    // #26 — drop the settings subscription BEFORE detaching the OS theme
+    // listener. The settings callback can re-install the matchMedia
+    // listener (when `s.theme === 'system'`); if we tore down matchMedia
+    // first, a synchronous settings echo or microtask-drained emission
+    // landing between the two calls would re-attach against a modal we're
+    // about to remove, leaking a closure that pins the shadow root + engine.
     unsubscribeSettings?.();
     unsubscribeSettings = null;
+    uninstallSystemThemeListener?.();
+    uninstallSystemThemeListener = null;
     host?.remove();
     host = null;
     if (priorOverflow !== null) {

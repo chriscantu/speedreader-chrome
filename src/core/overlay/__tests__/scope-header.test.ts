@@ -7,7 +7,7 @@ function defaultOpts(overrides: Partial<OverlayOptions> = {}): OverlayOptions {
   return {
     doc: document,
     words: ['hello', 'world'],
-    initialSettings: { theme: 'system', wpm: 300 },
+    initialSettings: { theme: 'system', wpm: 300, fontSize: 20 },
     subscribeSettings: () => () => undefined,
     engineFactory: createRsvpEngine,
     ...overrides,
@@ -170,7 +170,7 @@ describe('createOverlay — scoped header rendering (AC #10, AC #16 ARIA)', () =
         scope: 'selection',
         selectionWords: makeFortyTwoWords(),
         fullWords: ['x'],
-        initialSettings: { theme: 'system', wpm: 300 },
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20 },
       }),
     );
     overlay.mount();
@@ -186,7 +186,7 @@ describe('createOverlay — scoped header rendering (AC #10, AC #16 ARIA)', () =
         scope: 'selection',
         selectionWords: Array.from({ length: 60 }, (_, i) => `w${i}`),
         fullWords: ['x'],
-        initialSettings: { theme: 'system', wpm: 240 },
+        initialSettings: { theme: 'system', wpm: 240, fontSize: 20 },
       }),
     );
     overlay.mount();

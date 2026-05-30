@@ -14,7 +14,7 @@ function defaultOpts(overrides: Partial<OverlayOptions> = {}): OverlayOptions {
     selectionWords: SELECTION_WORDS,
     fullWords: FULL_WORDS,
     articleTitle: 'How Bees Find Flowers',
-    initialSettings: { theme: 'system', wpm: 300 },
+    initialSettings: { theme: 'system', wpm: 300, fontSize: 20 },
     subscribeSettings: () => () => undefined,
     engineFactory: createRsvpEngine,
     ...overrides,

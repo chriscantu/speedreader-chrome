@@ -137,9 +137,52 @@ export const OVERLAY_CSS = `
   outline-offset: 2px;
 }
 
+/* Font-size stepper buttons (#29). Visual treatment mirrors
+ * .scope-swap-btn (outline style, accent on hover) and tap-target
+ * dimensions mirror .close-btn so the WCAG 2.5.5 minimum holds across
+ * the control bar. */
+.font-dec-btn,
+.font-inc-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 2px solid var(--text, #111111);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text, #111111);
+  font: 700 16px / 1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.font-dec-btn:hover,
+.font-inc-btn:hover {
+  background: var(--accent-soft, rgba(37, 99, 235, 0.12));
+  color: var(--text, #111111);
+}
+
+.font-dec-btn:focus-visible,
+.font-inc-btn:focus-visible {
+  outline: 3px solid var(--accent, #2563eb);
+  outline-offset: 2px;
+}
+
+.font-dec-btn:disabled,
+.font-inc-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .word-region {
   text-align: center;
-  font-size: clamp(2rem, 5.5cqi + 1rem, 5.5rem);
+  /*
+   * When the in-modal A−/A+ stepper (#29) sets --rsvp-font-size as an
+   * inline custom property, this font-size resolves to the user-chosen
+   * value (clamped to FONT_SIZE_MIN..MAX in JS). When the custom
+   * property is absent (e.g. caller hasn't wired the stepper yet) the
+   * fluid clamp() fallback satisfies WCAG 1.4.10 / 1.4.4 at 320px and
+   * 200% zoom per the responsive-overlay spec.
+   */
+  font-size: var(--rsvp-font-size, clamp(2rem, 5.5cqi + 1rem, 5.5rem));
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
   padding-block: clamp(32px, 8cqi, 96px);
@@ -207,6 +250,14 @@ export const OVERLAY_CSS = `
     border-color: ButtonText;
   }
   .scope-swap-btn:focus-visible { outline-color: Highlight; }
+  .font-dec-btn,
+  .font-inc-btn {
+    background: ButtonFace;
+    color: ButtonText;
+    border-color: ButtonText;
+  }
+  .font-dec-btn:focus-visible,
+  .font-inc-btn:focus-visible { outline-color: Highlight; }
   .context-preview { color: CanvasText; opacity: 1; }
   .context-current { color: Highlight; }
 }
@@ -267,6 +318,12 @@ export const OVERLAY_CSS = `
   .scope-swap-btn {
     min-height: 48px;
     padding: 12px 20px;
+  }
+  .font-dec-btn,
+  .font-inc-btn {
+    min-width: 48px;
+    min-height: 48px;
+    padding: 12px 16px;
   }
 }
 `;

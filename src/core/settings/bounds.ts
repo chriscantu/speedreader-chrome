@@ -15,3 +15,11 @@ export const WPM_STEP = 10;
 
 export const FONT_SIZE_MIN = 12;
 export const FONT_SIZE_MAX = 48;
+/**
+ * Increment used by the overlay's in-modal `A−` / `A+` stepper (#29).
+ * Mirrors Safari upstream `FONT_SIZE_STEP = 2`
+ * (`SpeedReader/SpeedReaderExtension/Resources/rsvp/settings-defaults.js`).
+ * The options page number-input uses `step="1"` for fine-grained edits —
+ * that's an unrelated affordance and intentionally stays at 1.
+ */
+export const FONT_SIZE_STEP = 2;

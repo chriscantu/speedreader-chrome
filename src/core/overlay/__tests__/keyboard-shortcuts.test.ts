@@ -11,7 +11,7 @@ function defaultOpts(holder: Holder, overrides: Partial<OverlayOptions> = {}): O
   return {
     doc: document,
     words: STREAM.slice(),
-    initialSettings: { theme: 'system', wpm: 300 },
+    initialSettings: { theme: 'system', wpm: 300, fontSize: 20 },
     subscribeSettings: () => () => undefined,
     engineFactory: (engineOpts: RsvpEngineOptions) => {
       holder.engine = createRsvpEngine(engineOpts);
@@ -88,7 +88,7 @@ describe('createOverlay — in-overlay keyboard shortcuts (#33)', () => {
   test('ArrowUp increases WPM by step', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(
-      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 300 } }),
+      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 300, fontSize: 20 } }),
     );
     overlay.mount();
     const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
@@ -102,7 +102,7 @@ describe('createOverlay — in-overlay keyboard shortcuts (#33)', () => {
   test('ArrowDown decreases WPM by step', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(
-      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 300 } }),
+      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 300, fontSize: 20 } }),
     );
     overlay.mount();
     const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
@@ -116,7 +116,7 @@ describe('createOverlay — in-overlay keyboard shortcuts (#33)', () => {
   test('ArrowUp clamps at WPM upper bound (600)', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(
-      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 600 } }),
+      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 600, fontSize: 20 } }),
     );
     overlay.mount();
     const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
@@ -130,7 +130,7 @@ describe('createOverlay — in-overlay keyboard shortcuts (#33)', () => {
   test('ArrowDown clamps at WPM lower bound (100)', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(
-      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 100 } }),
+      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 100, fontSize: 20 } }),
     );
     overlay.mount();
     const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
@@ -144,7 +144,7 @@ describe('createOverlay — in-overlay keyboard shortcuts (#33)', () => {
   test('repeated ArrowUp ticks accumulate', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(
-      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 300 } }),
+      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 300, fontSize: 20 } }),
     );
     overlay.mount();
     const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
@@ -229,7 +229,7 @@ describe('createOverlay — in-overlay keyboard shortcuts (#33)', () => {
     overlay.mount();
     const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
 
-    const next: OverlaySettings = { theme: 'system', wpm: 450 };
+    const next: OverlaySettings = { theme: 'system', wpm: 450, fontSize: 20 };
     emitter.fn?.(next);
 
     expect(setWpmSpy).toHaveBeenCalledWith(450);
@@ -249,7 +249,7 @@ describe('createOverlay — in-overlay keyboard shortcuts (#33)', () => {
     overlay.mount();
     const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
 
-    emitter.fn?.({ theme: 'dark', wpm: 300 }); // wpm unchanged
+    emitter.fn?.({ theme: 'dark', wpm: 300, fontSize: 20 }); // wpm unchanged
 
     expect(setWpmSpy).not.toHaveBeenCalled();
     overlay.unmount();
@@ -299,7 +299,7 @@ describe('createOverlay — in-overlay keyboard shortcuts (#33)', () => {
   test('ArrowUp at 595 WPM clamps to 600 (not 605)', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(
-      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 590 } }),
+      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 590, fontSize: 20 } }),
     );
     overlay.mount();
     const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
@@ -315,7 +315,7 @@ describe('createOverlay — in-overlay keyboard shortcuts (#33)', () => {
   test('ArrowDown at 110 WPM clamps to 100 (not 90)', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(
-      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 110 } }),
+      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 110, fontSize: 20 } }),
     );
     overlay.mount();
     const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
