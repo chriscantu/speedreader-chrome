@@ -33,11 +33,18 @@ interface RunResult {
   stderr: string;
 }
 
-function runScript(fontsDir: string): RunResult {
+function runScript(
+  fontsDir: string,
+  opts: { args?: string[]; distDir?: string } = {},
+): RunResult {
   try {
-    const stdout = execFileSync('bash', [SCRIPT], {
+    const env: NodeJS.ProcessEnv = { ...process.env, FONTS_DIR: fontsDir };
+    if (opts.distDir !== undefined) {
+      env.DIST_FONTS_DIR = opts.distDir;
+    }
+    const stdout = execFileSync('bash', [SCRIPT, ...(opts.args ?? [])], {
       cwd: REPO_ROOT,
-      env: { ...process.env, FONTS_DIR: fontsDir },
+      env,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -113,6 +120,73 @@ describe('verify-font-integrity.sh', () => {
     const result = runScript(dir);
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/no pinned sha256/);
+  });
+
+  describe('--check-dist flag', () => {
+    // Pre-build catches source tamper; post-build (--check-dist) catches
+    // Vite/crxjs-plugin rewrites of the emitted woff2. Same pinned hash
+    // is the source of truth for both.
+
+    it('exits 0 when dist woff2 matches pinned hash', () => {
+      const fontsDir = mkdtempSync(join(tmpdir(), 'verify-font-dist-ok-fonts-'));
+      const distDir = mkdtempSync(join(tmpdir(), 'verify-font-dist-ok-dist-'));
+      copyFileSync(
+        join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
+        join(fontsDir, 'OpenDyslexic-Regular.woff2'),
+      );
+      copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(fontsDir, 'OFL.txt'));
+      copyFileSync(join(REPO_ROOT, 'fonts', 'README.md'), join(fontsDir, 'README.md'));
+
+      // Byte-identical copy in the simulated dist/fonts/.
+      copyFileSync(
+        join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
+        join(distDir, 'OpenDyslexic-Regular.woff2'),
+      );
+
+      const result = runScript(fontsDir, { args: ['--check-dist'], distDir });
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      expect(result.stdout).toMatch(/dist ok\s+OpenDyslexic-Regular\.woff2/);
+    });
+
+    it('exits non-zero when dist woff2 has been perturbed', () => {
+      const fontsDir = mkdtempSync(join(tmpdir(), 'verify-font-dist-bad-fonts-'));
+      const distDir = mkdtempSync(join(tmpdir(), 'verify-font-dist-bad-dist-'));
+      copyFileSync(
+        join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
+        join(fontsDir, 'OpenDyslexic-Regular.woff2'),
+      );
+      copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(fontsDir, 'OFL.txt'));
+      copyFileSync(join(REPO_ROOT, 'fonts', 'README.md'), join(fontsDir, 'README.md'));
+
+      // Perturb the dist binary — flip a single trailing byte. Source
+      // woff2 is unchanged, so a pre-build run still passes; only the
+      // --check-dist pass catches the rewrite.
+      const realBytes = readFileSync(join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'));
+      const perturbed = Buffer.from(realBytes);
+      perturbed[perturbed.length - 1] = perturbed[perturbed.length - 1] ^ 0xff;
+      writeFileSync(join(distDir, 'OpenDyslexic-Regular.woff2'), perturbed);
+
+      const result = runScript(fontsDir, { args: ['--check-dist'], distDir });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toMatch(/dist HASH MISMATCH/);
+    });
+
+    it('exits non-zero when --check-dist target dir has no woff2', () => {
+      const fontsDir = mkdtempSync(join(tmpdir(), 'verify-font-dist-empty-fonts-'));
+      const distDir = mkdtempSync(join(tmpdir(), 'verify-font-dist-empty-dist-'));
+      copyFileSync(
+        join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
+        join(fontsDir, 'OpenDyslexic-Regular.woff2'),
+      );
+      copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(fontsDir, 'OFL.txt'));
+      copyFileSync(join(REPO_ROOT, 'fonts', 'README.md'), join(fontsDir, 'README.md'));
+      // distDir intentionally empty — Vite-plugin failed to emit fonts.
+
+      const result = runScript(fontsDir, { args: ['--check-dist'], distDir });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toMatch(/dist .* missing|no \*\.woff2 files in/);
+    });
   });
 
   it('exits non-zero when fonts dir contains no woff2', () => {

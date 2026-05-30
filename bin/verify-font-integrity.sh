@@ -20,7 +20,21 @@
 
 set -euo pipefail
 
+check_dist=0
+for arg in "$@"; do
+  case "${arg}" in
+    --check-dist)
+      check_dist=1
+      ;;
+    *)
+      echo "verify-font-integrity: unknown argument: ${arg}" >&2
+      exit 2
+      ;;
+  esac
+done
+
 FONTS_DIR="${FONTS_DIR:-fonts}"
+DIST_FONTS_DIR="${DIST_FONTS_DIR:-dist/fonts}"
 README="${FONTS_DIR}/README.md"
 
 if [ ! -d "${FONTS_DIR}" ]; then
@@ -89,5 +103,49 @@ for font in "${fonts[@]}"; do
 
   echo "verify-font-integrity: ok  ${basename}  sha256:${actual_hash}"
 done
+
+# Post-build pass: when --check-dist is set, recompute hashes for the
+# emitted dist/fonts/*.woff2 and assert they match the SAME pinned
+# hashes from fonts/README.md. Pre-build catches source tamper; this
+# pass catches Vite/crxjs-plugin rewrites of the emitted binary.
+if [ "${check_dist}" -eq 1 ]; then
+  if [ ! -d "${DIST_FONTS_DIR}" ]; then
+    echo "verify-font-integrity: dist directory missing: ${DIST_FONTS_DIR}" >&2
+    exit 1
+  fi
+
+  shopt -s nullglob
+  dist_fonts=("${DIST_FONTS_DIR}"/*.woff2)
+  shopt -u nullglob
+
+  if [ "${#dist_fonts[@]}" -eq 0 ]; then
+    echo "verify-font-integrity: no *.woff2 files in ${DIST_FONTS_DIR}" >&2
+    exit 1
+  fi
+
+  for font in "${dist_fonts[@]}"; do
+    basename="${font##*/}"
+
+    pinned_line="$(grep -E "^${basename}[[:space:]]+sha256:[0-9a-f]{64}" "${README}" || true)"
+    if [ -z "${pinned_line}" ]; then
+      echo "verify-font-integrity: dist file ${basename} has no pinned sha256 in ${README}" >&2
+      status=1
+      continue
+    fi
+    pinned_hash="$(echo "${pinned_line}" | grep -oE 'sha256:[0-9a-f]{64}' | head -n 1 | cut -d: -f2)"
+
+    actual_hash="$(shasum -a 256 "${font}" | awk '{print $1}')"
+
+    if [ "${actual_hash}" != "${pinned_hash}" ]; then
+      echo "verify-font-integrity: dist HASH MISMATCH for ${basename}" >&2
+      echo "  pinned: ${pinned_hash}" >&2
+      echo "  actual: ${actual_hash}" >&2
+      status=1
+      continue
+    fi
+
+    echo "verify-font-integrity: dist ok  ${basename}  sha256:${actual_hash}"
+  done
+fi
 
 exit "${status}"
