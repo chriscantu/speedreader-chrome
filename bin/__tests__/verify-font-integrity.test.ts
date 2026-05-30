@@ -352,4 +352,231 @@ describe('verify-font-integrity.sh', () => {
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
   });
+
+  // ── TG1 — LICENSE.txt arm regression-pin (issue #189 ring) ────────────
+  // F3 covered LICENSE / LICENSE.md / OFL.txt. The LICENSE* glob also
+  // matches LICENSE.txt; without an explicit test, a future refactor
+  // narrowing the glob would silently break valid LICENSE.txt-only
+  // directories.
+
+  it('exits 0 when only LICENSE.txt (no OFL.txt) is present (TG1)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'verify-font-license-txt-only-'));
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
+      join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'LICENSE.txt'));
+    const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
+    const stripped = realReadme.replace(/^OFL\.txt[^\n]*\n/m, '');
+    writeFileSync(join(dir, 'README.md'), stripped);
+
+    const result = runScript(dir);
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+  });
+
+  // ── SH1 — Path-traversal basename rejection (issue #189 ring) ─────────
+  // Pin parser previously accepted ANY non-whitespace token as basename;
+  // a pin line `../../etc/passwd  sha256:0000…` would have caused
+  // `shasum -a 256 fonts/../../etc/passwd` to run and leak the hash of
+  // /etc/passwd into CI logs via the `HASH MISMATCH actual: <hash>`
+  // diagnostic. Validate basenames to safe charset only.
+
+  it('exits non-zero on path-traversal basename and does NOT hash the traversal target (SH1)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'verify-font-traversal-'));
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
+      join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
+
+    const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
+    // Inject a traversal pin line inside the fence block.
+    const malicious = realReadme.replace(
+      /(OpenDyslexic-Regular\.woff2\s+sha256:[0-9a-f]{64}[^\n]*\n)/,
+      '../../etc/hostname          sha256:0000000000000000000000000000000000000000000000000000000000000000  source:attack\n$1',
+    );
+    expect(malicious).not.toBe(realReadme);
+    writeFileSync(join(dir, 'README.md'), malicious);
+
+    const result = runScript(dir);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/invalid pin basename/);
+    // CRITICAL — no shasum was run against the traversal target. If the
+    // guard merely warned but still hashed, a "HASH MISMATCH" line for
+    // ../../etc/hostname would appear in stderr leaking the hash.
+    expect(result.stderr).not.toMatch(/HASH MISMATCH[\s\S]*hostname/);
+  });
+
+  // ── TG2 — Malformed pin must surface, not silently bypass (issue #189) ──
+  // Strict pin_re filters out malformed lines, so a duplicate-with-malformed
+  // case slips past F1. Detect pin-shaped attempts (basename + sha256
+  // keyword) and error if the hash isn't well-formed.
+
+  it('exits non-zero when README has a SHORT-hash pin attempt (TG2)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'verify-font-malformed-short-'));
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
+      join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
+
+    const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
+    const malformed = realReadme.replace(
+      /(OpenDyslexic-Regular\.woff2\s+sha256:[0-9a-f]{64}[^\n]*\n)/,
+      'OpenDyslexic-Regular.woff2  sha256:DEADBEEF  source:short\n$1',
+    );
+    expect(malformed).not.toBe(realReadme);
+    writeFileSync(join(dir, 'README.md'), malformed);
+
+    const result = runScript(dir);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/malformed pin/);
+  });
+
+  it('exits non-zero when README has a UPPERCASE-keyword pin attempt (TG2)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'verify-font-malformed-typo-'));
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
+      join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
+
+    const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
+    const malformed = realReadme.replace(
+      /(OpenDyslexic-Regular\.woff2\s+sha256:[0-9a-f]{64}[^\n]*\n)/,
+      'second-font.woff2           SHA256:0000000000000000000000000000000000000000000000000000000000000000  source:typo\n$1',
+    );
+    expect(malformed).not.toBe(realReadme);
+    writeFileSync(join(dir, 'README.md'), malformed);
+
+    const result = runScript(dir);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/malformed pin/);
+  });
+
+  it('exits non-zero when README has a TOO-LONG hash pin attempt (TG2)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'verify-font-malformed-long-'));
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
+      join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
+
+    const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
+    // 80-hex-char hash (well-formed chars but wrong length).
+    const malformed = realReadme.replace(
+      /(OpenDyslexic-Regular\.woff2\s+sha256:[0-9a-f]{64}[^\n]*\n)/,
+      'OpenDyslexic-Regular.woff2  sha256:0441bc21071e42db57c217f93fbc48d3b55a2987c02814c94dc93621c42e86950000000000000000  source:long\n$1',
+    );
+    expect(malformed).not.toBe(realReadme);
+    writeFileSync(join(dir, 'README.md'), malformed);
+
+    const result = runScript(dir);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/malformed pin/);
+  });
+
+  // ── SH2 — Pin parser must be fence-aware (issue #189 ring) ────────────
+  // Pin extraction was a whole-file grep with no markdown-fence awareness.
+  // A pin-shaped line in a quote block / outside-fence example could be
+  // parsed as authoritative.
+
+  it('IGNORES a pin-shaped line outside any triple-backtick fence (SH2)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'verify-font-fence-ignore-'));
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
+      join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
+
+    const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
+    // Append a flush-left pin-shaped example OUTSIDE any fence, with a
+    // deliberately DIFFERENT sha256 for the same basename. The line is
+    // shaped exactly like a real pin (basename + sha256 + source) so
+    // a non-fence-aware grep WILL match it; a fence-aware parser must
+    // ignore it. If non-fence-aware, F1 fires DUPLICATE PIN.
+    const withOutsideExample =
+      realReadme +
+      '\n## Example (not authoritative — outside fence)\n\n' +
+      'OpenDyslexic-Regular.woff2  sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef  source:example\n';
+    writeFileSync(join(dir, 'README.md'), withOutsideExample);
+
+    const result = runScript(dir);
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/ok\s+OpenDyslexic-Regular\.woff2/);
+  });
+
+  it('detects duplicate pins when both live INSIDE fences (SH2)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'verify-font-fence-dup-'));
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
+      join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
+
+    const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
+    // Append a SECOND fence block with a duplicate pin for the same
+    // basename. Both fences are authoritative → DUPLICATE PIN must fire.
+    const withSecondFence =
+      realReadme +
+      '\n## Second authoritative fence\n\n```\n' +
+      'OpenDyslexic-Regular.woff2  sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef  source:dup\n' +
+      '```\n';
+    writeFileSync(join(dir, 'README.md'), withSecondFence);
+
+    const result = runScript(dir);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/DUPLICATE PIN/);
+    expect(result.stderr).toMatch(/OpenDyslexic-Regular\.woff2/);
+  });
+
+  // ── SH3 — --check-dist must share the pin-lookup code path (issue #189) ──
+  // Source loop was rewritten in F2 to iterate pin_lines; dist loop still
+  // used the old `grep -E "^${basename}…"` pattern with shell interpolation
+  // (regex-metachar injection class) and lookup-inconsistency risk.
+
+  it('--check-dist surfaces a pinned woff2 missing from dist/ (SH3)', () => {
+    // SH3 reshape: dist loop must iterate the pinned woff2 set (not the
+    // dist/*.woff2 glob), so a pin that's present in fonts/ AND README
+    // but ABSENT from dist/ surfaces. The old "iterate dist files,
+    // lookup pin" loop silently missed this class (Vite-plugin failed
+    // to emit a specific woff2 → no diagnostic; only the all-empty case
+    // fired).
+    const fontsDir = mkdtempSync(join(tmpdir(), 'verify-font-dist-sh3-fonts-'));
+    const distDir = mkdtempSync(join(tmpdir(), 'verify-font-dist-sh3-dist-'));
+
+    // Two pinned woff2 in fonts/, only one emitted to dist/.
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
+      join(fontsDir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
+      join(fontsDir, 'second-font.woff2'),
+    );
+    copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(fontsDir, 'OFL.txt'));
+
+    // dist/ has only the first font — second-font.woff2 is missing.
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
+      join(distDir, 'OpenDyslexic-Regular.woff2'),
+    );
+
+    const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
+    // Add a pin for second-font.woff2 (same hash since it's a copy of
+    // the real binary), inside the existing fence.
+    const augmented = realReadme.replace(
+      /(```\n)(OpenDyslexic-Regular\.woff2)/,
+      '$1second-font.woff2           sha256:0441bc21071e42db57c217f93fbc48d3b55a2987c02814c94dc93621c42e8695  source:test\n$2',
+    );
+    expect(augmented).not.toBe(realReadme);
+    writeFileSync(join(fontsDir, 'README.md'), augmented);
+
+    const result = runScript(fontsDir, { args: ['--check-dist'], distDir });
+    expect(result.status).not.toBe(0);
+    // The dist loop must report second-font.woff2 as missing from dist.
+    expect(result.stderr).toMatch(/dist pinned file missing[\s\S]*second-font\.woff2/);
+  });
 });

@@ -73,16 +73,78 @@ fi
 
 status=0
 
-# Collect all pin lines from README. Format (one per line):
-#   <basename>  sha256:<hex>  source:...
+# Collect pin lines from README. Format (one per line, inside a triple-
+# backtick fence):
+#   <basename>  sha256:<64-hex>  source:...
+#
 # Pin parser is intentionally extension-agnostic — woff2 binaries AND
 # license/text siblings (OFL.txt etc.) get enforced uniformly.
-# Avoid `mapfile` (bash 4+) for macOS /usr/bin/bash 3.2 compatibility.
-pin_re='^[^[:space:]]+[[:space:]]+sha256:[0-9a-f]{64}'
+#
+# Three hardenings (issue #189 ring follow-ups):
+#   SH2 — fence-aware: only lines INSIDE a triple-backtick fence are
+#         considered. A pin-shaped line in a quote block or "## Example"
+#         section outside the fence is ignored. Without this, an
+#         informational example could shadow or duplicate a real pin.
+#   TG2 — malformed-pin detection: a line that LOOKS like a pin attempt
+#         (basename + `sha256` keyword) but doesn't match the strict form
+#         is surfaced as an error rather than silently filtered out.
+#         Catches typo'd `SHA256:`, short hashes, oversized hashes.
+#   SH1 — basename validation deferred to the per-pin loop below; reject
+#         anything outside `[A-Za-z0-9._-]+` to prevent path traversal
+#         turning the diagnostic stream into a hash-disclosure primitive.
+#
+# Single-pass awk is bash-3.2 safe (no associative arrays here, no
+# mapfile). The script emits one line per accepted pin and a `MALFORMED:`
+# prefix per rejected pin attempt; the bash loop below treats the latter
+# as a hard error.
+#
+# Strict pin shape: any non-whitespace basename + lowercase `sha256:` +
+# exactly 64 lowercase hex. Basename character-class validation happens
+# in the per-pin loop below (SH1) so that an invalid-basename pin gets
+# its own diagnostic distinct from a malformed-hash pin (TG2).
+#
+# Loose pin-attempt shape: non-whitespace basename + any-case `sha256`
+# keyword. Lines matching loose but NOT strict are surfaced as
+# malformed — catches short hashes, oversized hashes, typo'd `SHA256:`.
 pin_lines=()
+malformed_lines=()
 while IFS= read -r _line; do
-  pin_lines+=("${_line}")
-done < <(grep -E "${pin_re}" "${README}" || true)
+  case "${_line}" in
+    MALFORMED:*)
+      malformed_lines+=("${_line#MALFORMED:}")
+      ;;
+    *)
+      pin_lines+=("${_line}")
+      ;;
+  esac
+done < <(
+  awk '
+    BEGIN { in_fence = 0 }
+    /^[[:space:]]*```/ { in_fence = !in_fence; next }
+    in_fence == 0 { next }
+    # Inside fence — classify the line.
+    /^[^[:space:]]+[[:space:]]+sha256:[0-9a-f]{64}([[:space:]]|$)/ {
+      print $0
+      next
+    }
+    # Loose detector: pin-shape attempt + sha256 keyword (case-insensitive)
+    # that did not match strict. Surface as malformed.
+    /^[^[:space:]]+[[:space:]]+[sS][hH][aA]256[:[:space:]]/ {
+      print "MALFORMED:" $0
+      next
+    }
+  ' "${README}"
+)
+
+# Surface malformed pin attempts before any per-pin processing — these
+# indicate intent to pin but a syntactic break (truncated hash, typo'd
+# keyword, oversized hash). A future README with a typo would otherwise
+# silently drop the pin and the woff2 enumeration below would catch it
+# as "no pinned sha256", but the diagnostic would be misleading.
+for ml in "${malformed_lines[@]+"${malformed_lines[@]}"}"; do
+  echo "verify-font-integrity: malformed pin: ${ml}" >&2
+  status=1
+done
 
 # Track which basenames we've already verified (for woff2 cross-check
 # below) and which we've seen at all (for duplicate detection).
@@ -91,6 +153,20 @@ seen_basenames=()
 
 for line in "${pin_lines[@]+"${pin_lines[@]}"}"; do
   basename="$(echo "${line}" | awk '{print $1}')"
+
+  # Basename safety (SH1) — defense-in-depth even though the awk
+  # extractor's strict regex already constrains the basename charset.
+  # If a future relaxation of strict_pin_re lets through `..` or `/`,
+  # this guard prevents the per-pin loop from invoking
+  # `shasum -a 256 fonts/../../etc/passwd` and leaking the hash into
+  # the `HASH MISMATCH actual: <hex>` diagnostic line.
+  case "${basename}" in
+    *[!A-Za-z0-9._-]* | '' | *..* )
+      echo "verify-font-integrity: invalid pin basename: ${basename}" >&2
+      status=1
+      continue
+      ;;
+  esac
 
   # Duplicate-pin guard (F1) — a future README with two pin lines for
   # the same basename (e.g., a commented-out history pin above the real
@@ -166,43 +242,57 @@ for font in "${fonts[@]}"; do
   fi
 done
 
-# Post-build pass: when --check-dist is set, recompute hashes for the
-# emitted dist/fonts/*.woff2 and assert they match the SAME pinned
-# hashes from fonts/README.md. Pre-build catches source tamper; this
-# pass catches Vite/crxjs-plugin rewrites of the emitted binary.
+# Post-build pass: when --check-dist is set, recompute hashes for each
+# pinned woff2 against its dist/fonts/<basename> counterpart and assert
+# the hash matches. Pre-build catches source tamper; this pass catches
+# Vite/crxjs-plugin rewrites of the emitted binary AND missing-emit
+# (Vite-plugin failed to copy a specific font through to dist).
+#
+# Iterates the SAME pin_lines set the source loop walked (SH3) so the
+# two paths share a single source of truth — no shell-interpolated
+# regex, no lookup divergence between source and dist phases.
 #
 # Scope: --check-dist intentionally remains *.woff2-only. License
 # files (OFL.txt) are not emitted to dist/; source-side enforcement
-# above is sufficient. If a future revision starts emitting non-woff2
-# pinned assets to dist/, extend this loop the same way the source
-# loop was extended in issue #189.
+# above is sufficient.
 if [ "${check_dist}" -eq 1 ]; then
   if [ ! -d "${DIST_FONTS_DIR}" ]; then
     echo "verify-font-integrity: dist directory missing: ${DIST_FONTS_DIR}" >&2
     exit 1
   fi
 
-  shopt -s nullglob
-  dist_fonts=("${DIST_FONTS_DIR}"/*.woff2)
-  shopt -u nullglob
+  dist_pin_count=0
+  for line in "${pin_lines[@]+"${pin_lines[@]}"}"; do
+    basename="$(echo "${line}" | awk '{print $1}')"
 
-  if [ "${#dist_fonts[@]}" -eq 0 ]; then
-    echo "verify-font-integrity: no *.woff2 files in ${DIST_FONTS_DIR}" >&2
-    exit 1
-  fi
+    # Restrict --check-dist to *.woff2 pins (license files don't ship
+    # to dist/).
+    case "${basename}" in
+      *.woff2) ;;
+      *) continue ;;
+    esac
 
-  for font in "${dist_fonts[@]}"; do
-    basename="${font##*/}"
+    # Re-apply the basename safety check from the source loop. Cheap;
+    # keeps both loops symmetrically hardened against SH1.
+    case "${basename}" in
+      *[!A-Za-z0-9._-]* | '' | *..* )
+        echo "verify-font-integrity: invalid pin basename in dist phase: ${basename}" >&2
+        status=1
+        continue
+        ;;
+    esac
 
-    pinned_line="$(grep -E "^${basename}[[:space:]]+sha256:[0-9a-f]{64}" "${README}" || true)"
-    if [ -z "${pinned_line}" ]; then
-      echo "verify-font-integrity: dist file ${basename} has no pinned sha256 in ${README}" >&2
+    dist_pin_count=$((dist_pin_count + 1))
+    pinned_hash="$(echo "${line}" | grep -oE 'sha256:[0-9a-f]{64}' | head -n 1 | cut -d: -f2)"
+    dist_target="${DIST_FONTS_DIR}/${basename}"
+
+    if [ ! -f "${dist_target}" ]; then
+      echo "verify-font-integrity: dist pinned file missing on disk: ${dist_target}" >&2
       status=1
       continue
     fi
-    pinned_hash="$(echo "${pinned_line}" | grep -oE 'sha256:[0-9a-f]{64}' | head -n 1 | cut -d: -f2)"
 
-    actual_hash="$(shasum -a 256 "${font}" | awk '{print $1}')"
+    actual_hash="$(shasum -a 256 "${dist_target}" | awk '{print $1}')"
 
     if [ "${actual_hash}" != "${pinned_hash}" ]; then
       echo "verify-font-integrity: dist HASH MISMATCH for ${basename}" >&2
@@ -214,6 +304,14 @@ if [ "${check_dist}" -eq 1 ]; then
 
     echo "verify-font-integrity: dist ok  ${basename}  sha256:${actual_hash}"
   done
+
+  # Sanity: a --check-dist invocation with no pinned woff2 in scope is
+  # almost certainly a misconfiguration — surface it loudly rather than
+  # silently exiting 0.
+  if [ "${dist_pin_count}" -eq 0 ]; then
+    echo "verify-font-integrity: no pinned *.woff2 to check against ${DIST_FONTS_DIR}" >&2
+    exit 1
+  fi
 fi
 
 exit "${status}"
