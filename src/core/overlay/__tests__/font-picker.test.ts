@@ -193,10 +193,11 @@ describe('createOverlay — font picker (#28)', () => {
     overlay.unmount();
   });
 
-  test('missing OpenDyslexic binary falls back to system-ui without throwing', () => {
+  test('missing OpenDyslexic binary falls back to system stack without throwing', () => {
     // No openDyslexicFontUrl — the binary is missing per #173 sourcing gap.
     // Mount must succeed and the modal class still flips so the family stack
-    // in styles.ts degrades to system-ui (the fallback list ends in sans-serif).
+    // in styles.ts degrades through the dyslexia-friendly fallback chain
+    // (Atkinson Hyperlegible → Comic Sans MS → Trebuchet MS → system-ui, see #190).
     const overlay = createOverlay(
       makeOpts({ initialSettings: defaultSettings({ font: 'opendyslexic' }) }),
     );
@@ -305,5 +306,106 @@ describe('OVERLAY_CSS — font picker family stacks (#28)', () => {
     const match = OVERLAY_CSS.match(selectorBlock);
     expect(match, `missing .modal.${fontId} reading-surface rule`).not.toBeNull();
     expect(match?.[0]).toMatch(expectedFamily);
+  });
+});
+
+describe('OVERLAY_CSS — opendyslexic dyslexia-friendly fallback chain (#190)', () => {
+  /**
+   * If the bundled OpenDyslexic WOFF2 fails to load (404 from extension
+   * packaging bug, integrity-guard regression, future Chromium tightening
+   * on extension-internal fetches, mid-install offline window), the
+   * font-family chain decides what the user actually reads. Silent
+   * fallback to system-ui (San Francisco / Segoe UI / Roboto) defeats
+   * the headline a11y feature.
+   *
+   * The chain must prefer typefaces with dyslexia-friendly letterforms
+   * BEFORE the generic system stack:
+   *   - Atkinson Hyperlegible (Braille Institute) — explicitly designed for
+   *     low-vision and disambiguation; ships on some platforms, downloadable
+   *   - Comic Sans MS — research-cited dyslexia-friendly (asymmetric
+   *     letterforms, letter disambiguation); preinstalled Windows + macOS
+   *   - Trebuchet MS — also cited in dyslexia-readability research;
+   *     preinstalled cross-platform
+   *
+   * These assertions are ORDER-anchored on the substring positions in the
+   * font-family declaration so a contributor reshuffling the chain (or
+   * deleting one of the dyslexia-friendly fallbacks) surfaces here rather
+   * than silently dropping the floor.
+   */
+  async function getOpenDyslexicFamilyDecl(): Promise<string> {
+    const { OVERLAY_CSS } = await import('../styles');
+    const block = OVERLAY_CSS.match(
+      /\.modal\.opendyslexic\s+\.word-region[\s\S]*?\.context-preview\s*\{([\s\S]*?)\}/,
+    );
+    if (!block) throw new Error('missing .modal.opendyslexic reading-surface rule');
+    const fontFamily = block[1].match(/font-family:\s*([^;]+);/);
+    if (!fontFamily) throw new Error('missing font-family declaration in opendyslexic rule');
+    return fontFamily[1];
+  }
+
+  test('OpenDyslexic is the first family in the stack (index 0)', async () => {
+    const decl = await getOpenDyslexicFamilyDecl();
+    // Strip whitespace then check the first non-whitespace token.
+    const firstFamily = decl.trim().split(',')[0].trim();
+    expect(firstFamily).toBe("'OpenDyslexic'");
+  });
+
+  test.each([
+    ['Atkinson Hyperlegible', /'Atkinson Hyperlegible'/],
+    ['Comic Sans MS', /'Comic Sans MS'/],
+    ['Trebuchet MS', /'Trebuchet MS'/],
+  ])('dyslexia-friendly fallback "%s" is present in the stack', async (_label, pattern) => {
+    const decl = await getOpenDyslexicFamilyDecl();
+    expect(decl).toMatch(pattern);
+  });
+
+  test.each([
+    ['Atkinson Hyperlegible', "'Atkinson Hyperlegible'"],
+    ['Comic Sans MS', "'Comic Sans MS'"],
+    ['Trebuchet MS', "'Trebuchet MS'"],
+  ])('dyslexia-friendly fallback "%s" appears BEFORE system-ui', async (_label, family) => {
+    const decl = await getOpenDyslexicFamilyDecl();
+    const familyIdx = decl.indexOf(family);
+    const systemUiIdx = decl.indexOf('system-ui');
+    expect(familyIdx, `expected ${family} in stack`).toBeGreaterThanOrEqual(0);
+    expect(systemUiIdx, 'expected system-ui in stack as generic floor').toBeGreaterThanOrEqual(0);
+    expect(familyIdx).toBeLessThan(systemUiIdx);
+  });
+
+  test('the dyslexia-friendly trio appears in the canonical order Atkinson → Comic Sans → Trebuchet', async () => {
+    // Order anchor: Atkinson is the highest-fidelity dyslexia face (modern,
+    // designed for the use case), Comic Sans is the most-installed research-
+    // backed fallback, Trebuchet is the third research-cited option. Any
+    // reshuffle (e.g. Comic Sans first) surfaces here so the rationale stays
+    // visible — order is the documented decision, not an accident.
+    const decl = await getOpenDyslexicFamilyDecl();
+    const atkinson = decl.indexOf("'Atkinson Hyperlegible'");
+    const comic = decl.indexOf("'Comic Sans MS'");
+    const trebuchet = decl.indexOf("'Trebuchet MS'");
+    expect(atkinson).toBeGreaterThanOrEqual(0);
+    expect(comic).toBeGreaterThan(atkinson);
+    expect(trebuchet).toBeGreaterThan(comic);
+  });
+
+  test('non-OpenDyslexic themes do NOT carry the dyslexia-friendly fallbacks', async () => {
+    // Surgical-scope guard: the fix changes only the .opendyslexic chain.
+    // If a contributor accidentally bulk-inserts Atkinson into the serif or
+    // monospace themes, this surfaces so we can decide explicitly rather
+    // than drifting the other themes' identities.
+    const { OVERLAY_CSS } = await import('../styles');
+    for (const themeId of ['newYork', 'georgia', 'menlo'] as const) {
+      const block = OVERLAY_CSS.match(
+        new RegExp(
+          `\\.modal\\.${themeId}\\s+\\.word-region[\\s\\S]*?\\.context-preview\\s*\\{([\\s\\S]*?)\\}`,
+        ),
+      );
+      if (!block) throw new Error(`missing .modal.${themeId} reading-surface rule`);
+      const body = block[1];
+      expect(body, `${themeId} should not carry Atkinson Hyperlegible`).not.toMatch(
+        /Atkinson Hyperlegible/,
+      );
+      expect(body, `${themeId} should not carry Comic Sans MS`).not.toMatch(/Comic Sans MS/);
+      expect(body, `${themeId} should not carry Trebuchet MS`).not.toMatch(/Trebuchet MS/);
+    }
   });
 });
