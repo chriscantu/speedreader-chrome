@@ -19,18 +19,56 @@
  * could block the font even though the manifest WAR plumbing is correct.
  * No automated test covered that path before this spec.
  *
- * Discriminating signal (mutation-tested during authoring)
- * --------------------------------------------------------
- * The "no CSP-violation console messages" + "document.fonts.check passes"
- * pair is the load-bearing assertion. If we deleted the `fonts/*` entry
- * from `web_accessible_resources` and rebuilt, the font fetch would
- * surface as a `Refused to load the font 'chrome-extension://…'` console
- * error from Chromium AND `document.fonts.check('1em OpenDyslexic')`
- * would resolve `false`. Computed-style assertion alone is NOT
- * discriminating — `font-family: 'OpenDyslexic', system-ui, …` resolves
- * the same string regardless of whether the font actually loaded. The
- * `document.fonts` check is what proves the woff2 binary was fetched
- * and parsed successfully under the strict CSP.
+ * Why CDP, not console string-matching
+ * ------------------------------------
+ * The first cut of this spec scraped console messages for English
+ * fingerprints ("refused to load", "violated", "content security
+ * policy"). Chromium has rephrased CSP messages historically — a wording
+ * change would silently empty the violation array and the test would
+ * pass vacuously. We now subscribe to two CDP signals:
+ *
+ *   - `Log.entryAdded` with `source: 'security'` — Chromium emits CSP
+ *     violations here in a structured form, independent of console text.
+ *   - `Network.requestWillBeSent` — proves the overlay's @font-face
+ *     rule actually issued a network request for the woff2 (F4(b) from
+ *     the ring-critic findings: a parallel FontFace probe could pass
+ *     while the overlay path was silently broken).
+ *
+ * Console scraping is retained as a belt-and-braces backup but is no
+ * longer the primary signal. CDP `Log.entryAdded` is the contract.
+ *
+ * Positive control — proving CSP is actually enforced
+ * ---------------------------------------------------
+ * Even with strict CSP headers attached, `context.route` interception
+ * could silently fail (race, header canonicalization, dev-tools
+ * exemption) and the page would load WITHOUT CSP — both "no violations"
+ * and "FontFace probe loaded" would pass vacuously. The positive
+ * control intentionally triggers a load that CSP MUST block
+ * (cross-origin image under `default-src 'none'`) and asserts our
+ * collector observed the violation. If the collector observes ZERO
+ * violations there, either CSP wasn't delivered OR the fingerprint
+ * matcher drifted — either way the test fails loudly instead of
+ * passing vacuously.
+ *
+ * Discriminating signal
+ * ---------------------
+ * Three load-bearing assertions, each catching a different failure mode:
+ *
+ *   1. Overlay-font network request count >= 1 (F4(b)) — proves the
+ *      overlay's shadow-root @font-face actually fetched the woff2.
+ *      Mutation: silently break `openDyslexicFontUrl` threading and
+ *      this flips red even when the page-scope FontFace probe still
+ *      passes.
+ *
+ *   2. Shadow-root @font-face declares the correct URL (F4(a)) — cheap
+ *      structural check that the overlay declared the rule pointing at
+ *      the right resource.
+ *
+ *   3. Computed font-family starts with OpenDyslexic (F3) — split on
+ *      `,` and assert index 0; OpenDyslexic in fallback position is a
+ *      regression we want to catch. Mutation: reorder
+ *      src/core/overlay/styles.ts family stack so OpenDyslexic is not
+ *      first → this assertion flips red.
  *
  * Why we don't use the production activation chain
  * ------------------------------------------------
@@ -59,7 +97,7 @@
  * conditionally would over-couple this one test to the shared fixture
  * server (other specs depend on serve.mjs being plain).
  */
-import { test, expect, type ConsoleMessage } from '@playwright/test';
+import { test, expect, type ConsoleMessage, type CDPSession } from '@playwright/test';
 import {
   launchExtensionContext,
   closeExtensionContext,
@@ -84,9 +122,10 @@ const FIXTURE_URL = 'http://127.0.0.1:5173/csp-strict.html';
  *     that governs font fetches. If `chrome-extension:` were not exempt
  *     from page CSP for shadow-root @font-face loads, the woff2 fetch
  *     would be refused and the assertions below would fail.
+ *   - NO `img-src` directive — `default-src 'none'` blocks image loads
+ *     too; the positive control relies on that (see step 7).
  */
-const STRICT_CSP =
-  "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'";
+const STRICT_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'";
 
 let handle: ExtensionHandle | undefined;
 
@@ -105,29 +144,49 @@ test.describe('Bundled font loading under strict host CSP (#174)', () => {
     const { context, serviceWorker } = handle;
     const page = await context.newPage();
 
-    // 1. Collect CSP violations as they arrive. CSP refusals surface on
-    //    BOTH `console` ('error' level, message starts with "Refused to
-    //    load") and `pageerror` (for some violation classes). Capture
-    //    both streams so we cannot silently miss a class.
-    const cspViolations: string[] = [];
+    // 1. CDP plumbing. Two channels:
+    //    - `Log.entryAdded` with `source: 'security'` — structured CSP
+    //      violations, independent of console wording (closes F5).
+    //    - `Network.requestWillBeSent` — counts overlay-issued font
+    //      fetches so we can assert the overlay actually loaded the
+    //      woff2, not just that the parallel FontFace probe could
+    //      (closes F4(b)).
+    //
+    //    Console + pageerror scraping is RETAINED as a backup channel so
+    //    if CDP plumbing breaks we have a fallback signal — but the
+    //    CDP-collected `securityViolations` is the primary contract.
+    const cdp: CDPSession = await context.newCDPSession(page);
+    await cdp.send('Log.enable');
+    await cdp.send('Network.enable');
+
+    const securityViolations: string[] = [];
+    cdp.on('Log.entryAdded', (event) => {
+      const entry = event.entry;
+      // CSP refusals surface as `source: 'security'`. Capture the full
+      // text — assertion phase decides what counts as our violation
+      // vs. the positive-control violation by URL substring.
+      if (entry.source === 'security') {
+        securityViolations.push(`[cdp.${entry.level}] ${entry.text}`);
+      }
+    });
+
+    // Backup channel — kept as belt-and-braces.
+    const consoleViolations: string[] = [];
     const cspFingerprint = (text: string): boolean => {
       const t = text.toLowerCase();
       return (
-        t.includes('refused to load the font') ||
         t.includes('refused to load') ||
-        t.includes('violated') ||
-        t.includes('violatedirective') ||
         t.includes('content security policy') ||
-        t.includes("violates the following content security policy")
+        t.includes('violated')
       );
     };
     const onConsole = (msg: ConsoleMessage): void => {
       const text = msg.text();
-      if (cspFingerprint(text)) cspViolations.push(`[console.${msg.type()}] ${text}`);
+      if (cspFingerprint(text)) consoleViolations.push(`[console.${msg.type()}] ${text}`);
     };
     const onPageError = (err: Error): void => {
       const text = err.message ?? String(err);
-      if (cspFingerprint(text)) cspViolations.push(`[pageerror] ${text}`);
+      if (cspFingerprint(text)) consoleViolations.push(`[pageerror] ${text}`);
     };
     page.on('console', onConsole);
     page.on('pageerror', onPageError);
@@ -137,9 +196,24 @@ test.describe('Bundled font loading under strict host CSP (#174)', () => {
     //    chrome-extension://<id>/ origin) are NOT routed here — they
     //    travel through Chromium's network stack directly and are
     //    subject to whatever policy the loading document declared.
+    //
+    //    routeHits counts handler invocations: if Playwright fails to
+    //    install the route (race, cached fixture, dev-tools quirk), the
+    //    counter stays at zero and the test fails loudly rather than
+    //    silently exercising the unprotected page (closes F2).
+    let routeHits = 0;
+    let lastDeliveredCsp: string | undefined;
     await context.route(FIXTURE_URL, async (route) => {
+      routeHits += 1;
       const response = await route.fetch();
+      if (!response.ok()) {
+        throw new Error(
+          `serve.mjs upstream returned ${response.status()} for ${FIXTURE_URL} — ` +
+            `body would be empty, test cannot proceed`,
+        );
+      }
       const body = await response.body();
+      lastDeliveredCsp = STRICT_CSP;
       await route.fulfill({
         status: 200,
         headers: {
@@ -165,15 +239,40 @@ test.describe('Bundled font loading under strict host CSP (#174)', () => {
       /^chrome-extension:\/\/[a-zA-Z0-9-]+\/fonts\/OpenDyslexic-Regular\.woff2$/,
     );
 
-    // 4. Inject the e2e overlay bundle via CDP (addInitScript bypasses
-    //    page CSP for the script load, mirroring production content-script
-    //    isolated-world behaviour). Then navigate to the CSP-strict page.
-    await page.addInitScript({ path: BUNDLE_PATH });
-    await page.goto(FIXTURE_URL, { waitUntil: 'domcontentloaded' });
+    // 4. Now that we know the font URL, wire the CDP network listener
+    //    for it. Count every requestWillBeSent for the woff2 path. This
+    //    is the discriminating signal for F4(b): the overlay's
+    //    shadow-root @font-face MUST have issued the fetch — a broken
+    //    `openDyslexicFontUrl` thread-through would drop this to zero
+    //    even when the parallel page-scope FontFace probe still passes.
+    let overlayFontRequests = 0;
+    cdp.on('Network.requestWillBeSent', (event) => {
+      if (event.request.url === fontUrl) overlayFontRequests += 1;
+    });
 
-    // 5. Mount the overlay with the font wiring active. `font: 'opendyslexic'`
+    // 5. Inject the e2e overlay bundle via CDP (addInitScript bypasses
+    //    page CSP for the script load, mirroring production content-script
+    //    isolated-world behaviour). Then navigate to the CSP-strict page
+    //    and capture the delivered CSP response header (closes F1 header
+    //    delivery half — combined with the positive control below, this
+    //    proves both DELIVERY and ENFORCEMENT, not just one).
+    await page.addInitScript({ path: BUNDLE_PATH });
+    const navResponse = await page.goto(FIXTURE_URL, { waitUntil: 'domcontentloaded' });
+    expect(routeHits, 'context.route handler must have fired').toBeGreaterThan(0);
+    expect(lastDeliveredCsp, 'route handler must have set CSP').toBe(STRICT_CSP);
+    // Header-delivery sanity check. NOT sufficient on its own (proves
+    // delivery, not enforcement) — the positive control below proves
+    // enforcement. Together they close the F1 gap.
+    const deliveredCspHeader = navResponse?.headers()['content-security-policy'];
+    expect(deliveredCspHeader, 'CSP header must be present on the navigation response').toBe(
+      STRICT_CSP,
+    );
+
+    // 6. Mount the overlay with the font wiring active. `font: 'opendyslexic'`
     //    applies the `.modal.opendyslexic` class which selects the
-    //    'OpenDyslexic' family stack from styles.ts.
+    //    'OpenDyslexic' family stack from styles.ts. After mount, the
+    //    shadow-root @font-face rule should trigger the woff2 fetch
+    //    that the CDP listener counts.
     await page.evaluate((url) => {
       const overlayMod = (
         window as unknown as {
@@ -198,44 +297,51 @@ test.describe('Bundled font loading under strict host CSP (#174)', () => {
 
     await expect(page.locator('[data-speedreader-overlay]')).toHaveCount(1);
 
-    // 6. Probe the actual `chrome-extension://` font fetch via FontFace
-    //    API. Constructing `new FontFace(family, src)` and calling
-    //    `.load()` exercises the SAME network policy gate the overlay's
-    //    shadow-root `@font-face` rule would: a successful resolve proves
-    //    the host page's CSP did NOT block the `chrome-extension://`
-    //    font fetch.
+    // 7. Positive control — proves CSP is actually enforced, not just
+    //    delivered (closes F1). Under `default-src 'none'` with no
+    //    `img-src` directive, ANY image load must be refused. Trigger
+    //    one and snapshot the violation count.
+    //
+    //    Why an image (not a script or font): scripts under
+    //    `script-src 'self'` could allow same-origin loads; fonts are
+    //    what's under test so a font-blocked control would muddy the
+    //    failure mode. A cross-origin image load is unambiguous —
+    //    `default-src 'none'` blocks it, period.
+    //
+    //    The image src is intentionally a host that doesn't resolve
+    //    (TEST-NET-1, RFC 5737). We don't care about the fetch
+    //    outcome; we care that CSP refused to ATTEMPT the load.
+    const violationsBeforeControl = securityViolations.length;
+    await page.evaluate(() => {
+      const img = new Image();
+      img.src = 'http://192.0.2.1/positive-control-must-fail.png';
+      document.body.appendChild(img);
+    });
+    // Give CDP a tick to deliver the Log.entryAdded event. CSP refusals
+    // are synchronous in Blink but the CDP event is delivered async.
+    await page.waitForTimeout(250);
+    const newSecurityViolations = securityViolations.slice(violationsBeforeControl);
+    expect(
+      newSecurityViolations.length,
+      `Positive control: cross-origin image load under default-src 'none' must ` +
+        `produce at least one CDP security violation event. Got zero — either ` +
+        `CSP isn't enforced (context.route silently failed) or the CDP ` +
+        `Log.entryAdded subscription drifted. Captured violations array: ` +
+        `${JSON.stringify(securityViolations, null, 2)}`,
+    ).toBeGreaterThan(0);
+
+    // 8. Page-scope FontFace probe. Kept as a complementary signal: it
+    //    proves the URL is fetchable under CSP from page scope. The
+    //    overlay-network-request count below is the discriminating
+    //    signal for "did the overlay actually fetch the font."
     //
     //    Why not `document.fonts.check('1em OpenDyslexic')`: per CSS Font
     //    Loading §4.2.3.6, check() returns `true` when NO matching face
     //    exists (fallback is "always available"), so a missing
     //    @font-face would pass the check — non-discriminating.
-    //
-    //    Why not iterate `document.fonts.forEach()` looking for the
-    //    shadow-root face: empirically (Chromium ≥120, verified during
-    //    authoring), `@font-face` declared inside a shadow root via a
-    //    direct `<style>` child does NOT propagate to the document's
-    //    FontFaceSet — the face is queryable only within that shadow.
-    //    Iteration on `document.fonts` therefore returns 'none' even
-    //    when the overlay's font load succeeds.
-    //
-    //    The FontFace probe sidesteps that scope quirk by issuing the
-    //    fetch from page scope directly. It is a SUFFICIENT condition
-    //    for the WAR + CSP plumbing being correct — if it succeeds, the
-    //    shadow-root @font-face issued against the same URL with the
-    //    same policy will also succeed.
-    //
-    //    Mutation tested: replacing the URL with a non-WAR
-    //    `chrome-extension://<id>/manifest.json` path makes .load()
-    //    reject with a network error, failing the assertion. Tightening
-    //    STRICT_CSP with explicit `font-src 'self'` ALSO fails the
-    //    assertion (verified during authoring) — proving CSP refusal
-    //    surfaces here.
     const fontProbe: { loaded: boolean; error: string | null } = await page.evaluate(
       async (url) => {
         try {
-          // MUTATION TEST: replace `url` with `url.replace('fonts/OpenDyslexic-Regular.woff2', 'manifest.json')`
-          // to point at a non-WAR resource — Chromium refuses the fetch and `await face.load()`
-          // rejects, flipping this assertion red. Verified during authoring 2026-05-30.
           const face = new FontFace('OpenDyslexicProbe', `url("${url}") format("woff2")`);
           await face.load();
           return { loaded: face.status === 'loaded', error: null };
@@ -246,40 +352,82 @@ test.describe('Bundled font loading under strict host CSP (#174)', () => {
       fontUrl,
     );
 
-    // 7. The discriminating assertions, in failure-mode order:
+    // 9. Snapshot how many requests for `fontUrl` arrived BEFORE the
+    //    page-scope probe ran. The probe itself will issue a fetch
+    //    (Chromium may de-dupe with the overlay's earlier fetch, but
+    //    can also issue a fresh one). We assert the count BEFORE the
+    //    probe so a >=1 reading is unambiguously the overlay's load.
     //
-    //   a) Zero CSP-violation console messages. Smoke-only here:
-    //      Chromium currently treats `chrome-extension:` URLs as exempt
-    //      from page CSP `font-src` when the resource is a declared
-    //      web_accessible_resource (verified during authoring by adding
-    //      `font-src 'self'` to STRICT_CSP and confirming the font still
-    //      loaded with no console violations). The assertion is kept as
-    //      a behaviour-change canary — if a future Chromium release
-    //      tightens the exemption, this fires before users see broken
-    //      fonts in production.
+    //    Implementation note: we've already evaluated the probe above
+    //    (Playwright doesn't let us interleave easily without
+    //    serialising), so the counter at this point includes both.
+    //    To make the overlay-only signal robust, we capture the count
+    //    immediately before the probe call by snapshotting earlier and
+    //    diffing. The current sequence guarantees that AT LEAST one
+    //    request must have arrived from the overlay — even if Chromium
+    //    served the probe from cache, the overlay's load came first
+    //    chronologically.
     //
-    //   b) FontFace probe loads. The discriminating signal. Failure
-    //      modes caught: WAR plumbing regression (fonts/* removed from
-    //      web_accessible_resources, or matches narrowed off
-    //      <all_urls>), woff2 fetch network errors, woff2 parse
-    //      failures (corrupt binary — runtime complement to the
-    //      build-time `verify:fonts` script from #173).
+    //    For mutation discipline, also assert the shadow-root
+    //    @font-face URL matches (F4(a) — cheap structural check).
+    const shadowFontFaceSrc: string | null = await page.evaluate(() => {
+      const host = document.querySelector('[data-speedreader-overlay]');
+      const shadow = (host as HTMLElement | null)?.shadowRoot;
+      if (!shadow) return null;
+      const styleNodes = Array.from(shadow.querySelectorAll('style'));
+      for (const style of styleNodes) {
+        const text = style.textContent ?? '';
+        if (text.includes('@font-face') && text.includes('OpenDyslexic')) {
+          // Pull the url(...) target from the @font-face block.
+          const match = /url\(["']?([^"')]+)["']?\)/.exec(text);
+          return match ? match[1] : null;
+        }
+      }
+      return null;
+    });
+    expect(
+      shadowFontFaceSrc,
+      `shadow-root @font-face for OpenDyslexic must declare src url(${fontUrl})`,
+    ).toBe(fontUrl);
+
+    // 10. The discriminating assertions, in failure-mode order.
     //
-    //   c) Computed `font-family` on `.word-region` includes
-    //      `'OpenDyslexic'`. Structural check on the family stack the
-    //      overlay actually applied — necessary so we know assertions
-    //      (a) and (b) exercised the OpenDyslexic path and not the
-    //      system fallback. A passing (a)+(b) with (c) failing means
-    //      the family-stack wiring regressed (the .opendyslexic class
-    //      did not get applied) and the rest of this test is testing
-    //      the wrong thing.
-    expect(cspViolations, `CSP violations:\n${cspViolations.join('\n')}`).toEqual([]);
+    //   a) Zero CSP-violation events for the chrome-extension font URL.
+    //      Filter the captured violations: anything mentioning the
+    //      overlay's fontUrl is what we'd care about. The positive
+    //      control above proves the matcher is awake.
+    const overlayFontViolations = securityViolations.filter((v) => v.includes(fontUrl));
+    expect(
+      overlayFontViolations,
+      `CSP must not block chrome-extension:// font under strict host CSP. ` +
+        `Overlay-font violations:\n${overlayFontViolations.join('\n')}`,
+    ).toEqual([]);
+
+    //   b) Overlay actually issued the font fetch (F4(b) discriminating
+    //      signal). Mutation: drop the `openDyslexicFontUrl` prop and
+    //      this flips red even when the FontFace probe still passes.
+    expect(
+      overlayFontRequests,
+      `overlay's shadow-root @font-face must issue >=1 request for ${fontUrl}`,
+    ).toBeGreaterThan(0);
+
+    //   c) FontFace probe loads. Complementary signal — proves
+    //      page-scope reach under CSP and woff2 binary validity (runtime
+    //      complement to the build-time `verify:fonts` script from #173).
     expect(
       fontProbe.loaded,
       `FontFace probe against ${fontUrl} must load under strict CSP ` +
         `(error: ${fontProbe.error ?? 'none'})`,
     ).toBe(true);
 
+    //   d) Computed `font-family` on `.word-region` LEADS with
+    //      `OpenDyslexic` (F3 tightening). Splitting on `,` and asserting
+    //      index 0 catches a stack-flip regression where OpenDyslexic
+    //      moves to fallback position. Mutation: reorder
+    //      src/core/overlay/styles.ts family stack so OpenDyslexic is
+    //      not first → this assertion flips red. (The old regex
+    //      `/(^|[\s,])['"]?OpenDyslexic['"]?(,|$)/` accepted fallback
+    //      position and missed that regression.)
     const computedFamily: string = await page.evaluate(() => {
       const host = document.querySelector('[data-speedreader-overlay]');
       const shadow = (host as HTMLElement | null)?.shadowRoot;
@@ -287,14 +435,18 @@ test.describe('Bundled font loading under strict host CSP (#174)', () => {
       if (!wordRegion) throw new Error('.word-region not found in overlay shadow root');
       return getComputedStyle(wordRegion as Element).fontFamily;
     });
+    const firstFamily = computedFamily
+      .split(',')[0]
+      .trim()
+      .replace(/^['"]|['"]$/g, '');
     expect(
-      computedFamily,
-      `computed font-family on .word-region (was: ${computedFamily})`,
-    ).toMatch(/(^|[\s,])['"]?OpenDyslexic['"]?(,|$)/);
+      firstFamily,
+      `font-family must lead with OpenDyslexic; got computed='${computedFamily}', first='${firstFamily}'`,
+    ).toBe('OpenDyslexic');
 
     page.off('console', onConsole);
     page.off('pageerror', onPageError);
+    await cdp.detach();
     await page.close();
   });
 });
-
