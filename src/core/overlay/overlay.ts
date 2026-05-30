@@ -98,6 +98,28 @@ function resolveTheme(theme: ThemeId | 'system', win: Window & typeof globalThis
 
 const HOST_ATTR = OVERLAY_ATTR.HOST;
 
+/**
+ * Build the @font-face rule for the OpenDyslexic bundled woff2 (#27).
+ *
+ * Validates the URL shape before interpolation so an unexpected caller
+ * cannot inject CSS via crafted strings. Only `chrome-extension://` URLs
+ * with a non-empty path and no quote/angle-bracket/whitespace characters
+ * are accepted — anything else throws. The single legitimate caller is
+ * `chrome.runtime.getURL()` for the bundled WAR font path.
+ */
+function buildOpenDyslexicFontFace(url: string): string {
+  if (!/^chrome-extension:\/\/[a-zA-Z0-9_-]+\/[^"<>\s]+$/.test(url)) {
+    throw new Error(`buildOpenDyslexicFontFace: untrusted URL ${url}`);
+  }
+  return `@font-face {
+  font-family: 'OpenDyslexic';
+  src: url("${url}") format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}`;
+}
+
 export function createOverlay(opts: OverlayOptions): OverlayHandle {
   let status: OverlayStatus = 'unmounted';
   let host: HTMLElement | null = null;
@@ -151,6 +173,26 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       const styleEl = doc.createElement('style');
       styleEl.textContent = OVERLAY_CSS;
       shadow.appendChild(styleEl);
+    }
+
+    // OpenDyslexic (#27) — when the chrome glue supplies the bundled
+    // woff2 URL, inject the `@font-face` rule as an inline <style> sibling
+    // inside the shadow root. The declaration is scoped to this shadow
+    // (per CSS Scoping spec for shadow-root stylesheets) and does NOT
+    // leak to host-page CSS, which satisfies the issue's "overlay only"
+    // constraint. We use an inline <style> rather than an adoptedStyleSheet
+    // entry because adoptedStyleSheets serialise `src: url(...)` through
+    // the CSSOM round-trip, which jsdom drops — keeping the URL on a raw
+    // <style> textContent preserves it for tests AND matches the
+    // declaration shape browsers parse natively.
+    //
+    // Injection is unconditional on URL presence — the modal class governs
+    // whether the family is actually applied — so toggling the setting
+    // mid-session is a pure class flip, not a fresh font fetch.
+    if (opts.openDyslexicFontUrl) {
+      const fontStyle = doc.createElement('style');
+      fontStyle.textContent = buildOpenDyslexicFontFace(opts.openDyslexicFontUrl);
+      shadow.appendChild(fontStyle);
     }
 
     const backdrop = doc.createElement('div');
@@ -431,6 +473,17 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // (NaN, Infinity, negative) would otherwise write garbage CSS once.
     applyFontSize(clampFontSize(currentFontSize));
 
+    // OpenDyslexic toggle (#27). Treat undefined as false so callers and
+    // tests that pre-date the field continue to work unchanged. Apply at
+    // mount and re-apply on every settings push so toggling from the
+    // options page updates the live overlay without remount.
+    let currentOpenDyslexic = opts.initialSettings.openDyslexic ?? false;
+    const applyOpenDyslexic = (on: boolean): void => {
+      currentOpenDyslexic = on;
+      modal.classList.toggle(OVERLAY_CLASS.OPENDYSLEXIC, on);
+    };
+    applyOpenDyslexic(currentOpenDyslexic);
+
     unsubscribeSettings = opts.subscribeSettings((s) => {
       const resolved = resolveTheme(s.theme, view);
       applyTheme(resolved, modal);
@@ -444,6 +497,10 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       }
       if (s.fontSize !== currentFontSize) {
         applyFontSize(clampFontSize(s.fontSize));
+      }
+      const nextOd = s.openDyslexic ?? false;
+      if (nextOd !== currentOpenDyslexic) {
+        applyOpenDyslexic(nextOd);
       }
     });
 

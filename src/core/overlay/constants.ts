@@ -33,6 +33,13 @@ export const OVERLAY_CLASS = Object.freeze({
   WPM_READOUT: 'wpm-readout',
   CONTEXT_PREVIEW: 'context-preview',
   CONTEXT_CURRENT: 'context-current',
+  /**
+   * Modifier applied to `.modal` when the user has enabled OpenDyslexic
+   * (#27). The CSS rule overrides `font-family` to the bundled
+   * OpenDyslexic family with a system-ui fallback (so a font-load failure
+   * degrades gracefully rather than rendering invisible text).
+   */
+  OPENDYSLEXIC: 'opendyslexic',
 });
 
 /** DOM ids referenced by ARIA relationships (e.g., aria-labelledby). */

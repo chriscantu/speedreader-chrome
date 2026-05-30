@@ -23,6 +23,16 @@ export interface OverlaySettings {
    * `core/settings/bounds.ts`.
    */
   fontSize: number;
+  /**
+   * OpenDyslexic font toggle (#27). When true, the modal switches to the
+   * bundled OpenDyslexic typeface; when false (or absent), the modal
+   * falls back to system-ui. Optional so existing callers and tests that
+   * pre-date this field continue to type-check — overlay treats `undefined`
+   * as `false`. The font binary is loaded via `@font-face` injected at
+   * mount time, parameterised by `OverlayOptions.openDyslexicFontUrl`
+   * (since `core/` cannot call `chrome.runtime.getURL`).
+   */
+  openDyslexic?: boolean;
 }
 
 export type SettingsSubscriber = (s: OverlaySettings) => void;
@@ -114,15 +124,29 @@ export interface OverlayOptions {
    */
   onFontSizeChange?: (next: number) => void;
   /**
-   * Called when the user adjusts the WPM via slider input or the
-   * ArrowUp/ArrowDown keyboard shortcut (#24). The overlay clamps the
-   * new value to [WPM_MIN, WPM_MAX] and snaps to WPM_STEP before
-   * invoking; consumers are expected to persist the value (the chrome
-   * glue routes this to `chrome.storage.sync.saveSettings({ wpm })`).
-   * Omitting the callback disables persistence — the overlay still
-   * updates its engine cadence for the session.
+   * Called when the user adjusts the WPM via slider commit (change event)
+   * or the ArrowUp/ArrowDown keyboard shortcut (#24). The overlay clamps
+   * the new value to [WPM_MIN, WPM_MAX] before invoking; consumers are
+   * expected to persist the value (the chrome glue routes this to
+   * `chrome.storage.sync.saveSettings({ wpm })`). Omitting the callback
+   * disables persistence — the overlay still updates its engine cadence
+   * for the session. Note: only the slider `change` event invokes this;
+   * the keyboard arrow shortcut updates the engine without persisting
+   * (slider is the canonical persistence surface).
    */
   onWpmChange?: (next: number) => void;
+  /**
+   * Absolute URL of the bundled OpenDyslexic woff2 (#27, #10). The chrome
+   * glue resolves this via `chrome.runtime.getURL('fonts/...')` and passes
+   * it in; `core/` cannot call `chrome.*`. When the URL is provided, the
+   * overlay injects an `@font-face` rule into the shadow root at mount
+   * (scoped to the shadow — does NOT leak to host-page CSS). When omitted,
+   * the OpenDyslexic toggle has no effect (the family name falls through
+   * to the system fallback stack). Callers that toggle `openDyslexic`
+   * without providing this URL still type-check; the modal class is
+   * applied but no custom font loads.
+   */
+  openDyslexicFontUrl?: string;
 }
 
 /**
