@@ -40,12 +40,40 @@ export const OVERLAY_CSS = `
   container-name: rsvp;
 }
 
-/* OpenDyslexic toggle (#27) — scoped to reading surface only (Safari parity floor). */
+/* Font picker (#28) — Safari-parity 5-font set. Family stacks mirror
+ * SpeedReader/SpeedReaderExtension/Resources/rsvp/overlay.css. Scoped to
+ * the reading surface only (word + context-preview); UI chrome stays in
+ * the system font so button labels read consistently across picker
+ * selections. The 'system' ID applies no class — the default .modal
+ * family stack at :host above is already system-ui. */
 .modal.opendyslexic .word-region,
 .modal.opendyslexic .context-current,
 .modal.opendyslexic .context-preview {
   font-family:
     'OpenDyslexic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.modal.newYork .word-region,
+.modal.newYork .context-current,
+.modal.newYork .context-preview {
+  /* macOS/iOS ship 'New York' (Apple system serif); Chromium on other
+   * platforms falls back to Iowan Old Style → Georgia → generic serif so
+   * the user still sees a comfortable serif face. */
+  font-family: 'New York', 'Iowan Old Style', Georgia, serif;
+}
+
+.modal.georgia .word-region,
+.modal.georgia .context-current,
+.modal.georgia .context-preview {
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+.modal.menlo .word-region,
+.modal.menlo .context-current,
+.modal.menlo .context-preview {
+  /* Apple-bundled monospace; the fallback chain covers Windows
+   * ('Courier New') and Linux (generic monospace). */
+  font-family: Menlo, 'Courier New', monospace;
 }
 
 .close-btn {

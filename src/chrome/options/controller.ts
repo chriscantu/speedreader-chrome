@@ -7,6 +7,7 @@ import {
   WPM_MIN,
   WPM_STEP,
 } from '../../core/settings/bounds';
+import { resolveFontId } from '../../core/overlay/font-ids';
 
 export interface SettingsApi {
   load(): Promise<SettingsV4>;
@@ -25,7 +26,6 @@ export const FIELD_IDS = {
   theme: 'theme',
   font: 'font',
   fontSize: 'fontSize',
-  openDyslexic: 'openDyslexic',
   punctuationPacing: 'punctuationPacing',
   alignment: 'alignment',
   contextLine: 'contextLine',
@@ -58,14 +58,16 @@ function populate(doc: Document, s: SettingsV4): void {
   const theme = getInput(doc, FIELD_IDS.theme);
   if (theme) theme.value = s.theme;
 
+  // #28 — populate the picker with the resolved FontId so legacy V4
+  // payloads carrying `openDyslexic: true` (and the V4 default
+  // `font: 'system-ui'` literal) snap to the matching picker option on
+  // first render. resolveFontId returns `'system'` for unknown literals,
+  // which matches the picker default.
   const font = getInput(doc, FIELD_IDS.font);
-  if (font) font.value = s.font;
+  if (font) font.value = resolveFontId(s);
 
   const fontSize = getInput(doc, FIELD_IDS.fontSize);
   if (fontSize) fontSize.value = String(s.fontSize);
-
-  const openDyslexic = getInput(doc, FIELD_IDS.openDyslexic);
-  if (openDyslexic instanceof HTMLInputElement) openDyslexic.checked = s.openDyslexic;
 
   const punctuation = getInput(doc, FIELD_IDS.punctuationPacing);
   if (punctuation instanceof HTMLInputElement) punctuation.checked = s.punctuationPacing;
@@ -121,8 +123,11 @@ function readFontSize(el: HTMLInputElement | HTMLSelectElement): number | null {
 }
 
 function readFont(el: HTMLInputElement | HTMLSelectElement): string | null {
-  // Schema accepts any string; empty is legal but useless. Reject to avoid
-  // an accidental empty-string clobber of the stored value.
+  // #28 — the V4 schema is `font: z.string()`; the UI must not narrow
+  // what storage accepts. `populate()` snaps display via `resolveFontId`,
+  // which is the canonical read-side migration boundary. We only short-
+  // circuit on the empty-string sentinel (HTML drift that wipes the
+  // value to empty has nothing to persist).
   const v = el.value;
   if (v.trim() === '') return null;
   return v;
@@ -147,7 +152,6 @@ const FIELD_READERS: { [K in EditableField]: Reader<K> } = {
   theme: readTheme,
   font: readFont,
   fontSize: readFontSize,
-  openDyslexic: readCheckbox,
   punctuationPacing: readCheckbox,
   alignment: readAlignment,
   contextLine: readCheckbox,
@@ -168,6 +172,11 @@ function bindField<K extends EditableField>(
     const value = reader(el);
     if (value === null) return;
     const patch = { [field]: value } as EditablePatch;
+    // #28 — write only the field the user changed. The legacy
+    // `openDyslexic` boolean is NOT mirrored on font-picker writes;
+    // consumers must call `resolveFontId` (read-side migration in
+    // `core/overlay/font-ids.ts`) rather than depending on a write-side
+    // boolean mirror. The read path is the single source of truth.
     api.save(patch).then(
       () => flashIndicator(doc, win, SAVED_INDICATOR_ID, SAVED_INDICATOR_MS),
       (err) => {

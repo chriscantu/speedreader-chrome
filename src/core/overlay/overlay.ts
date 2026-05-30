@@ -2,6 +2,7 @@ import { applyTheme } from '../theme';
 import type { ThemeId } from '../theme';
 import { OVERLAY_CSS } from './styles';
 import { OVERLAY_ATTR, OVERLAY_CLASS, OVERLAY_ID, OVERLAY_TEXT } from './constants';
+import { FONT_IDS, resolveFontId, type FontId } from './font-ids';
 import type {
   OverlayCloseSnapshot,
   OverlayHandle,
@@ -99,7 +100,7 @@ function resolveTheme(theme: ThemeId | 'system', win: Window & typeof globalThis
 const HOST_ATTR = OVERLAY_ATTR.HOST;
 
 /**
- * Build the @font-face rule for the OpenDyslexic bundled woff2 (#27).
+ * Build the @font-face rule for the bundled OpenDyslexic woff2 (#27).
  *
  * Validates the URL shape before interpolation so an unexpected caller
  * cannot inject CSS via crafted strings. Only `chrome-extension://` URLs
@@ -473,16 +474,21 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // (NaN, Infinity, negative) would otherwise write garbage CSS once.
     applyFontSize(clampFontSize(currentFontSize));
 
-    // OpenDyslexic toggle (#27). Treat undefined as false so callers and
-    // tests that pre-date the field continue to work unchanged. Apply at
-    // mount and re-apply on every settings push so toggling from the
-    // options page updates the live overlay without remount.
-    let currentOpenDyslexic = opts.initialSettings.openDyslexic ?? false;
-    const applyOpenDyslexic = (on: boolean): void => {
-      currentOpenDyslexic = on;
-      modal.classList.toggle(OVERLAY_CLASS.OPENDYSLEXIC, on);
+    // Font picker (#28). The active picker ID drives a `.modal.<font-id>`
+    // class so the matching family-stack rule in styles.ts wins. `system`
+    // intentionally applies no class — the default family stack on `.modal`
+    // is system-ui, and adding a class would be a no-op rule that hides
+    // the "no font selected" state from CSS inspection. resolveFontId
+    // handles the #27 legacy: `openDyslexic: true` without a curated
+    // `font` value promotes to `'opendyslexic'`.
+    let currentFont: FontId = resolveFontId(opts.initialSettings);
+    const applyFont = (next: FontId): void => {
+      currentFont = next;
+      for (const id of FONT_IDS) {
+        modal.classList.toggle(id, id !== 'system' && id === next);
+      }
     };
-    applyOpenDyslexic(currentOpenDyslexic);
+    applyFont(currentFont);
 
     unsubscribeSettings = opts.subscribeSettings((s) => {
       const resolved = resolveTheme(s.theme, view);
@@ -498,9 +504,9 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       if (s.fontSize !== currentFontSize) {
         applyFontSize(clampFontSize(s.fontSize));
       }
-      const nextOd = s.openDyslexic ?? false;
-      if (nextOd !== currentOpenDyslexic) {
-        applyOpenDyslexic(nextOd);
+      const nextFont = resolveFontId(s);
+      if (nextFont !== currentFont) {
+        applyFont(nextFont);
       }
     });
 

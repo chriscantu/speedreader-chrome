@@ -15,13 +15,18 @@ const HTML = `
     <option value="cream"></option>
     <option value="nord"></option>
   </select>
-  <input type="text" id="${FIELD_IDS.font}" />
+  <select id="${FIELD_IDS.font}">
+    <option value="system"></option>
+    <option value="opendyslexic"></option>
+    <option value="newYork"></option>
+    <option value="georgia"></option>
+    <option value="menlo"></option>
+  </select>
   <input type="number" id="${FIELD_IDS.fontSize}" />
   <select id="${FIELD_IDS.alignment}">
     <option value="orp"></option>
     <option value="center"></option>
   </select>
-  <input type="checkbox" id="${FIELD_IDS.openDyslexic}" />
   <input type="checkbox" id="${FIELD_IDS.punctuationPacing}" />
   <input type="checkbox" id="${FIELD_IDS.contextLine}" />
   <input type="checkbox" id="${FIELD_IDS.startFromWordOne}" />
@@ -95,9 +100,9 @@ describe('options controller', () => {
         ...DEFAULT_SETTINGS,
         wpm: 350,
         theme: 'nord',
-        font: 'Georgia',
+        font: 'georgia',
         fontSize: 22,
-        openDyslexic: true,
+        openDyslexic: false,
         punctuationPacing: false,
         alignment: 'center',
         contextLine: true,
@@ -107,13 +112,10 @@ describe('options controller', () => {
 
       expect((document.getElementById(FIELD_IDS.wpm) as HTMLInputElement).value).toBe('350');
       expect((document.getElementById(FIELD_IDS.theme) as HTMLSelectElement).value).toBe('nord');
-      expect((document.getElementById(FIELD_IDS.font) as HTMLInputElement).value).toBe('Georgia');
+      expect((document.getElementById(FIELD_IDS.font) as HTMLSelectElement).value).toBe('georgia');
       expect((document.getElementById(FIELD_IDS.fontSize) as HTMLInputElement).value).toBe('22');
       expect((document.getElementById(FIELD_IDS.alignment) as HTMLSelectElement).value).toBe(
         'center',
-      );
-      expect((document.getElementById(FIELD_IDS.openDyslexic) as HTMLInputElement).checked).toBe(
-        true,
       );
       expect(
         (document.getElementById(FIELD_IDS.punctuationPacing) as HTMLInputElement).checked,
@@ -124,6 +126,49 @@ describe('options controller', () => {
       expect(
         (document.getElementById(FIELD_IDS.startFromWordOne) as HTMLInputElement).checked,
       ).toBe(true);
+    });
+
+    it('migrates legacy openDyslexic=true into the font picker (#28)', async () => {
+      // Pre-#28 payloads carry the boolean without a curated `font` value
+      // (V4 default is `font: 'system-ui'` literal). The picker must snap
+      // to 'opendyslexic' on first render so the user sees their effective
+      // selection rather than a stale 'System' choice.
+      const stub = makeStub({
+        ...DEFAULT_SETTINGS,
+        font: 'system-ui',
+        openDyslexic: true,
+      });
+      await bindOptionsForm(document, window, stub);
+      expect((document.getElementById(FIELD_IDS.font) as HTMLSelectElement).value).toBe(
+        'opendyslexic',
+      );
+    });
+
+    it('unknown legacy font literal falls back to system in the picker (#28)', async () => {
+      const stub = makeStub({
+        ...DEFAULT_SETTINGS,
+        font: 'Comic Sans',
+        openDyslexic: false,
+      });
+      await bindOptionsForm(document, window, stub);
+      expect((document.getElementById(FIELD_IDS.font) as HTMLSelectElement).value).toBe('system');
+    });
+
+    it('legacy load does NOT auto-write the normalized payload (documented inconsistency)', async () => {
+      // Documents the migration gap: when stored payload is legacy
+      // `{ openDyslexic: true, font: 'system-ui' }`, the picker shows
+      // 'opendyslexic' via `resolveFontId` on populate(), but the
+      // controller does NOT write the normalized payload back to
+      // storage. Normalization is effective only on the first user
+      // interaction with the picker. If we ever decide to auto-write
+      // on load, this test flips to assert `saveMock` WAS called.
+      const stub = makeStub({
+        ...DEFAULT_SETTINGS,
+        font: 'system-ui',
+        openDyslexic: true,
+      });
+      await bindOptionsForm(document, window, stub);
+      expect(stub.saveMock).not.toHaveBeenCalled();
     });
   });
 
@@ -166,11 +211,11 @@ describe('options controller', () => {
     it('saves checkbox toggle', async () => {
       const stub = makeStub();
       await bindOptionsForm(document, window, stub);
-      const cb = document.getElementById(FIELD_IDS.openDyslexic) as HTMLInputElement;
+      const cb = document.getElementById(FIELD_IDS.contextLine) as HTMLInputElement;
       cb.checked = true;
       fire(cb, 'change');
       await Promise.resolve();
-      expect(stub.saveMock).toHaveBeenCalledWith({ openDyslexic: true });
+      expect(stub.saveMock).toHaveBeenCalledWith({ contextLine: true });
     });
 
     it('saves theme select change', async () => {
@@ -193,14 +238,32 @@ describe('options controller', () => {
       expect(stub.saveMock).toHaveBeenCalledWith({ alignment: 'center' });
     });
 
-    it('saves font text change', async () => {
+    it('saves font picker change WITHOUT mirroring the legacy openDyslexic boolean (#28)', async () => {
+      // Read-side migration in `core/overlay/font-ids.ts#resolveFontId`
+      // is the single source of truth for the legacy `openDyslexic`
+      // boolean. The controller writes only the picker field — mirroring
+      // the boolean here would create two write surfaces for the same
+      // truth and (worse) silently mutate a field the user did not touch.
       const stub = makeStub();
       await bindOptionsForm(document, window, stub);
-      const font = document.getElementById(FIELD_IDS.font) as HTMLInputElement;
-      font.value = 'Georgia';
+      const font = document.getElementById(FIELD_IDS.font) as HTMLSelectElement;
+      font.value = 'georgia';
       fire(font, 'change');
       await Promise.resolve();
-      expect(stub.saveMock).toHaveBeenCalledWith({ font: 'Georgia' });
+      expect(stub.saveMock).toHaveBeenCalledWith({ font: 'georgia' });
+      // No openDyslexic key in the payload — mutation guard.
+      const payload = stub.saveMock.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+      expect(payload && 'openDyslexic' in payload).toBe(false);
+    });
+
+    it('picking opendyslexic writes only the picker field (#28)', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      const font = document.getElementById(FIELD_IDS.font) as HTMLSelectElement;
+      font.value = 'opendyslexic';
+      fire(font, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).toHaveBeenCalledWith({ font: 'opendyslexic' });
     });
   });
 
@@ -260,16 +323,6 @@ describe('options controller', () => {
       align.appendChild(option);
       align.value = 'left';
       fire(align, 'change');
-      await Promise.resolve();
-      expect(stub.saveMock).not.toHaveBeenCalled();
-    });
-
-    it('rejects empty font (avoids accidental clobber)', async () => {
-      const stub = makeStub();
-      await bindOptionsForm(document, window, stub);
-      const font = document.getElementById(FIELD_IDS.font) as HTMLInputElement;
-      font.value = '   ';
-      fire(font, 'change');
       await Promise.resolve();
       expect(stub.saveMock).not.toHaveBeenCalled();
     });
