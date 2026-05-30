@@ -9,18 +9,30 @@
  *
  *  - Four sections: Speed, Appearance, Pacing, Shortcuts
  *  - Every editable FIELD_IDS entry is present in the DOM
- *  - Every form control has an associated <label> (WCAG 1.3.1, 4.1.2)
+ *  - Every form control has an associated <label> with the expected text
  *  - Shortcuts card lists the bindings exposed by the manifest +
- *    overlay keydown handler
+ *    overlay keydown handler, with the toggle chord tied to the manifest
+ *    default (so a manifest rebind that this card doesn't follow fails
+ *    the suite)
+ *  - End-to-end controller bind against the real HTML — guards the gap
+ *    where `controller.test.ts`'s synthetic fixture would mask HTML drift
  */
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { FIELD_IDS } from '../controller';
+import { bindOptionsForm, FIELD_IDS, type SettingsApi } from '../controller';
+import { DEFAULT_SETTINGS } from '../../../core/settings/defaults';
+import type { SettingsV4 } from '../../../core/settings/schema';
+import manifest from '../../manifest';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HTML_PATH = resolve(HERE, '../index.html');
+
+// Toggle chord pulled from the manifest so a rebind of
+// commands._toggle_reader propagates here — the card must follow.
+const TOGGLE_DEFAULT_CHORD = manifest.commands._toggle_reader.suggested_key.default;
+const TOGGLE_MAC_CHORD = manifest.commands._toggle_reader.suggested_key.mac;
 
 describe('options index.html structure', () => {
   let doc: Document;
@@ -46,11 +58,15 @@ describe('options index.html structure', () => {
       expect(legend?.textContent?.trim()).toBe(legendText);
     });
 
-    it('renders exactly the four sections specified by issue #30', () => {
-      const sections = Array.from(doc.querySelectorAll('fieldset[data-section]')).map((el) =>
-        el.getAttribute('data-section'),
+    it('renders the four sections required by issue #30 (order unconstrained)', () => {
+      // No production code reads section order; the per-section it.each above
+      // already proves presence + placement. Set-equality avoids overspecifying.
+      const sections = new Set(
+        Array.from(doc.querySelectorAll('fieldset[data-section]')).map((el) =>
+          el.getAttribute('data-section'),
+        ),
       );
-      expect(sections).toEqual(['speed', 'appearance', 'pacing', 'shortcuts']);
+      expect(sections).toEqual(new Set(['speed', 'appearance', 'pacing', 'shortcuts']));
     });
   });
 
@@ -87,11 +103,29 @@ describe('options index.html structure', () => {
   });
 
   describe('accessibility — label association', () => {
-    it.each(Object.values(FIELD_IDS))('control #%s has an associated <label for>', (id) => {
-      const label = doc.querySelector(`label[for="${id}"]`);
-      expect(label, `no <label for="${id}">`).not.toBeNull();
-      expect(label?.textContent?.trim()).not.toBe('');
-    });
+    // Expected label text per field. Tightening from `not.toBe('')` (which
+    // accepts e.g. `<label>.</label>` — WCAG theater) to a per-field map
+    // catches both empty AND meaningless labels.
+    const EXPECTED_LABELS: Record<keyof typeof FIELD_IDS, string> = {
+      wpm: 'Words per minute',
+      theme: 'Theme',
+      font: 'Font family',
+      fontSize: 'Font size (px)',
+      alignment: 'Word alignment',
+      openDyslexic: 'Use OpenDyslexic font',
+      punctuationPacing: 'Slow down at punctuation',
+      contextLine: 'Show line of context around current word',
+      startFromWordOne: 'Always start from word one',
+    };
+
+    it.each(Object.entries(FIELD_IDS))(
+      'control #%s has the expected <label for> text',
+      (key, id) => {
+        const label = doc.querySelector(`label[for="${id}"]`);
+        expect(label, `no <label for="${id}">`).not.toBeNull();
+        expect(label?.textContent?.trim()).toBe(EXPECTED_LABELS[key as keyof typeof FIELD_IDS]);
+      },
+    );
   });
 
   describe('shortcuts reference card', () => {
@@ -100,14 +134,46 @@ describe('options index.html structure', () => {
       expect(dl).not.toBeNull();
     });
 
+    it('surfaces the toggle chord pulled from manifest._toggle_reader.suggested_key.default', () => {
+      // If the manifest rebinds the default but the card doesn't follow,
+      // this assertion fails. The Mac variant lives in the same row's <dd>;
+      // asserting one chord per platform would require platform-detection
+      // here, so we cover Mac via the dedicated assertion below.
+      const dl = doc.querySelector('fieldset[data-section="shortcuts"] dl.shortcuts');
+      const terms = Array.from(dl?.querySelectorAll('dt') ?? []).map((t) => t.textContent?.trim());
+      expect(terms).toContain(TOGGLE_DEFAULT_CHORD);
+    });
+
+    it('documents the Mac toggle variant in the toggle row', () => {
+      // The Mac variant rides on the toggle row's <dd> since Chrome MV3
+      // surfaces it as a per-OS override, not a separate command. Match on
+      // dd text so a future move to a dedicated row still passes.
+      const dl = doc.querySelector('fieldset[data-section="shortcuts"] dl.shortcuts');
+      const dds = Array.from(dl?.querySelectorAll('dd') ?? []).map((d) => d.textContent ?? '');
+      expect(dds.some((text) => text.includes(TOGGLE_MAC_CHORD))).toBe(true);
+    });
+
     it.each([
-      'Ctrl+Shift+Y', // toggle (matches manifest commands._toggle_reader)
-      'Space', // play/pause (overlay keydown)
-      'Esc', // close (overlay keydown)
+      // Overlay keydown literals in src/core/overlay/overlay.ts ~L630.
+      // The handler uses raw 'ArrowLeft' / 'ArrowRight' / 'ArrowUp' /
+      // 'ArrowDown' strings (no exported constants), so the card uses
+      // the corresponding arrow glyphs and we assert the rendered text.
+      'Space', // play/pause
+      'Esc', // close
+      '← / →', // ← / → previous / next sentence
+      '↑ / ↓', // ↑ / ↓ increase / decrease speed
     ])('documents the %s shortcut', (chord) => {
       const dl = doc.querySelector('fieldset[data-section="shortcuts"] dl.shortcuts');
       const terms = Array.from(dl?.querySelectorAll('dt') ?? []).map((t) => t.textContent?.trim());
       expect(terms).toContain(chord);
+    });
+
+    it('shows a rebind caveat near the chord rows', () => {
+      const caveat = doc.querySelector(
+        'fieldset[data-section="shortcuts"] [data-shortcuts-caveat]',
+      );
+      expect(caveat, 'missing rebind caveat element').not.toBeNull();
+      expect(caveat?.textContent ?? '').toMatch(/yours may differ/i);
     });
 
     it('links to chrome://extensions/shortcuts for rebinding', () => {
@@ -133,6 +199,81 @@ describe('options index.html structure', () => {
     it('keeps the legacy toast contract (saved + save-error)', () => {
       expect(doc.getElementById('saved')).not.toBeNull();
       expect(doc.getElementById('save-error')).not.toBeNull();
+    });
+  });
+
+  /**
+   * Integration: drive `bindOptionsForm` against the real index.html.
+   *
+   * Critical because `controller.test.ts` uses a synthetic flat-fixture
+   * string built from FIELD_IDS — self-referential, so a missing ID or
+   * structural mismatch in the shipped HTML would not be caught there.
+   * Mutation check: renaming `id="wpm"` to `id="wpm-input"` in
+   * index.html (without touching FIELD_IDS) MUST make the missing-field
+   * assertion below go red.
+   */
+  describe('controller binds against real index.html', () => {
+    function makeStubApi(initial: SettingsV4 = DEFAULT_SETTINGS): SettingsApi & {
+      loadMock: ReturnType<typeof vi.fn>;
+      saveMock: ReturnType<typeof vi.fn>;
+      flushMock: ReturnType<typeof vi.fn>;
+    } {
+      const loadMock = vi.fn(async () => initial);
+      const saveMock = vi.fn(async () => undefined);
+      const flushMock = vi.fn(async () => undefined);
+      return {
+        load: loadMock,
+        save: saveMock,
+        flush: flushMock,
+        subscribe: () => () => undefined,
+        loadMock,
+        saveMock,
+        flushMock,
+      };
+    }
+
+    beforeEach(() => {
+      const html = readFileSync(HTML_PATH, 'utf8');
+      document.documentElement.innerHTML = new DOMParser().parseFromString(
+        html,
+        'text/html',
+      ).documentElement.innerHTML;
+    });
+
+    afterEach(() => {
+      document.body.innerHTML = '';
+    });
+
+    it('populates a loaded value into the real DOM', async () => {
+      const api = makeStubApi({ ...DEFAULT_SETTINGS, wpm: 420, theme: 'nord' });
+      await bindOptionsForm(document, window, api);
+      expect((document.getElementById(FIELD_IDS.wpm) as HTMLInputElement).value).toBe('420');
+      expect((document.getElementById(FIELD_IDS.theme) as HTMLSelectElement).value).toBe('nord');
+    });
+
+    it('round-trips a change event through to api.save', async () => {
+      const api = makeStubApi();
+      await bindOptionsForm(document, window, api);
+      const wpm = document.getElementById(FIELD_IDS.wpm) as HTMLInputElement;
+      wpm.value = '400';
+      wpm.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+      expect(api.saveMock).toHaveBeenCalledWith({ wpm: 400 });
+    });
+
+    it('console-errors with the missing field name when an id is dropped from real HTML', async () => {
+      // Mutation surface: dropping #wpm from the shipped HTML must surface
+      // via console.error. Equivalent to renaming id="wpm" → id="wpm-input"
+      // without updating FIELD_IDS — same observable signal.
+      document.getElementById(FIELD_IDS.wpm)?.remove();
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const api = makeStubApi();
+      await bindOptionsForm(document, window, api);
+      expect(err).toHaveBeenCalledWith(
+        expect.stringContaining('HTML missing field elements'),
+        expect.arrayContaining(['wpm']),
+      );
+      err.mockRestore();
     });
   });
 });
