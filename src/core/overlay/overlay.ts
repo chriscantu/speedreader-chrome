@@ -98,6 +98,11 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
   let unsubscribeSettings: (() => void) | null = null;
   let uninstallTrap: (() => void) | null = null;
   let onKeydown: ((e: KeyboardEvent) => void) | null = null;
+  // #26 — live OS theme listener teardown. Attached during mount when
+  // matchMedia is available; the same closure is invoked by
+  // `subscribeSettings` to swap behaviour when the user toggles the
+  // theme between `'system'` and an explicit override.
+  let uninstallSystemThemeListener: (() => void) | null = null;
   let priorOverflow: string | null = null;
   // Lifted into the outer closure so `unmount()` can build the close
   // snapshot for `onClose` (#25). Reassigned on scope-swap so the
@@ -247,6 +252,44 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     const resolvedTheme = resolveTheme(opts.initialSettings.theme, view);
     applyTheme(resolvedTheme, modal);
 
+    // #26 — live re-apply when the user's effective theme is `'system'`
+    // and the OS prefers-color-scheme flips. Track the current setting
+    // in a closure so the matchMedia change handler can short-circuit
+    // when the user has picked an explicit override (a user who chose
+    // Light does NOT want the OS to override them).
+    //
+    // `currentTheme` reflects the SETTING value (`'system' | ThemeId`),
+    // not the resolved value, so the gate stays accurate across
+    // settings.theme → 'system' ↔ explicit transitions.
+    let currentTheme: ThemeId | 'system' = opts.initialSettings.theme;
+    const installSystemThemeListener = (): void => {
+      if (uninstallSystemThemeListener) return;
+      let mql: MediaQueryList;
+      try {
+        mql = view.matchMedia('(prefers-color-scheme: dark)');
+      } catch {
+        // No matchMedia (jsdom without a stub, very old WebView). The
+        // mount-time resolveTheme already chose a sensible fallback;
+        // there is nothing to subscribe to.
+        return;
+      }
+      const onChange = (): void => {
+        // Belt-and-braces: the settings push path also detaches the
+        // listener when transitioning away from 'system', but if a
+        // change arrives in the same microtask we don't want to
+        // re-apply against an explicit override.
+        if (currentTheme !== 'system') return;
+        applyTheme(resolveTheme('system', view), modal);
+      };
+      mql.addEventListener('change', onChange);
+      uninstallSystemThemeListener = () => mql.removeEventListener('change', onChange);
+    };
+    const removeSystemThemeListener = (): void => {
+      uninstallSystemThemeListener?.();
+      uninstallSystemThemeListener = null;
+    };
+    if (currentTheme === 'system') installSystemThemeListener();
+
     // Local WPM is the source of truth for engine cadence while mounted.
     // Persisted settings updates push in via `subscribeSettings`; the
     // in-overlay ↑/↓ shortcut updates `currentWpm` + the engine without
@@ -255,6 +298,9 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     unsubscribeSettings = opts.subscribeSettings((s) => {
       const resolved = resolveTheme(s.theme, view);
       applyTheme(resolved, modal);
+      currentTheme = s.theme;
+      if (s.theme === 'system') installSystemThemeListener();
+      else removeSystemThemeListener();
       if (s.wpm !== currentWpm) {
         currentWpm = s.wpm;
         engine?.setWpm(s.wpm);
@@ -540,8 +586,16 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     engine?.stop();
     engine = null;
     currentScope = null;
+    // #26 — drop the settings subscription BEFORE detaching the OS theme
+    // listener. The settings callback can re-install the matchMedia
+    // listener (when `s.theme === 'system'`); if we tore down matchMedia
+    // first, a synchronous settings echo or microtask-drained emission
+    // landing between the two calls would re-attach against a modal we're
+    // about to remove, leaking a closure that pins the shadow root + engine.
     unsubscribeSettings?.();
     unsubscribeSettings = null;
+    uninstallSystemThemeListener?.();
+    uninstallSystemThemeListener = null;
     host?.remove();
     host = null;
     if (priorOverflow !== null) {
