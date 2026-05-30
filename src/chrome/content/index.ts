@@ -121,11 +121,30 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             theme: settings.theme,
             wpm: settings.wpm,
             fontSize: settings.fontSize,
+            openDyslexic: settings.openDyslexic,
           },
           subscribeSettings: (listener) =>
             subscribeSettings((s) =>
-              listener({ theme: s.theme, wpm: s.wpm, fontSize: s.fontSize }),
+              listener({
+                theme: s.theme,
+                wpm: s.wpm,
+                fontSize: s.fontSize,
+                openDyslexic: s.openDyslexic,
+              }),
             ),
+          // OpenDyslexic font URL (#27, #10). `core/` cannot call
+          // chrome.runtime.getURL, so the WAR URL is resolved here at
+          // overlay-construction time and passed through. PR #169 declared
+          // the `fonts/*` WAR entry; the woff2 binary lands separately under
+          // #173. When the binary is missing the overlay still mounts
+          // correctly — the @font-face load fails silently and the modal
+          // falls back to system-ui via the family stack in styles.ts.
+          //
+          // Defensive: optional-chain on `getURL` because some non-MV3 host
+          // environments (e.g. unit-test harnesses that stub a partial
+          // `chrome.runtime`) omit it. When unavailable, the toggle still
+          // flips the class — pure UI behavior — but no custom font loads.
+          openDyslexicFontUrl: chrome.runtime.getURL?.('fonts/OpenDyslexic-Regular.woff2'),
           engineFactory: createRsvpEngine,
           onClose: (snapshot) => {
             activeOverlay = null;
