@@ -23,6 +23,16 @@ export interface OverlaySettings {
    * `core/settings/bounds.ts`.
    */
   fontSize: number;
+  /**
+   * OpenDyslexic font toggle (#27). When true, the modal switches to the
+   * bundled OpenDyslexic typeface; when false (or absent), the modal
+   * falls back to system-ui. Optional so existing callers and tests that
+   * pre-date this field continue to type-check — overlay treats `undefined`
+   * as `false`. The font binary is loaded via `@font-face` injected at
+   * mount time, parameterised by `OverlayOptions.openDyslexicFontUrl`
+   * (since `core/` cannot call `chrome.runtime.getURL`).
+   */
+  openDyslexic?: boolean;
 }
 
 export type SettingsSubscriber = (s: OverlaySettings) => void;
@@ -113,6 +123,18 @@ export interface OverlayOptions {
    * updates its local font size for the session.
    */
   onFontSizeChange?: (next: number) => void;
+  /**
+   * Absolute URL of the bundled OpenDyslexic woff2 (#27, #10). The chrome
+   * glue resolves this via `chrome.runtime.getURL('fonts/...')` and passes
+   * it in; `core/` cannot call `chrome.*`. When the URL is provided, the
+   * overlay injects an `@font-face` rule into the shadow root at mount
+   * (scoped to the shadow — does NOT leak to host-page CSS). When omitted,
+   * the OpenDyslexic toggle has no effect (the family name falls through
+   * to the system fallback stack). Callers that toggle `openDyslexic`
+   * without providing this URL still type-check; the modal class is
+   * applied but no custom font loads.
+   */
+  openDyslexicFontUrl?: string;
 }
 
 /**

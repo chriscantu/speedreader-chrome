@@ -40,6 +40,14 @@ export const OVERLAY_CSS = `
   container-name: rsvp;
 }
 
+/* OpenDyslexic toggle (#27) — scoped to reading surface only (Safari parity floor). */
+.modal.opendyslexic .word-region,
+.modal.opendyslexic .context-current,
+.modal.opendyslexic .context-preview {
+  font-family:
+    'OpenDyslexic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
 .close-btn {
   position: absolute;
   top: 16px;
