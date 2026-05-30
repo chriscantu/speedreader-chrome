@@ -90,11 +90,20 @@ export default {
   // URL must be reachable from any origin. Tightening this list to specific
   // origins would require enumerating every page the overlay can ever run on,
   // which the lazy-injection model intentionally avoids.
+  // `use_dynamic_url` is a valid MV3 WAR field (rotates the extension-resource
+  // origin per session so arbitrary pages cannot probe
+  // `chrome-extension://<static-id>/fonts/*` to fingerprint SpeedReader
+  // installation — ring security-adversary flagged this on PR #169, see
+  // issue #172). The `@types/chrome` definition of
+  // `web_accessible_resources` is currently `Array<{ resources: string[];
+  // matches: string[] }>` and does not declare the field, so we widen the
+  // entry type locally rather than adding an ambient `.d.ts` augmentation.
   web_accessible_resources: [
     {
       resources: ['fonts/*'],
       matches: ['<all_urls>'],
-    },
+      use_dynamic_url: true,
+    } as { resources: string[]; matches: string[]; use_dynamic_url: boolean },
   ],
 
   // --- Commands (keyboard shortcuts) --------------------------------------
