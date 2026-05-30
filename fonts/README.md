@@ -42,9 +42,8 @@ committed `fonts/OFL.txt` is the upstream license file from
 `github.com/antijingoist/opendyslexic@master/OFL.txt`, preserving the
 required copyright notice (Abbie Gonzalez, 2019-07-29) and Reserved
 Font Name `OpenDyslexic` per OFL §1. Do not strip or replace with a
-generic template — the OFL.txt sha256 is pinned above for manual
-verification. (Automatic enforcement of the OFL.txt hash via
-`verify:fonts` is a follow-up; the woff2 pin IS enforced.)
+generic template — the OFL.txt sha256 is pinned above and all pinned
+files are enforced by `verify:fonts`.
 
 ## Issue #28 — font picker disposition (NOT bundled)
 
