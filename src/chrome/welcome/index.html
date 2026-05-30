@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Welcome to SpeedReader</title>
+    <link rel="stylesheet" href="./index.css" />
+  </head>
+  <body>
+    <header class="page-header">
+      <span class="wordmark" aria-hidden="true">SpeedReader</span>
+      <button
+        type="button"
+        id="dismiss"
+        class="dismiss"
+        aria-label="Close onboarding"
+        title="Close"
+      >
+        &#10005;
+      </button>
+    </header>
+
+    <main class="page">
+      <section
+        id="welcome-view"
+        class="view view--welcome"
+        data-view="welcome"
+        aria-labelledby="welcome-title"
+      >
+        <h1 id="welcome-title">SpeedReader</h1>
+        <p class="tagline">Read one word at a time, at your own pace.</p>
+        <p class="body">
+          SpeedReader uses Rapid Serial Visual Presentation (RSVP) to flash one word at
+          a time in a fixed location, so your eyes stay still and your brain catches up.
+          Pick a comfortable speed on the next screen — you can change it any time from
+          Options.
+        </p>
+        <button type="button" id="get-started" class="cta cta--primary">
+          Get started &rarr;
+        </button>
+      </section>
+
+      <section
+        id="calibrate-view"
+        class="view view--calibrate"
+        data-view="calibrate"
+        aria-labelledby="calibrate-title"
+        hidden
+      >
+        <h1 id="calibrate-title">Pick your speed</h1>
+        <p class="body">
+          Press <strong>Start preview</strong> to feel the cadence, then drag the slider
+          until it feels right. The preview pauses on its own after two passes.
+        </p>
+
+        <div class="word-stage" aria-live="polite">
+          <span id="word-display" class="word"></span>
+        </div>
+
+        <div class="preview-controls">
+          <button type="button" id="start-preview" class="cta cta--primary">
+            &#9654; Start preview
+          </button>
+          <button type="button" id="pause-toggle" class="cta cta--secondary" hidden>
+            Pause
+          </button>
+          <button type="button" id="replay" class="cta cta--secondary" hidden>
+            &#8635; Replay
+          </button>
+        </div>
+
+        <div class="slider-row">
+          <label for="wpm-slider" class="slider-label-text">Speed</label>
+          <input
+            type="range"
+            id="wpm-slider"
+            min="100"
+            max="600"
+            step="10"
+            aria-describedby="wpm-label"
+          />
+          <span id="wpm-label" class="slider-value" aria-live="polite"></span>
+        </div>
+
+        <div class="finish-row">
+          <button type="button" id="save-finish" class="cta cta--primary">
+            Save &amp; finish
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./index.ts"></script>
+  </body>
+</html>
