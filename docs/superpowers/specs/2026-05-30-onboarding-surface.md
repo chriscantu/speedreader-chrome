@@ -32,7 +32,7 @@ Without a pinned spec:
 
 This spec **composes** with — and does NOT supersede — the following already-merged surfaces:
 
-- [`2026-05-22-sw-lifecycle-activation.md`](2026-05-22-sw-lifecycle-activation.md) §"Listener Registration Discipline" (the `chrome.runtime.onInstalled` listener — this spec adds an `Onboarding` consumer to the existing top-level listener, it does NOT register a second listener).
+- [`2026-05-22-sw-lifecycle-activation.md`](2026-05-22-sw-lifecycle-activation.md) §"Listener Registration Discipline" — this spec adds a new top-level `chrome.runtime.onInstalled` registration in `src/chrome/background/welcome/register.ts`, mirroring the established `commands/register.ts` and `context-menu/register.ts` pattern (each module owns its own listener; Chrome dispatches to all). See §Install Trigger for the file shape.
 - [`2026-05-08-settings-schema.md`](2026-05-08-settings-schema.md) §"Schema shape" + §"Read/write/subscribe API" — Calibrate calls `saveSettings({ wpm })` against the V4 schema. The `wpm` field already exists (range [100, 600] step 10 per #15/#16); no migration is introduced by this spec.
 - `src/core/overlay/` — Calibrate imports the overlay engine to render the canned sample passage as a live RSVP stream. This is the same engine the content script mounts; the welcome page uses it as a library, not via message-passing.
 - `src/chrome/popup/` — popup CTAs (`Read article` / `Read selection`) MUST continue to function the moment the extension is installed, with or without onboarding completion. This spec adds NO `onboardingComplete` flag to V4 settings (deliberate — see §Non-Goals).
@@ -46,7 +46,7 @@ This spec **composes** with — and does NOT supersede — the following already
 Static intro. No engine reuse. Renders:
 
 - Title — "SpeedReader" wordmark + brief tagline.
-- Body — 2-3 sentences on what RSVP is and how to use the extension (popup, context menu, hotkey when #34 lands).
+- Body — 2-3 sentences on what RSVP is and how to use the extension. Enumeration of specific entry points (popup, hotkey, context menu) is implementer's choice — this spec does NOT pin the copy.
 - Primary CTA — `Get started →` button. Transitions to Calibrate view.
 - Dismiss control — header `✕`. Closes the tab via `window.close()`. No settings written. No `onboardingComplete` flag set (see §Non-Goals).
 
@@ -55,9 +55,9 @@ Static intro. No engine reuse. Renders:
 Interactive WPM picker exercising the real RSVP engine. Renders:
 
 - Sample passage — a short canned paragraph bundled as a string constant in the welcome module. NOT extracted from any page (no extraction path involved).
-- Live RSVP stream — `src/core/overlay/` engine mounted into a contained region (NOT a Shadow DOM overlay over the whole page — the welcome page is privileged, not a content script). Engine boots playing at the current settings WPM. End-of-sample behavior (loop, pause, replay button) is implementer's choice — not pinned by this spec.
+- Live RSVP stream — `src/core/overlay/` engine mounted into a contained region (NOT a Shadow DOM overlay over the whole page — the welcome page is privileged, not a content script). Engine boots playing at the current settings WPM and **loops the sample on end** so the slider always has a live stream to reseat — the verification step exercises slider drag at multiple WPM positions and the engine must be in a playing state to reseat. A `Pause` control (toggling to `Play`) is exposed beside the slider for users who prefer to read statically; pause does NOT stop the engine from honoring slider reseats — it just suppresses tick advancement.
 - Slider — `<input type="range" min="100" max="600" step="10">`. Live label "`{wpm} wpm`". Slider drag immediately reseats the engine's WPM (no save yet — debounced visual preview only).
-- Primary CTA — `Save & finish` button. Calls `saveSettings({ wpm: <sliderValue> })` and then `window.close()`. The save fires before the close, but the close does NOT block on the save promise — `saveSettings` is debounced and the chrome.storage write may complete after the tab is gone; the V4 contract handles this (storage write is fire-and-forget from the caller's POV).
+- Primary CTA — `Save & finish` button. Calls `saveSettings({ wpm: <sliderValue> })`, then `await flushSettings()` to force the debounced write through before tab teardown, then `window.close()`. The await is required: the 300 ms debounce timer lives in the page's JS realm and dies with the tab — without `flushSettings()`, a synchronous `window.close()` deterministically drops the write (see [`2026-05-08-settings-schema.md`](2026-05-08-settings-schema.md) §"Debounce window resolution contract").
 - Dismiss control — header `✕`. Closes the tab. NO settings written. The user's slider drags up to that point are NOT persisted.
 
 ### Header `✕` semantics (both views)
@@ -66,29 +66,24 @@ The `✕` is a discrete button, not page-chrome. It MUST be reachable via keyboa
 
 ## Install Trigger
 
-`chrome.runtime.onInstalled` is the activation source. The listener already exists at the top of the service worker for the context-menu install path (per `2026-05-22-sw-lifecycle-activation.md`). This spec adds an Onboarding consumer to the SAME listener — it does NOT register a second top-level listener (MV3 requires all listeners be registered synchronously at SW boot; multiple consumers chained behind one registration is the standard pattern).
+`chrome.runtime.onInstalled` is the activation source. The welcome trigger lives in a new side-effect module `src/chrome/background/welcome/register.ts`, mirroring the existing `commands/register.ts` and `context-menu/register.ts` modules — each independently registers its own top-level listener at module load. `background/index.ts` gains a sibling side-effect import (`import './welcome/register';`).
+
+The welcome module registers its OWN `chrome.runtime.onInstalled.addListener` — it does NOT mutate the context-menu module's existing registration. Multiple modules registering their own listener for the same event is the project's established MV3 pattern; Chrome dispatches the event to all registered listeners. Reason-gating is internal to each module:
 
 ```
+// src/chrome/background/welcome/register.ts
 chrome.runtime.onInstalled.addListener((details) => {
-  ensureContextMenu().catch((err) => { /* existing */ });
   if (details.reason === 'install') {
     void chrome.tabs.create({ url: chrome.runtime.getURL('src/chrome/welcome/index.html') });
   }
 });
 ```
 
-Reason matrix:
-
-| `details.reason` | Behavior |
-|---|---|
-| `'install'` | Open `welcome.html` in a new tab. |
-| `'update'` | No-op. Existing users do NOT see onboarding on extension auto-update. |
-| `'chrome_update'` | No-op. |
-| `'shared_module_update'` | No-op. |
+The `details.reason` matrix is owned by [`2026-05-22-sw-lifecycle-activation.md`](2026-05-22-sw-lifecycle-activation.md). This spec pins only the positive case: `reason === 'install'` opens `welcome.html`; all other reasons no-op per the sw-lifecycle spec.
 
 The `chrome.tabs.create` call is fire-and-forget — its promise is awaited only via `void` (we don't surface failure; if tab creation fails, the extension still works, just without the onboarding tab). No retry logic.
 
-The trigger is **one-shot per install**. There is no idempotency guard — `chrome.runtime.onInstalled` with `reason === 'install'` fires exactly once over the lifetime of the install. Re-installs (extension removed then re-added) fire it again, which is the correct behavior — a re-installer probably wants onboarding again.
+The trigger is **one-shot per install**. `chrome.runtime.onInstalled` with `reason === 'install'` fires exactly once over the lifetime of the install. Re-installs (extension removed then re-added) fire it again, which is the correct behavior — a re-installer probably wants onboarding again.
 
 ## View State Machine
 
@@ -107,7 +102,7 @@ No state machine library. A `<main>` element with two sibling `<section data-vie
 
 Calibrate view loads settings via `loadSettings()` at mount. The slider's initial position is `settings.wpm`. The Calibrate UI MUST NOT block on the load — if `loadSettings()` is still in flight at render, the slider is rendered with the V4 default (250) and updated when the promise resolves (re-seat slider value + restart engine playback at the loaded WPM). This satisfies AC #3.
 
-`Save & finish` calls `saveSettings({ wpm: sliderValue })`. The `saveSettings` API debounces internally (300ms per the settings-schema spec); the welcome page does NOT need to await it. The page closes via `window.close()` synchronously after dispatching `saveSettings`. Storage propagation completes in the service worker after the tab is gone; the popup's next read will see the new value via the existing `chrome.storage.onChanged` broadcast.
+`Save & finish` calls `saveSettings({ wpm: sliderValue })` followed by `await flushSettings()`. The await is mandatory — `saveSettings` is debounced 300 ms (per the settings-schema spec) and the timer lives in the page's JS realm, which is torn down by `window.close()`. Per `2026-05-08-settings-schema.md` §"Debounce window resolution contract", `flushSettings()` after a final `saveSettings` is the documented pattern for save-then-navigate / save-then-close consumers — it cancels the pending timer and runs `chrome.storage.sync.set` synchronously. Only after the flush resolves does the controller call `window.close()`. The popup's next read sees the new value via the existing `chrome.storage.onChanged` broadcast.
 
 Note: Calibrate writes `wpm` only. `lastUsedWpm` semantics (when it bumps, by which path) are owned by `2026-05-08-settings-schema.md`; this spec does not legislate them.
 
@@ -129,8 +124,9 @@ src/chrome/welcome/
 Service-worker delta (additive only):
 
 ```
-src/chrome/background/index.ts   # Existing onInstalled listener gains the welcome-tab branch
-src/chrome/background/__tests__/onInstalled-welcome.test.ts   # Asserts reason='install' opens welcome.html; other reasons no-op
+src/chrome/background/welcome/register.ts    # Top-level chrome.runtime.onInstalled listener; opens welcome.html on reason='install'
+src/chrome/background/welcome/__tests__/register.test.ts   # Asserts reason='install' opens welcome.html; other reasons no-op
+src/chrome/background/index.ts               # Adds a single side-effect import line: `import './welcome/register';`
 ```
 
 `src/chrome/welcome/index.ts` MUST follow the existing thin-bind pattern (matching `src/chrome/options/index.ts`):
@@ -152,18 +148,20 @@ All logic lives in `controller.ts` so it tests against an injected `SettingsApi`
 |---|---|---|
 | `chrome.tabs.create` rejects (extension disabled, browser closing) | Service worker swallows error via `void`. | None — extension still works without onboarding. User can re-run after #71's post-MVP `Options → About → Re-run onboarding` ships. |
 | `loadSettings()` rejects in Calibrate | Slider stays at V4 default (250). | User can still drag and save — `saveSettings` writes from slider value regardless. |
-| `saveSettings()` rejects on `Save & finish` | Tab closes anyway; storage write is fire-and-forget. | Lossy — user's calibrated value is lost. This is the same failure mode as Options-page WPM persistence; covered by the settings-schema spec's retry behavior. |
+| `flushSettings()` rejects on `Save & finish` | Controller proceeds to `window.close()` anyway — user has signaled dismiss intent. | Lossy — user's calibrated value is lost. The settings-schema spec does not require retry on transient `chrome.storage.sync.set` failures; the user can re-set wpm via Options. |
 | User dismisses Calibrate without saving | Settings unchanged. `wpm` stays at V4 default 250. | User can change WPM via Options. |
 | User opens `welcome.html` URL manually (not via install trigger) | Page renders normally in welcome view. | This is fine — it's not a privileged trigger; the page is harmless. The page always boots in `'welcome'` state regardless of how it was reached. |
 
 ## Non-Goals
 
-- **Re-run from Options.** AC #4 marks this post-MVP. The implementation PR MAY add a placeholder hook (e.g., an unwired `Re-run onboarding` button) but the wiring is explicitly out of scope.
+- **Re-run from Options.** AC #4 marks this post-MVP; out of scope for this spec.
 - **`onboardingComplete` flag in settings.** Deliberately not added. The popup must work the moment the extension installs (AC #2), and no surface should gate behavior on whether the user finished onboarding. Adding the flag is a future feature; absence is the contract.
-- **Analytics / telemetry on onboarding completion rate.** Project hard constraint: no tracking.
-- **Calibrate's sample passage in user-localized text.** Single English sample. Internationalization is a separate effort tracked elsewhere.
-- **Per-OS install path differentiation** (Chrome vs Edge vs Brave on Chromium). The welcome surface renders identically across all Chromium-based browsers; no special-case branches.
-- **Welcome surface accessibility audit.** Standard WCAG application (per-issue `a11y-extension-designer` routing in `CLAUDE.md`) — covered by the implementation PR, not the spec.
+
+## Open Questions
+
+- **OQ-1: Dismiss-without-save recovery path.** If a user installs the extension, dismisses the welcome tab via `✕` to "explore first", then later wants to calibrate, there is no second-chance surface until post-MVP `Re-run from Options` (AC #4) ships. **Recommendation:** M1 accepts the one-shot trade-off — installers who dismiss live at the V4 default 250 wpm until they discover the Options page. Re-prioritize AC #4 if early M1 feedback shows a high dismissal rate. Spec does not gate M1 on AC #4.
+- **OQ-2: `Save & finish` re-entry under rapid double-click.** Two clicks within the 300 ms debounce window before `window.close()` lands would dispatch two `saveSettings` (coalesced — fine) AND two `flushSettings` (the second resolves immediately, fine) AND two `window.close()` (second is a no-op). No data hazard. **Recommendation:** the implementation PR disables the button on first click to remove visual ambiguity, but the spec does NOT require it — the underlying contract is safe either way.
+- **OQ-3: Two welcome tabs open concurrently.** The Failure Modes table permits manual `welcome.html` URL open. Two concurrent tabs both calibrating produce independent 300 ms debounce timers per page realm; last-flush-wins via wall-clock ordering at `chrome.storage.sync.set`. **Recommendation:** accept last-write-wins as the M1 contract — this matches Options-page semantics when opened in two tabs. The spec does NOT add storage-versioning or tab-singleton enforcement.
 
 ## Verification (for the implementation PR)
 
@@ -177,7 +175,6 @@ The implementation PR's test plan MUST cover (and must NOT mark complete without
 - [ ] `Save & finish` writes `wpm` to chrome.storage. Verify by reopening `chrome://extensions` → Options for the extension, confirming the saved value.
 - [ ] Header `✕` on either view closes the tab without writing settings. Verify by opening Options afterward — `wpm` unchanged.
 - [ ] After dismissing onboarding (without saving), popup CTAs still work on a normal page. Verify by clicking `Read article` on a sample article URL.
-- [ ] Re-loading the extension (`Reload` button in `chrome://extensions`) does NOT re-open the welcome tab. Verify (`reason === 'update'` no-op).
 
 ## References
 
