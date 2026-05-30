@@ -124,6 +124,18 @@ export interface OverlayOptions {
    */
   onFontSizeChange?: (next: number) => void;
   /**
+   * Called when the user adjusts the WPM via slider commit (change event)
+   * or the ArrowUp/ArrowDown keyboard shortcut (#24). The overlay clamps
+   * the new value to [WPM_MIN, WPM_MAX] before invoking; consumers are
+   * expected to persist the value (the chrome glue routes this to
+   * `chrome.storage.sync.saveSettings({ wpm })`). Omitting the callback
+   * disables persistence — the overlay still updates its engine cadence
+   * for the session. Note: only the slider `change` event invokes this;
+   * the keyboard arrow shortcut updates the engine without persisting
+   * (slider is the canonical persistence surface).
+   */
+  onWpmChange?: (next: number) => void;
+  /**
    * Absolute URL of the bundled OpenDyslexic woff2 (#27, #10). The chrome
    * glue resolves this via `chrome.runtime.getURL('fonts/...')` and passes
    * it in; `core/` cannot call `chrome.*`. When the URL is provided, the

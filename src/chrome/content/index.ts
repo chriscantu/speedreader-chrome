@@ -175,6 +175,16 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
               console.warn('[speedreader] fontSize persist failed', err);
             });
           },
+          // WPM slider + ArrowUp/Down (#24). Overlay clamps to
+          // [WPM_MIN, WPM_MAX] and snaps to WPM_STEP before invoking. The
+          // debounced saveSettings (300 ms trailing edge) coalesces rapid
+          // slider drags into a single chrome.storage.sync.set, well under
+          // the 120 writes/min quota.
+          onWpmChange: (next) => {
+            saveSettings({ wpm: next }).catch((err: unknown) => {
+              console.warn('[speedreader] wpm persist failed', err);
+            });
+          },
         });
         activeOverlay.mount();
       })().catch(() => {
