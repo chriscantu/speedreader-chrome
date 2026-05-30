@@ -28,6 +28,15 @@ describe('manifest — web_accessible_resources for fonts (#10)', () => {
     expect(fontEntry?.matches).toEqual(['<all_urls>']);
   });
 
+  it('sets use_dynamic_url:true to block cross-extension fingerprinting (#172)', () => {
+    // Without use_dynamic_url, any page can probe
+    // `chrome-extension://<static-id>/fonts/OpenDyslexic-Regular.woff2` and
+    // detect SpeedReader installation via a successful fetch. The dynamic
+    // URL rotates per-session, blocking enumeration. Ring security-adversary
+    // flagged this on PR #169.
+    expect(fontEntry?.use_dynamic_url).toBe(true);
+  });
+
   it('chrome.runtime.getURL composes a usable extension URL for the font', () => {
     // Smoke-test the API shape the overlay will call. We stub
     // chrome.runtime.getURL to mirror Chrome's deterministic
