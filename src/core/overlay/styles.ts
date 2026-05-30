@@ -49,8 +49,16 @@ export const OVERLAY_CSS = `
 .modal.opendyslexic .word-region,
 .modal.opendyslexic .context-current,
 .modal.opendyslexic .context-preview {
+  /* Fallback chain ordered for dyslexia readability — generic system-ui
+   * only as last resort. Atkinson Hyperlegible (Braille Institute,
+   * downloadable / ships on some platforms), Comic Sans MS (research-
+   * cited dyslexia-friendly letter disambiguation; preinstalled on
+   * Windows + macOS), and Trebuchet MS (also research-cited; preinstalled
+   * cross-platform) keep the user on a dyslexia-friendly face when the
+   * bundled OpenDyslexic WOFF2 fails to load. See #190. */
   font-family:
-    'OpenDyslexic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    'OpenDyslexic', 'Atkinson Hyperlegible', 'Comic Sans MS',
+    'Trebuchet MS', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
 .modal.newYork .word-region,
