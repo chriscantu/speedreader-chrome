@@ -135,8 +135,17 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
           // before invoking. saveSettings is debounced (300 ms trailing
           // edge) so rapid stepper presses coalesce into a single
           // chrome.storage.sync.set, well under the 120 writes/min quota.
+          //
+          // Review H1 — surface persistence failures (quota exhaustion at
+          // 8 KB/item or 120 writes/min, sync-disabled) instead of
+          // dropping them via fire-and-forget `void`. The overlay UI has
+          // already mutated by the time this callback fires, so the user
+          // sees the new font size; logging gives us a breadcrumb when
+          // the next page reload doesn't reflect it.
           onFontSizeChange: (next) => {
-            void saveSettings({ fontSize: next });
+            saveSettings({ fontSize: next }).catch((err: unknown) => {
+              console.warn('[speedreader] fontSize persist failed', err);
+            });
           },
         });
         activeOverlay.mount();

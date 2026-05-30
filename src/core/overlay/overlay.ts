@@ -306,15 +306,29 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // buttons read+clamp from a single source. The applyFontSize helper
     // also updates the boundary-disabled state on the buttons.
     let currentFontSize = opts.initialSettings.fontSize;
-    const clampFontSize = (n: number): number =>
-      Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, n));
+    const clampFontSize = (n: number): number => {
+      // Defend against NaN/Infinity/negatives from caller-supplied
+      // initialSettings (review M4): Math.max/min propagate NaN, so a
+      // bare clamp here would still emit garbage CSS. Fall back to MIN.
+      if (!Number.isFinite(n)) return FONT_SIZE_MIN;
+      return Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, n));
+    };
     const applyFontSize = (n: number): void => {
       currentFontSize = n;
-      word.style.setProperty('--rsvp-font-size', `${n}px`);
+      // Write the custom property on the modal ancestor rather than the
+      // hot `word` element (review M3). `.word-region` reads
+      // `var(--rsvp-font-size)` via CSS custom-property inheritance, so
+      // moving the write up one level keeps the cascade working while
+      // avoiding inline-style invalidation on every RSVP tick (~10 Hz
+      // at 600 wpm).
+      modal.style.setProperty('--rsvp-font-size', `${n}px`);
       fontDecBtn.disabled = n <= FONT_SIZE_MIN;
       fontIncBtn.disabled = n >= FONT_SIZE_MAX;
     };
-    applyFontSize(currentFontSize);
+    // Clamp at mount-time too (review M4) — subscribeSettings clamps but
+    // initialSettings flows in unclamped from caller, so a bad value
+    // (NaN, Infinity, negative) would otherwise write garbage CSS once.
+    applyFontSize(clampFontSize(currentFontSize));
 
     unsubscribeSettings = opts.subscribeSettings((s) => {
       const resolved = resolveTheme(s.theme, view);

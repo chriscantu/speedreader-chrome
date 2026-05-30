@@ -55,6 +55,12 @@ function getWordRegion(): HTMLElement {
   return el;
 }
 
+function getModal(): HTMLElement {
+  const el = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.MODAL}`);
+  if (!el) throw new Error('overlay shadow: missing modal');
+  return el;
+}
+
 describe('createOverlay — font-size stepper (#29)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -148,16 +154,22 @@ describe('createOverlay — font-size stepper (#29)', () => {
     overlay.unmount();
   });
 
-  test('word region reflects initial fontSize via --rsvp-font-size custom property', () => {
+  test('modal reflects initial fontSize via --rsvp-font-size custom property (cascades to word-region)', () => {
+    // Review M3 — the property is written on `modal` (ancestor) so the
+    // hot `word` element stays free of inline-style invalidation on
+    // every RSVP tick. `.word-region` reads it via CSS cascade.
     const overlay = createOverlay(
       defaultOpts({ initialSettings: defaultSettings({ fontSize: 32 }) }),
     );
     overlay.mount();
-    expect(getWordRegion().style.getPropertyValue('--rsvp-font-size')).toBe('32px');
+    expect(getModal().style.getPropertyValue('--rsvp-font-size')).toBe('32px');
+    // word-region MUST NOT have an inline custom-prop write — the hot path
+    // must stay clean. This is the mutation guard for fix M3.
+    expect(getWordRegion().style.getPropertyValue('--rsvp-font-size')).toBe('');
     overlay.unmount();
   });
 
-  test('subscribeSettings emission with new fontSize updates the word region', () => {
+  test('subscribeSettings emission with new fontSize updates the modal property', () => {
     let notify: SettingsSubscriber = () => undefined;
     const overlay = createOverlay(
       defaultOpts({
@@ -169,13 +181,46 @@ describe('createOverlay — font-size stepper (#29)', () => {
       }),
     );
     overlay.mount();
-    const word = getWordRegion();
-    expect(word.style.getPropertyValue('--rsvp-font-size')).toBe('20px');
+    const modal = getModal();
+    expect(modal.style.getPropertyValue('--rsvp-font-size')).toBe('20px');
     notify({ theme: 'system', wpm: 300, fontSize: 36 });
-    expect(word.style.getPropertyValue('--rsvp-font-size')).toBe('36px');
+    expect(modal.style.getPropertyValue('--rsvp-font-size')).toBe('36px');
     // Stepper boundary state also refreshes on emission.
     notify({ theme: 'system', wpm: 300, fontSize: FONT_SIZE_MAX });
     expect(getIncBtn().disabled).toBe(true);
+    overlay.unmount();
+  });
+
+  test('mount-time clamps non-finite initial fontSize (M4 — POSITIVE_INFINITY → MIN)', () => {
+    // Review M4 — initialSettings flows in from the caller unclamped.
+    // subscribeSettings clamps but mount doesn't, so a malformed value
+    // (NaN, Infinity, negative) would write garbage CSS. Non-finite
+    // falls back to FONT_SIZE_MIN; finite-out-of-range clamps normally.
+    const overlay = createOverlay(
+      defaultOpts({
+        initialSettings: defaultSettings({ fontSize: Number.POSITIVE_INFINITY }),
+      }),
+    );
+    overlay.mount();
+    expect(getModal().style.getPropertyValue('--rsvp-font-size')).toBe(`${FONT_SIZE_MIN}px`);
+    overlay.unmount();
+  });
+
+  test('mount-time clamps negative initial fontSize to FONT_SIZE_MIN', () => {
+    const overlay = createOverlay(
+      defaultOpts({ initialSettings: defaultSettings({ fontSize: -50 }) }),
+    );
+    overlay.mount();
+    expect(getModal().style.getPropertyValue('--rsvp-font-size')).toBe(`${FONT_SIZE_MIN}px`);
+    overlay.unmount();
+  });
+
+  test('mount-time clamps over-large initial fontSize to FONT_SIZE_MAX', () => {
+    const overlay = createOverlay(
+      defaultOpts({ initialSettings: defaultSettings({ fontSize: 10_000 }) }),
+    );
+    overlay.mount();
+    expect(getModal().style.getPropertyValue('--rsvp-font-size')).toBe(`${FONT_SIZE_MAX}px`);
     overlay.unmount();
   });
 
