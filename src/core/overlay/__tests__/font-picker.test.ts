@@ -218,6 +218,75 @@ describe('createOverlay — font picker (#28)', () => {
     );
     expect(() => overlay.mount()).toThrow(/untrusted URL/);
   });
+
+  // #27 regression cases restored from the deleted opendyslexic.test.ts.
+  // These pin behaviour that the picker generalisation must not silently
+  // swallow: legacy callers omitting `font` and `openDyslexic`, live
+  // toggle-off via subscribeSettings, and the @font-face injection gate.
+
+  test('subscribeSettings push flips the OpenDyslexic class OFF without remount', () => {
+    let listener: SettingsSubscriber | undefined;
+    const subscribeSettings = (l: SettingsSubscriber): (() => void) => {
+      listener = l;
+      return () => undefined;
+    };
+    const overlay = createOverlay(
+      makeOpts({
+        initialSettings: defaultSettings({ font: 'opendyslexic' }),
+        subscribeSettings,
+      }),
+    );
+    overlay.mount();
+    const modal = getModal();
+    expect(modal.classList.contains('opendyslexic')).toBe(true);
+
+    listener?.(defaultSettings({ font: 'system' }));
+    expect(modal.classList.contains('opendyslexic')).toBe(false);
+
+    overlay.unmount();
+  });
+
+  test('mount with openDyslexic omitted (legacy callers) does NOT apply the modal class', () => {
+    // Legacy callers pre-#27 / pre-#28 omit both `font` and `openDyslexic`
+    // from initialSettings. resolveFontId returns `'system'` and the
+    // modal must NOT carry the opendyslexic class.
+    const overlay = createOverlay(makeOpts());
+    overlay.mount();
+    expect(getModal().classList.contains('opendyslexic')).toBe(false);
+    overlay.unmount();
+  });
+
+  test('@font-face is NOT injected when openDyslexicFontUrl is omitted', () => {
+    // Strict mutation guard: a contributor swapping `if (opts.openDyslexicFontUrl)`
+    // for `if (true)` would re-introduce a hard-coded @font-face. The
+    // strict not.toContain('@font-face') assertion bites that mutation
+    // deterministically.
+    const overlay = createOverlay(
+      makeOpts({ initialSettings: defaultSettings({ font: 'opendyslexic' }) }),
+    );
+    overlay.mount();
+    const css = getShadowCss();
+    expect(css).not.toContain('@font-face');
+    overlay.unmount();
+  });
+
+  test('@font-face rule binds OpenDyslexic to the supplied URL with woff2 format', () => {
+    // Standalone assertion that the rule shape — family, src URL, format —
+    // is intact end-to-end. Mutation guard: swapping the family literal,
+    // dropping format('woff2'), or substituting the URL all fail here.
+    const overlay = createOverlay(
+      makeOpts({
+        initialSettings: defaultSettings({ font: 'opendyslexic' }),
+        openDyslexicFontUrl: FONT_URL,
+      }),
+    );
+    overlay.mount();
+    const css = getShadowCss();
+    expect(css).toMatch(/font-family:\s*'OpenDyslexic'/);
+    expect(css).toMatch(/format\('woff2'\)/);
+    expect(css).toContain(FONT_URL);
+    overlay.unmount();
+  });
 });
 
 describe('OVERLAY_CSS — font picker family stacks (#28)', () => {

@@ -153,6 +153,23 @@ describe('options controller', () => {
       await bindOptionsForm(document, window, stub);
       expect((document.getElementById(FIELD_IDS.font) as HTMLSelectElement).value).toBe('system');
     });
+
+    it('legacy load does NOT auto-write the normalized payload (documented inconsistency)', async () => {
+      // Documents the migration gap: when stored payload is legacy
+      // `{ openDyslexic: true, font: 'system-ui' }`, the picker shows
+      // 'opendyslexic' via `resolveFontId` on populate(), but the
+      // controller does NOT write the normalized payload back to
+      // storage. Normalization is effective only on the first user
+      // interaction with the picker. If we ever decide to auto-write
+      // on load, this test flips to assert `saveMock` WAS called.
+      const stub = makeStub({
+        ...DEFAULT_SETTINGS,
+        font: 'system-ui',
+        openDyslexic: true,
+      });
+      await bindOptionsForm(document, window, stub);
+      expect(stub.saveMock).not.toHaveBeenCalled();
+    });
   });
 
   describe('load failure (degraded mode)', () => {
@@ -221,26 +238,32 @@ describe('options controller', () => {
       expect(stub.saveMock).toHaveBeenCalledWith({ alignment: 'center' });
     });
 
-    it('saves font picker change and mirrors legacy openDyslexic boolean (#28)', async () => {
+    it('saves font picker change WITHOUT mirroring the legacy openDyslexic boolean (#28)', async () => {
+      // Read-side migration in `core/overlay/font-ids.ts#resolveFontId`
+      // is the single source of truth for the legacy `openDyslexic`
+      // boolean. The controller writes only the picker field — mirroring
+      // the boolean here would create two write surfaces for the same
+      // truth and (worse) silently mutate a field the user did not touch.
       const stub = makeStub();
       await bindOptionsForm(document, window, stub);
       const font = document.getElementById(FIELD_IDS.font) as HTMLSelectElement;
       font.value = 'georgia';
       fire(font, 'change');
       await Promise.resolve();
-      // Picker write is the canonical update; the legacy boolean clears
-      // so a stale `openDyslexic: true` cannot win on payload round-trip.
-      expect(stub.saveMock).toHaveBeenCalledWith({ font: 'georgia', openDyslexic: false });
+      expect(stub.saveMock).toHaveBeenCalledWith({ font: 'georgia' });
+      // No openDyslexic key in the payload — mutation guard.
+      const payload = stub.saveMock.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+      expect(payload && 'openDyslexic' in payload).toBe(false);
     });
 
-    it('picking opendyslexic sets the legacy boolean to true (#28)', async () => {
+    it('picking opendyslexic writes only the picker field (#28)', async () => {
       const stub = makeStub();
       await bindOptionsForm(document, window, stub);
       const font = document.getElementById(FIELD_IDS.font) as HTMLSelectElement;
       font.value = 'opendyslexic';
       fire(font, 'change');
       await Promise.resolve();
-      expect(stub.saveMock).toHaveBeenCalledWith({ font: 'opendyslexic', openDyslexic: true });
+      expect(stub.saveMock).toHaveBeenCalledWith({ font: 'opendyslexic' });
     });
   });
 
@@ -300,21 +323,6 @@ describe('options controller', () => {
       align.appendChild(option);
       align.value = 'left';
       fire(align, 'change');
-      await Promise.resolve();
-      expect(stub.saveMock).not.toHaveBeenCalled();
-    });
-
-    it('rejects font value outside the picker enum (#28)', async () => {
-      // HTML drift simulation: an injected <option value="bogus"> must not
-      // land in storage. Same shape as the theme / alignment guards.
-      const stub = makeStub();
-      await bindOptionsForm(document, window, stub);
-      const font = document.getElementById(FIELD_IDS.font) as HTMLSelectElement;
-      const option = document.createElement('option');
-      option.value = 'comic-sans';
-      font.appendChild(option);
-      font.value = 'comic-sans';
-      fire(font, 'change');
       await Promise.resolve();
       expect(stub.saveMock).not.toHaveBeenCalled();
     });

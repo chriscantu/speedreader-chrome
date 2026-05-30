@@ -7,7 +7,7 @@ import {
   WPM_MIN,
   WPM_STEP,
 } from '../../core/settings/bounds';
-import { isFontId, resolveFontId } from '../../core/overlay/font-ids';
+import { resolveFontId } from '../../core/overlay/font-ids';
 
 export interface SettingsApi {
   load(): Promise<SettingsV4>;
@@ -123,14 +123,13 @@ function readFontSize(el: HTMLInputElement | HTMLSelectElement): number | null {
 }
 
 function readFont(el: HTMLInputElement | HTMLSelectElement): string | null {
-  // #28 — picker UI emits one of the 5 Safari-parity FontIds. The V4
-  // schema accepts any string for back-compat (older payloads carried
-  // raw CSS family names); we tighten validation here so HTML drift
-  // (e.g. an injected <option value="foo">) cannot land a non-picker
-  // value in storage. Empty also rejected — see #27 rationale.
+  // #28 — the V4 schema is `font: z.string()`; the UI must not narrow
+  // what storage accepts. `populate()` snaps display via `resolveFontId`,
+  // which is the canonical read-side migration boundary. We only short-
+  // circuit on the empty-string sentinel (HTML drift that wipes the
+  // value to empty has nothing to persist).
   const v = el.value;
   if (v.trim() === '') return null;
-  if (!isFontId(v)) return null;
   return v;
 }
 
@@ -173,16 +172,11 @@ function bindField<K extends EditableField>(
     const value = reader(el);
     if (value === null) return;
     const patch = { [field]: value } as EditablePatch;
-    // #28 — keep the legacy boolean in lockstep with the picker so older
-    // consumers reading `openDyslexic` directly (Chrome content script
-    // pre-#28 build of the overlay glue, future Safari payload-import)
-    // see a consistent value. The picker is the canonical source; the
-    // boolean mirrors it. When the user picks any non-opendyslexic font,
-    // the legacy boolean clears so a stale `true` cannot win over the
-    // picker on payload round-trip.
-    if (field === 'font') {
-      (patch as { openDyslexic?: boolean }).openDyslexic = value === 'opendyslexic';
-    }
+    // #28 — write only the field the user changed. The legacy
+    // `openDyslexic` boolean is NOT mirrored on font-picker writes;
+    // consumers must call `resolveFontId` (read-side migration in
+    // `core/overlay/font-ids.ts`) rather than depending on a write-side
+    // boolean mirror. The read path is the single source of truth.
     api.save(patch).then(
       () => flashIndicator(doc, win, SAVED_INDICATOR_ID, SAVED_INDICATOR_MS),
       (err) => {

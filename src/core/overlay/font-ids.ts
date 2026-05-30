@@ -20,15 +20,6 @@ export type FontId = (typeof FONT_IDS)[number];
 
 export const FONT_DEFAULT: FontId = 'system';
 
-/** Display labels for the options-page picker (Safari parity). */
-export const FONT_LABELS: Readonly<Record<FontId, string>> = Object.freeze({
-  system: 'System (San Francisco)',
-  opendyslexic: 'OpenDyslexic',
-  newYork: 'New York (Serif)',
-  georgia: 'Georgia (Serif)',
-  menlo: 'Menlo (Monospace)',
-});
-
 /**
  * Type guard for picker IDs. Used by the options-page reader to refuse
  * unknown values and by the overlay to fall back to the system stack
