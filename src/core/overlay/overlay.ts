@@ -666,17 +666,20 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     };
     fontDecBtn.addEventListener('click', () => stepFontSize(-FONT_SIZE_STEP));
     fontIncBtn.addEventListener('click', () => stepFontSize(FONT_SIZE_STEP));
-    const clampWpm = (n: number): number => {
-      if (!Number.isFinite(n)) return WPM_MIN;
-      // Snap to step so a slider value of e.g. 305 collapses to 300/310
-      // before reaching the engine. Native <input type="range" step=> already
-      // enforces this on browser-driven input events, but tests can dispatch
-      // synthetic values, and a defensive snap keeps the engine cadence on
-      // the canonical grid.
-      const clamped = Math.max(WPM_MIN, Math.min(WPM_MAX, n));
-      const snapped = Math.round((clamped - WPM_MIN) / WPM_STEP) * WPM_STEP + WPM_MIN;
-      return Math.max(WPM_MIN, Math.min(WPM_MAX, snapped));
-    };
+    // Plain clamp — native <input type="range"> already enforces min/max and
+    // step on browser-driven events, and the keyboard ArrowUp/Down deltas are
+    // always on the canonical grid. The previous `Number.isFinite` guard and
+    // step-snap were dead paths in practice (ring review #21).
+    const clampWpm = (n: number): number => Math.max(WPM_MIN, Math.min(WPM_MAX, n));
+    // `persist` controls whether onWpmChange fires. Two callsites need
+    // different answers:
+    //   - slider `change` (commit) + subscribeSettings echo → persist: true
+    //     (subscribeSettings goes through the no-op short-circuit so the
+    //      echo back to storage stays a no-op).
+    //   - stepWpm (ArrowUp/Down keyboard shortcut) → persist: false. The
+    //     main contract on the keyboard shortcut is "update engine cadence
+    //     without persisting"; issue #24 names the SLIDER as the persistence
+    //     surface, not the keyboard.
     const applyWpm = (next: number, opts2: { persist: boolean }): void => {
       if (!engine) return;
       const clamped = clampWpm(next);
@@ -686,8 +689,12 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       syncWpmUi(clamped);
       if (opts2.persist) opts.onWpmChange?.(clamped);
     };
+    // ArrowUp / ArrowDown — adjust engine cadence without persisting. Issue
+    // #24 names the slider as the persistence surface; the keyboard
+    // shortcut intentionally stays session-only so a user can probe faster
+    // speeds with arrow keys without rewriting their saved default.
     const stepWpm = (delta: number): void => {
-      applyWpm(currentWpm + delta, { persist: true });
+      applyWpm(currentWpm + delta, { persist: false });
     };
 
     // Prev / next sentence buttons (#23). seekToSentence handles state
@@ -700,13 +707,37 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       engine?.seekToSentence('next');
     });
 
-    // WPM slider (#24). `input` rather than `change` so the engine cadence
-    // updates while the user drags, not only on commit. The handler routes
-    // through applyWpm to share the clamp + persist path with the keyboard
-    // shortcut.
+    // WPM slider (#24). Split `input` vs `change`:
+    //   - `input` fires ~60×/sec during drag — UI-only update (slider
+    //     value, readout text, currentWpm cache). Calling engine.setWpm
+    //     on every tick would `clearPending()` + `scheduleNext()` per
+    //     tick, resetting the active word's remaining-time and stalling
+    //     the RSVP stream while the user drags (ring review #21).
+    //   - `change` fires on drag release / keyboard commit — push the
+    //     final value through applyWpm so engine cadence + persistence
+    //     happen once per discrete drag, not per tick.
     wpmSlider.addEventListener('input', () => {
       const raw = Number(wpmSlider.value);
-      applyWpm(raw, { persist: true });
+      const clamped = clampWpm(raw);
+      currentWpm = clamped;
+      wpmSlider.value = String(clamped);
+      wpmReadout.textContent = OVERLAY_TEXT.wpmReadout(clamped);
+    });
+    wpmSlider.addEventListener('change', () => {
+      const raw = Number(wpmSlider.value);
+      const clamped = clampWpm(raw);
+      // Bypass applyWpm's currentWpm short-circuit: `input` has already
+      // moved currentWpm to the dragged value, so applyWpm would no-op
+      // and skip engine.setWpm + persistence. Call them directly here.
+      if (!engine) return;
+      engine.setWpm(clamped);
+      // Keep the UI source of truth aligned with the committed value
+      // (defensive — input handler already syncs).
+      if (currentWpm !== clamped) {
+        currentWpm = clamped;
+        syncWpmUi(clamped);
+      }
+      opts.onWpmChange?.(clamped);
     });
     onKeydown = (e: KeyboardEvent) => {
       // Capture-phase handler installed on opts.doc — preventDefault denies

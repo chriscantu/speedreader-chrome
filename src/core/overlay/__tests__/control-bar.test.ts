@@ -23,7 +23,7 @@ import { createOverlay } from '../overlay';
 import type { OverlayOptions, OverlaySettings, SettingsSubscriber } from '../types';
 import { createRsvpEngine, type RsvpEngine, type RsvpEngineOptions } from '../../rsvp-engine';
 import { WPM_MAX, WPM_MIN, WPM_STEP } from '../../settings/bounds';
-import { OVERLAY_CLASS } from '../constants';
+import { OVERLAY_CLASS, OVERLAY_TEXT } from '../constants';
 import { OVERLAY_CSS } from '../styles';
 
 const STREAM = ['Hi.', 'How', 'are', 'you?', 'I', 'am', 'fine.', 'Bye!'];
@@ -98,10 +98,10 @@ describe('createOverlay — prev/next sentence buttons (#23)', () => {
     const next = getNextBtn();
     expect(prev.tagName).toBe('BUTTON');
     expect(prev.type).toBe('button');
-    expect(prev.getAttribute('aria-label')).toMatch(/previous sentence/i);
+    expect(prev.getAttribute('aria-label')).toBe(OVERLAY_TEXT.PREV_SENTENCE_LABEL);
     expect(next.tagName).toBe('BUTTON');
     expect(next.type).toBe('button');
-    expect(next.getAttribute('aria-label')).toMatch(/next sentence/i);
+    expect(next.getAttribute('aria-label')).toBe(OVERLAY_TEXT.NEXT_SENTENCE_LABEL);
     overlay.unmount();
   });
 
@@ -177,7 +177,11 @@ describe('createOverlay — WPM slider + readout (#24, #16)', () => {
     overlay.unmount();
   });
 
-  test('slider input event updates engine WPM and readout', () => {
+  test('slider input event updates readout but does NOT touch engine (drag UI-only, ring #21)', () => {
+    // Per ring review #21: `input` fires ~60×/sec during drag. Each engine
+    // setWpm clears + reschedules the pending word, stalling the RSVP
+    // stream while the user drags. UI sync only on `input`; engine commit
+    // on `change`.
     const holder: Holder = { engine: null };
     const overlay = createOverlay(defaultOpts(holder));
     overlay.mount();
@@ -187,20 +191,40 @@ describe('createOverlay — WPM slider + readout (#24, #16)', () => {
     slider.value = '420';
     slider.dispatchEvent(new Event('input', { bubbles: true }));
 
+    expect(setWpmSpy).not.toHaveBeenCalled();
+    expect(getReadout().textContent).toMatch(/420/);
+    expect(slider.value).toBe('420');
+    overlay.unmount();
+  });
+
+  test('slider change event commits to engine WPM and readout', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    const slider = getSlider();
+    const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
+
+    slider.value = '420';
+    slider.dispatchEvent(new Event('change', { bubbles: true }));
+
     expect(setWpmSpy).toHaveBeenCalledWith(420);
     expect(getReadout().textContent).toMatch(/420/);
     overlay.unmount();
   });
 
-  test('slider invokes onWpmChange for persistence', () => {
+  test('slider change invokes onWpmChange for persistence', () => {
     const holder: Holder = { engine: null };
     const onWpmChange = vi.fn<(n: number) => void>();
     const overlay = createOverlay(defaultOpts(holder, { onWpmChange }));
     overlay.mount();
     const slider = getSlider();
     slider.value = '500';
+    // Mimic a real drag: input ticks during drag, change on release.
     slider.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(onWpmChange).not.toHaveBeenCalled();
+    slider.dispatchEvent(new Event('change', { bubbles: true }));
     expect(onWpmChange).toHaveBeenCalledWith(500);
+    expect(onWpmChange).toHaveBeenCalledTimes(1);
     overlay.unmount();
   });
 
@@ -217,8 +241,8 @@ describe('createOverlay — WPM slider + readout (#24, #16)', () => {
       new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }),
     );
 
-    expect(getSlider().value).toBe('310');
-    expect(getReadout().textContent).toMatch(/310/);
+    expect(getSlider().value).toBe(String(300 + WPM_STEP));
+    expect(getReadout().textContent).toMatch(new RegExp(String(300 + WPM_STEP)));
     overlay.unmount();
   });
 
@@ -231,12 +255,16 @@ describe('createOverlay — WPM slider + readout (#24, #16)', () => {
     document.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
     );
-    expect(getSlider().value).toBe('290');
-    expect(getReadout().textContent).toMatch(/290/);
+    expect(getSlider().value).toBe(String(300 - WPM_STEP));
+    expect(getReadout().textContent).toMatch(new RegExp(String(300 - WPM_STEP)));
     overlay.unmount();
   });
 
-  test('keyboard ArrowUp also invokes onWpmChange so it persists', () => {
+  test('keyboard ArrowUp/Down do NOT persist (main contract — slider is the persistence surface)', () => {
+    // Issue #24 names the slider as the persistence surface. ArrowUp /
+    // ArrowDown adjust engine cadence for the session without rewriting
+    // the saved default. Ring review #21 caught a silent flip to
+    // persisting; this test guards the contract.
     const holder: Holder = { engine: null };
     const onWpmChange = vi.fn<(n: number) => void>();
     const overlay = createOverlay(defaultOpts(holder, { onWpmChange }));
@@ -244,7 +272,24 @@ describe('createOverlay — WPM slider + readout (#24, #16)', () => {
     document.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }),
     );
-    expect(onWpmChange).toHaveBeenCalledWith(310);
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+    );
+    expect(onWpmChange).not.toHaveBeenCalled();
+    overlay.unmount();
+  });
+
+  test('keyboard ArrowUp still updates engine cadence (non-persisting)', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(
+      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 300, fontSize: 20 } }),
+    );
+    overlay.mount();
+    const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }),
+    );
+    expect(setWpmSpy).toHaveBeenCalledWith(300 + WPM_STEP);
     overlay.unmount();
   });
 
@@ -274,15 +319,15 @@ describe('createOverlay — WPM slider + readout (#24, #16)', () => {
   test('slider clamps to WPM_MIN if out-of-range value is set externally', () => {
     // The native <input type="range"> normally clamps on its own, but the
     // engine.setWpm path must also tolerate the (theoretical) escape — and
-    // the on-input handler MUST always feed a clamped value to the engine.
+    // the on-change handler MUST always feed a clamped value to the engine.
     const holder: Holder = { engine: null };
     const overlay = createOverlay(defaultOpts(holder));
     overlay.mount();
     const slider = getSlider();
     const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
 
-    slider.value = '50'; // below WPM_MIN — browser will clamp to '100'
-    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    slider.value = '50'; // below WPM_MIN — browser would clamp to '100'
+    slider.dispatchEvent(new Event('change', { bubbles: true }));
 
     const calls = setWpmSpy.mock.calls;
     const calledWith = calls[calls.length - 1]?.[0];
@@ -291,19 +336,46 @@ describe('createOverlay — WPM slider + readout (#24, #16)', () => {
     overlay.unmount();
   });
 
-  test('mutation guard — onWpmChange wire from slider input is load-bearing', () => {
+  test('mutation guard — onWpmChange wire from slider change is load-bearing', () => {
     // Without the wire, the assertion below would never be true; if a
-    // contributor reverts the `opts.onWpmChange?.(next)` call inside the
-    // slider input handler to a no-op, this test fails.
+    // contributor reverts the `opts.onWpmChange?.(clamped)` call inside the
+    // slider change handler to a no-op, this test fails.
     const holder: Holder = { engine: null };
     const onWpmChange = vi.fn<(n: number) => void>();
     const overlay = createOverlay(defaultOpts(holder, { onWpmChange }));
     overlay.mount();
     const slider = getSlider();
     slider.value = '410';
-    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    slider.dispatchEvent(new Event('change', { bubbles: true }));
     expect(onWpmChange).toHaveBeenCalledTimes(1);
     expect(onWpmChange).toHaveBeenCalledWith(410);
+    overlay.unmount();
+  });
+
+  test('slider drag stress — many input ticks call engine.setWpm zero times (ring #21 BLOCKER)', () => {
+    // Simulates a drag: dozens of `input` events while the user holds the
+    // slider, then a single `change` on release. Engine commit MUST happen
+    // once, not per tick — otherwise each tick clearPending()+scheduleNext()
+    // stalls the RSVP stream.
+    const holder: Holder = { engine: null };
+    const onWpmChange = vi.fn<(n: number) => void>();
+    const overlay = createOverlay(defaultOpts(holder, { onWpmChange }));
+    overlay.mount();
+    const slider = getSlider();
+    const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
+
+    for (let v = 310; v <= 500; v += 10) {
+      slider.value = String(v);
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    expect(setWpmSpy).not.toHaveBeenCalled();
+    expect(onWpmChange).not.toHaveBeenCalled();
+
+    slider.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(setWpmSpy).toHaveBeenCalledTimes(1);
+    expect(setWpmSpy).toHaveBeenCalledWith(500);
+    expect(onWpmChange).toHaveBeenCalledTimes(1);
+    expect(onWpmChange).toHaveBeenCalledWith(500);
     overlay.unmount();
   });
 });
