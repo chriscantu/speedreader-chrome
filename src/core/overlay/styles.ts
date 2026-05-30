@@ -172,6 +172,62 @@ export const OVERLAY_CSS = `
   cursor: not-allowed;
 }
 
+/* Prev / next sentence buttons (#23). Same outline / accent treatment as
+ * the font stepper; ≥44×44 px so WCAG 2.5.5 holds across the control bar. */
+.prev-sentence-btn,
+.next-sentence-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 2px solid var(--text, #111111);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text, #111111);
+  font: 700 18px / 1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.prev-sentence-btn:hover,
+.next-sentence-btn:hover {
+  background: var(--accent-soft, rgba(37, 99, 235, 0.12));
+  color: var(--text, #111111);
+}
+
+.prev-sentence-btn:focus-visible,
+.next-sentence-btn:focus-visible {
+  outline: 3px solid var(--accent, #2563eb);
+  outline-offset: 2px;
+}
+
+/* WPM slider (#24). The native <input type="range"> default thumb is well
+ * below the WCAG 2.5.5 target-size minimum (24px on Chromium, ~18px on
+ * WebKit). The base styles below give the slider element a 44px hitbox
+ * (touch-primary block bumps to 48px). Track + thumb keep system defaults
+ * inside that hitbox so we don't fight the cross-browser thumb shape. */
+.wpm-slider {
+  min-height: 44px;
+  /* The default range thumb is small; the larger inline-size gives the
+   * user enough travel for a 100→600 step=10 sweep. */
+  inline-size: clamp(120px, 22cqi, 240px);
+  accent-color: var(--accent, #2563eb);
+  cursor: pointer;
+}
+
+.wpm-slider:focus-visible {
+  outline: 3px solid var(--accent, #2563eb);
+  outline-offset: 4px;
+}
+
+.wpm-readout {
+  /* tabular-nums prevents the readout width from jittering as the digit
+   * count changes during a drag (100 → 99 → 100 etc.). */
+  font: 600 14px / 1 system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: var(--text, #111111);
+  min-inline-size: 6ch;
+  text-align: start;
+}
+
 .word-region {
   text-align: center;
   /*
@@ -258,6 +314,16 @@ export const OVERLAY_CSS = `
   }
   .font-dec-btn:focus-visible,
   .font-inc-btn:focus-visible { outline-color: Highlight; }
+  .prev-sentence-btn,
+  .next-sentence-btn {
+    background: ButtonFace;
+    color: ButtonText;
+    border-color: ButtonText;
+  }
+  .prev-sentence-btn:focus-visible,
+  .next-sentence-btn:focus-visible { outline-color: Highlight; }
+  .wpm-slider:focus-visible { outline-color: Highlight; }
+  .wpm-readout { color: CanvasText; }
   .context-preview { color: CanvasText; opacity: 1; }
   .context-current { color: Highlight; }
 }
@@ -324,6 +390,23 @@ export const OVERLAY_CSS = `
     min-width: 48px;
     min-height: 48px;
     padding: 12px 16px;
+  }
+  .prev-sentence-btn,
+  .next-sentence-btn {
+    min-width: 48px;
+    min-height: 48px;
+    padding: 12px 16px;
+  }
+  .wpm-slider {
+    min-height: 48px;
+    inline-size: clamp(160px, 30cqi, 320px);
+  }
+  .footer {
+    /* On handsets the control bar can wrap onto two lines without losing
+     * the bottom safe-area inset. Centered alignment keeps the layout
+     * symmetric whether or not the slider wraps. */
+    flex-wrap: wrap;
+    row-gap: 12px;
   }
 }
 `;

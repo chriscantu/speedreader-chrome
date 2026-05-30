@@ -27,6 +27,10 @@ export const OVERLAY_CLASS = Object.freeze({
   PLAY_PAUSE_BTN: 'play-pause-btn',
   FONT_DEC_BTN: 'font-dec-btn',
   FONT_INC_BTN: 'font-inc-btn',
+  PREV_SENTENCE_BTN: 'prev-sentence-btn',
+  NEXT_SENTENCE_BTN: 'next-sentence-btn',
+  WPM_SLIDER: 'wpm-slider',
+  WPM_READOUT: 'wpm-readout',
   CONTEXT_PREVIEW: 'context-preview',
   CONTEXT_CURRENT: 'context-current',
 });
@@ -72,6 +76,20 @@ export const OVERLAY_TEXT = Object.freeze({
   FONT_INC_GLYPH: 'A+',
   FONT_DEC_LABEL: 'Decrease font size',
   FONT_INC_LABEL: 'Increase font size',
+
+  /** Prev / next sentence buttons (#23). */
+  PREV_SENTENCE_GLYPH: '⏮',
+  NEXT_SENTENCE_GLYPH: '⏭',
+  PREV_SENTENCE_LABEL: 'Previous sentence',
+  NEXT_SENTENCE_LABEL: 'Next sentence',
+
+  /** WPM slider accessible label (#24). */
+  WPM_SLIDER_LABEL: 'Reading speed (words per minute)',
+
+  /** WPM readout template — visible "300 wpm" text next to the slider. */
+  wpmReadout(wpm: number): string {
+    return `${wpm} wpm`;
+  },
 
   /** Empty-selection fallback subtitle + polite live-region announcement. */
   EMPTY_SELECTION_FALLBACK: 'No selection detected. Reading full article instead.',

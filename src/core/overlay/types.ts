@@ -113,6 +113,16 @@ export interface OverlayOptions {
    * updates its local font size for the session.
    */
   onFontSizeChange?: (next: number) => void;
+  /**
+   * Called when the user adjusts the WPM via slider input or the
+   * ArrowUp/ArrowDown keyboard shortcut (#24). The overlay clamps the
+   * new value to [WPM_MIN, WPM_MAX] and snaps to WPM_STEP before
+   * invoking; consumers are expected to persist the value (the chrome
+   * glue routes this to `chrome.storage.sync.saveSettings({ wpm })`).
+   * Omitting the callback disables persistence — the overlay still
+   * updates its engine cadence for the session.
+   */
+  onWpmChange?: (next: number) => void;
 }
 
 /**

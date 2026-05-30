@@ -131,6 +131,10 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     swapBtn: HTMLButtonElement | null;
     fontDecBtn: HTMLButtonElement;
     fontIncBtn: HTMLButtonElement;
+    prevSentenceBtn: HTMLButtonElement;
+    nextSentenceBtn: HTMLButtonElement;
+    wpmSlider: HTMLInputElement;
+    wpmReadout: HTMLElement;
     ariaLive: HTMLElement;
     preview: HTMLElement;
   } {
@@ -228,10 +232,47 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     fontIncBtn.setAttribute('aria-label', OVERLAY_TEXT.FONT_INC_LABEL);
     footer.appendChild(fontIncBtn);
 
+    // Prev-sentence button (#23). Placed before play/pause so the visual
+    // order in LTR reading is [⏮] [Play/Pause] [⏭]. Click handler is
+    // wired in mount() so it can capture the engine reference.
+    const prevSentenceBtn = doc.createElement('button');
+    prevSentenceBtn.className = OVERLAY_CLASS.PREV_SENTENCE_BTN;
+    prevSentenceBtn.type = 'button';
+    prevSentenceBtn.textContent = OVERLAY_TEXT.PREV_SENTENCE_GLYPH;
+    prevSentenceBtn.setAttribute('aria-label', OVERLAY_TEXT.PREV_SENTENCE_LABEL);
+    footer.appendChild(prevSentenceBtn);
+
     const playPauseBtn = doc.createElement('button');
     playPauseBtn.className = OVERLAY_CLASS.PLAY_PAUSE_BTN;
     playPauseBtn.type = 'button';
     footer.appendChild(playPauseBtn);
+
+    const nextSentenceBtn = doc.createElement('button');
+    nextSentenceBtn.className = OVERLAY_CLASS.NEXT_SENTENCE_BTN;
+    nextSentenceBtn.type = 'button';
+    nextSentenceBtn.textContent = OVERLAY_TEXT.NEXT_SENTENCE_GLYPH;
+    nextSentenceBtn.setAttribute('aria-label', OVERLAY_TEXT.NEXT_SENTENCE_LABEL);
+    footer.appendChild(nextSentenceBtn);
+
+    // WPM slider (#24) + readout. Bounds are [WPM_MIN, WPM_MAX] = [100, 600]
+    // (#16). Slider value is set in mount() from currentWpm so the initial
+    // position reflects initialSettings.wpm even when callers pass non-default
+    // values.
+    const wpmSlider = doc.createElement('input');
+    wpmSlider.className = OVERLAY_CLASS.WPM_SLIDER;
+    wpmSlider.type = 'range';
+    wpmSlider.min = String(WPM_MIN);
+    wpmSlider.max = String(WPM_MAX);
+    wpmSlider.step = String(WPM_STEP);
+    wpmSlider.setAttribute('aria-label', OVERLAY_TEXT.WPM_SLIDER_LABEL);
+    footer.appendChild(wpmSlider);
+
+    const wpmReadout = doc.createElement('span');
+    wpmReadout.className = OVERLAY_CLASS.WPM_READOUT;
+    // The slider already exposes its value via aria-label + role; the readout
+    // is a visual companion. aria-hidden avoids duplicate announcements.
+    wpmReadout.setAttribute('aria-hidden', 'true');
+    footer.appendChild(wpmReadout);
 
     const bottomSentinel = doc.createElement('div');
     bottomSentinel.className = OVERLAY_CLASS.TRAP_SENTINEL;
@@ -253,6 +294,10 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       swapBtn,
       fontDecBtn,
       fontIncBtn,
+      prevSentenceBtn,
+      nextSentenceBtn,
+      wpmSlider,
+      wpmReadout,
       ariaLive,
       preview,
     };
@@ -294,6 +339,10 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       swapBtn,
       fontDecBtn,
       fontIncBtn,
+      prevSentenceBtn,
+      nextSentenceBtn,
+      wpmSlider,
+      wpmReadout,
       ariaLive,
       preview,
     } = buildShadowTree(shadow, scopeView);
@@ -340,9 +389,18 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
 
     // Local WPM is the source of truth for engine cadence while mounted.
     // Persisted settings updates push in via `subscribeSettings`; the
-    // in-overlay ↑/↓ shortcut updates `currentWpm` + the engine without
-    // persisting.
+    // in-overlay ↑/↓ shortcut and slider input update `currentWpm` + the
+    // engine and (when `onWpmChange` is wired) persist via the callback.
     let currentWpm = opts.initialSettings.wpm;
+
+    // Single point of truth for keeping the slider + readout in sync with
+    // `currentWpm`. Called from mount-time init, the ArrowUp/Down keyboard
+    // handler, slider input, and subscribeSettings emissions.
+    const syncWpmUi = (n: number): void => {
+      wpmSlider.value = String(n);
+      wpmReadout.textContent = OVERLAY_TEXT.wpmReadout(n);
+    };
+    syncWpmUi(currentWpm);
 
     // Font-size stepper (#29). Local cache so the subscribeSettings
     // handler can short-circuit no-op emissions and so the A−/A+
@@ -382,6 +440,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       if (s.wpm !== currentWpm) {
         currentWpm = s.wpm;
         engine?.setWpm(s.wpm);
+        syncWpmUi(s.wpm);
       }
       if (s.fontSize !== currentFontSize) {
         applyFontSize(clampFontSize(s.fontSize));
@@ -607,13 +666,48 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     };
     fontDecBtn.addEventListener('click', () => stepFontSize(-FONT_SIZE_STEP));
     fontIncBtn.addEventListener('click', () => stepFontSize(FONT_SIZE_STEP));
-    const stepWpm = (delta: number): void => {
-      if (!engine) return;
-      const next = Math.max(WPM_MIN, Math.min(WPM_MAX, currentWpm + delta));
-      if (next === currentWpm) return;
-      currentWpm = next;
-      engine.setWpm(next);
+    const clampWpm = (n: number): number => {
+      if (!Number.isFinite(n)) return WPM_MIN;
+      // Snap to step so a slider value of e.g. 305 collapses to 300/310
+      // before reaching the engine. Native <input type="range" step=> already
+      // enforces this on browser-driven input events, but tests can dispatch
+      // synthetic values, and a defensive snap keeps the engine cadence on
+      // the canonical grid.
+      const clamped = Math.max(WPM_MIN, Math.min(WPM_MAX, n));
+      const snapped = Math.round((clamped - WPM_MIN) / WPM_STEP) * WPM_STEP + WPM_MIN;
+      return Math.max(WPM_MIN, Math.min(WPM_MAX, snapped));
     };
+    const applyWpm = (next: number, opts2: { persist: boolean }): void => {
+      if (!engine) return;
+      const clamped = clampWpm(next);
+      if (clamped === currentWpm) return;
+      currentWpm = clamped;
+      engine.setWpm(clamped);
+      syncWpmUi(clamped);
+      if (opts2.persist) opts.onWpmChange?.(clamped);
+    };
+    const stepWpm = (delta: number): void => {
+      applyWpm(currentWpm + delta, { persist: true });
+    };
+
+    // Prev / next sentence buttons (#23). seekToSentence handles state
+    // transitions (idle = silent, paused = replacement word event, playing =
+    // restart at new position) and short-circuits on no further boundary.
+    prevSentenceBtn.addEventListener('click', () => {
+      engine?.seekToSentence('prev');
+    });
+    nextSentenceBtn.addEventListener('click', () => {
+      engine?.seekToSentence('next');
+    });
+
+    // WPM slider (#24). `input` rather than `change` so the engine cadence
+    // updates while the user drags, not only on commit. The handler routes
+    // through applyWpm to share the clamp + persist path with the keyboard
+    // shortcut.
+    wpmSlider.addEventListener('input', () => {
+      const raw = Number(wpmSlider.value);
+      applyWpm(raw, { persist: true });
+    });
     onKeydown = (e: KeyboardEvent) => {
       // Capture-phase handler installed on opts.doc — preventDefault denies
       // page-side hotkeys (YouTube Space, Docs arrows) while overlay owns
