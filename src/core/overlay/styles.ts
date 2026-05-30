@@ -8,31 +8,6 @@
  * prefers-reduced-motion disables chrome transitions only (RSVP cadence
  * is unaffected per spec, since cadence is the format).
  */
-/**
- * Build the `@font-face` rule for the OpenDyslexic bundled woff2 (#27).
- *
- * Called by the overlay at mount when `openDyslexicFontUrl` is provided.
- * The returned CSS string is injected into the shadow root as a separate
- * stylesheet so the URL — known only at runtime, since `core/` cannot
- * call `chrome.runtime.getURL` — stays out of the static OVERLAY_CSS
- * template. format('woff2') matches the bundled binary (see fonts/README.md
- * and PR #169).
- *
- * The URL is wrapped in `url("…")` with double-quotes; callers MUST pass a
- * trusted extension URL (e.g. from `chrome.runtime.getURL`) — this helper
- * does NOT sanitise. The URL surface is controlled by manifest WAR config,
- * not user input, so escaping is not load-bearing here.
- */
-export function buildOpenDyslexicFontFace(url: string): string {
-  return `@font-face {
-  font-family: 'OpenDyslexic';
-  src: url("${url}") format('woff2');
-  font-weight: normal;
-  font-style: normal;
-  font-display: swap;
-}`;
-}
-
 export const OVERLAY_CSS = `
 :host {
   all: initial;
@@ -65,17 +40,10 @@ export const OVERLAY_CSS = `
   container-name: rsvp;
 }
 
-/*
- * OpenDyslexic toggle (#27). The host (CS) injects the matching
- * @font-face into the shadow root at mount when the bundled woff2 URL
- * is supplied; this rule activates the family on the modal subtree when
- * the user has the toggle on. system-ui sits in the fallback stack so a
- * @font-face load failure degrades to legible text rather than invisible
- * boxes. The selector is scoped to .modal, so the chrome (buttons +
- * header) and the word region both render in OpenDyslexic — the entire
- * reading surface, which is the point of the toggle.
- */
-.modal.opendyslexic {
+/* OpenDyslexic toggle (#27) — scoped to reading surface only (Safari parity floor). */
+.modal.opendyslexic .word-region,
+.modal.opendyslexic .context-current,
+.modal.opendyslexic .context-preview {
   font-family:
     'OpenDyslexic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
