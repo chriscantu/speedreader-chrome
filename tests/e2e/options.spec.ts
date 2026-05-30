@@ -35,14 +35,15 @@ test('options page renders V4 form surface', async () => {
   await page.goto(url);
 
   await expect(page.locator('h1')).toHaveText('SpeedReader Options');
-  // Every V4 editable field is present.
+  // Every V4 editable field is present. `openDyslexic` checkbox was replaced
+  // by the curated `#font` picker in #28; the boolean still persists via the
+  // controller mirror but is no longer a visible form control.
   for (const id of [
     'wpm',
     'theme',
     'font',
     'fontSize',
     'alignment',
-    'openDyslexic',
     'punctuationPacing',
     'contextLine',
     'startFromWordOne',
@@ -54,6 +55,11 @@ test('options page renders V4 form surface', async () => {
     opts.map((o) => (o as HTMLOptionElement).value),
   );
   expect(themeValues).toEqual(['system', 'light', 'dark', 'sepia', 'paper', 'cream', 'nord']);
+  // Font picker exposes the 5-font Safari-parity enum (system + 4 named).
+  const fontValues = await page.locator('#font option').evaluateAll((opts) =>
+    opts.map((o) => (o as HTMLOptionElement).value),
+  );
+  expect(fontValues).toEqual(['system', 'opendyslexic', 'newYork', 'georgia', 'menlo']);
 
   await page.close();
 });
