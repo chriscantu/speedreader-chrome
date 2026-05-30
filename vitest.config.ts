@@ -46,6 +46,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: false,
     include: [
+      'bin/__tests__/**/*.test.ts',
       'src/core/**/*.test.ts',
       'src/core/**/__tests__/**/*.test.ts',
       // Narrow inclusion: settings adapter + background activation/messaging/
