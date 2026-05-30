@@ -5,49 +5,145 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SpeedReader Options</title>
     <style>
-      body {
-        max-width: 640px;
-        margin: 0 auto;
-        padding: 24px;
-        font-family: system-ui, -apple-system, sans-serif;
+      /* Layout: single column, max-width caps line length on wide screens;
+         16px gutter on small phones keeps controls reachable. */
+      :root {
         color-scheme: light dark;
       }
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+        font-size: 14px;
+        line-height: 1.4;
+      }
+      .page {
+        max-width: 720px;
+        margin: 0 auto;
+      }
       h1 {
-        font-size: 20px;
-        margin: 0 0 24px 0;
+        font-size: 1.5rem;
+        margin: 0 0 16px 0;
+      }
+      .section {
+        border: 1px solid #d0d0d0;
+        border-radius: 8px;
+        padding: 16px;
+        margin: 0 0 16px 0;
+      }
+      @media (prefers-color-scheme: dark) {
+        .section {
+          border-color: #444;
+        }
+      }
+      .section legend {
+        font-size: 0.95rem;
+        font-weight: 600;
+        padding: 0 6px;
       }
       .field {
-        margin-bottom: 16px;
+        margin-top: 12px;
         display: flex;
         flex-direction: column;
         gap: 4px;
+      }
+      .field:first-of-type {
+        margin-top: 4px;
       }
       .field.inline {
         flex-direction: row;
         align-items: center;
         gap: 8px;
       }
-      label {
-        font-size: 13px;
+      .field label {
+        font-size: 0.8125rem;
         font-weight: 600;
       }
       .field.inline label {
         font-weight: 400;
       }
+      .field .hint {
+        font-size: 0.75rem;
+        opacity: 0.7;
+      }
+      /* 44x44 min tap target per WCAG 2.5.5 on touch surfaces (phones, tablets). */
       input[type='number'],
       input[type='text'],
       select {
-        font-size: 14px;
-        padding: 6px 8px;
+        font: inherit;
+        font-size: 0.9375rem;
+        padding: 8px 10px;
+        border: 1px solid #b0b0b0;
+        border-radius: 4px;
+        min-height: 36px;
+        background: transparent;
+        color: inherit;
       }
+      @media (pointer: coarse) {
+        input[type='number'],
+        input[type='text'],
+        select {
+          min-height: 44px;
+        }
+        input[type='checkbox'] {
+          width: 20px;
+          height: 20px;
+        }
+      }
+      input:focus-visible,
+      select:focus-visible {
+        outline: 2px solid #1a73e8;
+        outline-offset: 2px;
+      }
+      /* Shortcuts reference card — read-only. */
+      .shortcuts {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 6px 12px;
+        margin-top: 8px;
+        font-size: 0.875rem;
+      }
+      .shortcuts dt {
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+        font-size: 0.8125rem;
+        padding: 2px 6px;
+        border: 1px solid #b0b0b0;
+        border-radius: 4px;
+        background: rgba(127, 127, 127, 0.08);
+        white-space: nowrap;
+        align-self: start;
+      }
+      .shortcuts dd {
+        margin: 0;
+        align-self: center;
+      }
+      .shortcuts-footnote {
+        margin-top: 12px;
+        font-size: 0.8125rem;
+        opacity: 0.75;
+      }
+      .shortcuts-footnote a {
+        color: inherit;
+      }
+      /* Toast + load-error banner — unchanged behavior, kept legible at 320px. */
       .toast {
         position: fixed;
         bottom: 16px;
         right: 16px;
+        left: 16px;
+        max-width: 320px;
+        margin-left: auto;
         color: white;
-        padding: 6px 12px;
+        padding: 8px 12px;
         border-radius: 4px;
-        font-size: 13px;
+        font-size: 0.8125rem;
         opacity: 0;
         transition: opacity 200ms ease;
         pointer-events: none;
@@ -60,7 +156,7 @@
       }
       .toast.error {
         background: #c0392b;
-        bottom: 56px;
+        bottom: 64px;
       }
       .load-error-banner {
         display: none;
@@ -69,11 +165,23 @@
         padding: 10px 14px;
         border-radius: 4px;
         margin-bottom: 16px;
-        font-size: 13px;
+        font-size: 0.8125rem;
         line-height: 1.4;
       }
       .load-error-banner.visible {
         display: block;
+      }
+      /* Compact phone layout: 320px floor — collapse padding, drop nested borders. */
+      @media (max-width: 380px) {
+        body {
+          padding: 8px;
+        }
+        .section {
+          padding: 12px;
+        }
+        h1 {
+          font-size: 1.25rem;
+        }
       }
       @media (prefers-reduced-motion: reduce) {
         .toast {
@@ -83,78 +191,145 @@
     </style>
   </head>
   <body>
-    <h1>SpeedReader Options</h1>
+    <main class="page">
+      <h1>SpeedReader Options</h1>
 
-    <div
-      class="load-error-banner"
-      id="load-error-banner"
-      role="alert"
-      aria-live="assertive"
-    >
-      Couldn't load your saved settings. Editing is disabled to avoid overwriting
-      stored values. Reload the page to retry.
-    </div>
+      <div
+        class="load-error-banner"
+        id="load-error-banner"
+        role="alert"
+        aria-live="assertive"
+      >
+        Couldn't load your saved settings. Editing is disabled to avoid
+        overwriting stored values. Reload the page to retry.
+      </div>
 
-    <div class="field">
-      <label for="wpm">Words per minute (100–600, step 10)</label>
-      <input type="number" id="wpm" min="100" max="600" step="10" />
-    </div>
+      <!-- Speed -->
+      <fieldset class="section" data-section="speed">
+        <legend>Speed</legend>
+        <div class="field">
+          <label for="wpm">Words per minute</label>
+          <input
+            type="number"
+            id="wpm"
+            min="100"
+            max="600"
+            step="10"
+            inputmode="numeric"
+            aria-describedby="wpm-hint"
+          />
+          <span class="hint" id="wpm-hint">Between 100 and 600, in steps of 10.</span>
+        </div>
+      </fieldset>
 
-    <div class="field">
-      <label for="theme">Theme</label>
-      <select id="theme">
-        <option value="system">System</option>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-        <option value="sepia">Sepia</option>
-        <option value="paper">Paper</option>
-        <option value="cream">Cream</option>
-        <option value="nord">Nord</option>
-      </select>
-    </div>
+      <!-- Appearance -->
+      <fieldset class="section" data-section="appearance">
+        <legend>Appearance</legend>
+        <div class="field">
+          <label for="theme">Theme</label>
+          <select id="theme">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+            <option value="sepia">Sepia</option>
+            <option value="paper">Paper</option>
+            <option value="cream">Cream</option>
+            <option value="nord">Nord</option>
+          </select>
+        </div>
 
-    <div class="field">
-      <label for="font">Font family</label>
-      <input type="text" id="font" />
-    </div>
+        <!-- Font picker — phase 1 (#27) ships the System vs OpenDyslexic toggle
+             below. The free-text `font` field is the existing schema surface;
+             when issue #28 lands the 5-font picker, replace this input with the
+             curated <select> and gate visibility on `openDyslexic === false`. -->
+        <div class="field">
+          <label for="font">Font family</label>
+          <input
+            type="text"
+            id="font"
+            autocomplete="off"
+            spellcheck="false"
+            aria-describedby="font-hint"
+          />
+          <span class="hint" id="font-hint">
+            CSS font-family name. A curated picker arrives with issue #28.
+          </span>
+        </div>
 
-    <div class="field">
-      <label for="fontSize">Font size (12–48 px)</label>
-      <input type="number" id="fontSize" min="12" max="48" step="1" />
-    </div>
+        <div class="field">
+          <label for="fontSize">Font size (px)</label>
+          <input type="number" id="fontSize" min="12" max="48" step="1" inputmode="numeric" />
+        </div>
 
-    <div class="field">
-      <label for="alignment">Word alignment</label>
-      <select id="alignment">
-        <option value="orp">Optimal Recognition Point</option>
-        <option value="center">Centered</option>
-      </select>
-    </div>
+        <div class="field">
+          <label for="alignment">Word alignment</label>
+          <select id="alignment">
+            <option value="orp">Optimal Recognition Point</option>
+            <option value="center">Centered</option>
+          </select>
+        </div>
 
-    <div class="field inline">
-      <input type="checkbox" id="openDyslexic" />
-      <label for="openDyslexic">Use OpenDyslexic font</label>
-    </div>
+        <div class="field inline">
+          <input type="checkbox" id="openDyslexic" />
+          <label for="openDyslexic">Use OpenDyslexic font</label>
+        </div>
 
-    <div class="field inline">
-      <input type="checkbox" id="punctuationPacing" />
-      <label for="punctuationPacing">Slow down at punctuation</label>
-    </div>
+        <div class="field inline">
+          <input type="checkbox" id="contextLine" />
+          <label for="contextLine">Show line of context around current word</label>
+        </div>
+      </fieldset>
 
-    <div class="field inline">
-      <input type="checkbox" id="contextLine" />
-      <label for="contextLine">Show line of context around current word</label>
-    </div>
+      <!-- Pacing -->
+      <fieldset class="section" data-section="pacing">
+        <legend>Pacing</legend>
+        <div class="field inline">
+          <input type="checkbox" id="punctuationPacing" />
+          <label for="punctuationPacing">Slow down at punctuation</label>
+        </div>
 
-    <div class="field inline">
-      <input type="checkbox" id="startFromWordOne" />
-      <label for="startFromWordOne">Always start from word one</label>
-    </div>
+        <div class="field inline">
+          <input type="checkbox" id="startFromWordOne" />
+          <label for="startFromWordOne">Always start from word one</label>
+        </div>
+      </fieldset>
 
-    <div class="toast saved" id="saved" role="status" aria-live="polite">Saved</div>
-    <div class="toast error" id="save-error" role="alert" aria-live="assertive">
-      Save failed. Your last change was not stored.
-    </div>
+      <!-- Shortcuts — read-only reference. The toggle binding is set in the
+           manifest and can be re-bound by the user at chrome://extensions/shortcuts. -->
+      <fieldset class="section" data-section="shortcuts">
+        <legend>Shortcuts</legend>
+        <p class="shortcuts-footnote" data-shortcuts-caveat>
+          Defaults shown below — yours may differ if you have rebound the toggle.
+        </p>
+        <dl class="shortcuts">
+          <dt>Ctrl+Shift+Y</dt>
+          <dd>Toggle SpeedReader (Cmd users: MacCtrl+Shift+Y)</dd>
+
+          <dt>Space</dt>
+          <dd>Play / pause while the reader is open</dd>
+
+          <dt>Esc</dt>
+          <dd>Close the reader</dd>
+
+          <dt>&larr; / &rarr;</dt>
+          <dd>Previous / next sentence</dd>
+
+          <dt>&uarr; / &darr;</dt>
+          <dd>Increase / decrease speed (10 WPM)</dd>
+        </dl>
+        <p class="shortcuts-footnote">
+          Rebind the toggle at
+          <a href="chrome://extensions/shortcuts" target="_blank" rel="noopener">
+            chrome://extensions/shortcuts</a
+          >.
+        </p>
+      </fieldset>
+
+      <div class="toast saved" id="saved" role="status" aria-live="polite">Saved</div>
+      <div class="toast error" id="save-error" role="alert" aria-live="assertive">
+        Save failed. Your last change was not stored.
+      </div>
+    </main>
 
     <script type="module" src="./index.ts"></script>
   </body>
