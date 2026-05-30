@@ -15,6 +15,14 @@ import type { ThemeId } from '../theme';
 export interface OverlaySettings {
   theme: ThemeId | 'system';
   wpm: number;
+  /**
+   * Word-region font size in CSS px. Applied to the word region via the
+   * `--rsvp-font-size` custom property; the in-modal A−/A+ stepper (#29)
+   * adjusts this value and the chrome glue persists it to
+   * `chrome.storage.sync`. Bounds enforced via FONT_SIZE_MIN/MAX in
+   * `core/settings/bounds.ts`.
+   */
+  fontSize: number;
 }
 
 export type SettingsSubscriber = (s: OverlaySettings) => void;
@@ -96,6 +104,15 @@ export interface OverlayOptions {
    * remain source-compatible.
    */
   onClose?: (snapshot?: OverlayCloseSnapshot) => void;
+  /**
+   * Called when the user presses the in-modal A−/A+ stepper (#29). The
+   * overlay clamps the new value to [FONT_SIZE_MIN, FONT_SIZE_MAX] before
+   * invoking; consumers are expected to persist the value (the chrome
+   * glue routes this to `chrome.storage.sync.saveSettings({ fontSize })`).
+   * Omitting the callback disables persistence — the overlay still
+   * updates its local font size for the session.
+   */
+  onFontSizeChange?: (next: number) => void;
 }
 
 /**

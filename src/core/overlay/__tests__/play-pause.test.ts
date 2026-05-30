@@ -7,7 +7,7 @@ function defaultOpts(overrides: Partial<OverlayOptions> = {}): OverlayOptions {
   return {
     doc: document,
     words: ['hello', 'world', 'foo', 'bar'],
-    initialSettings: { theme: 'system', wpm: 300 },
+    initialSettings: { theme: 'system', wpm: 300, fontSize: 20 },
     subscribeSettings: () => () => undefined,
     engineFactory: createRsvpEngine,
     ...overrides,

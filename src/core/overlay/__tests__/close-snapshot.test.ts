@@ -30,7 +30,7 @@ function defaultOpts(holder: Holder, overrides: Partial<OverlayOptions> = {}): O
     scope: 'full',
     fullWords: STREAM.slice(),
     selectionWords: [],
-    initialSettings: { theme: 'system', wpm: 600 },
+    initialSettings: { theme: 'system', wpm: 600, fontSize: 20 },
     subscribeSettings: () => () => undefined,
     engineFactory: (engineOpts: RsvpEngineOptions) => {
       holder.engine = createRsvpEngine(engineOpts);
@@ -135,7 +135,7 @@ describe('createOverlay — onClose snapshot (#25)', () => {
     const legacy: OverlayOptions = {
       doc: document,
       words: STREAM.slice(),
-      initialSettings: { theme: 'system', wpm: 600 },
+      initialSettings: { theme: 'system', wpm: 600, fontSize: 20 },
       subscribeSettings: () => () => undefined,
       engineFactory: (engineOpts: RsvpEngineOptions) => {
         holder.engine = createRsvpEngine(engineOpts);

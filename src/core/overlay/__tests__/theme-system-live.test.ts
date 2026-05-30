@@ -137,7 +137,7 @@ function defaultOpts(
   const opts: OverlayOptions = {
     doc: document,
     words: STREAM.slice(),
-    initialSettings: { theme: 'system', wpm: 300 },
+    initialSettings: { theme: 'system', wpm: 300, fontSize: 20 },
     subscribeSettings: (cb) => {
       listener = cb;
       return () => {
@@ -202,7 +202,7 @@ describe('createOverlay — live system-theme updates (#26)', () => {
     const mm = installMatchMediaMock(/* initialDarkMatches */ false);
     const holder: Holder = { engine: null };
     const opts = defaultOpts(holder, {
-      initialSettings: { theme: 'dark', wpm: 300 },
+      initialSettings: { theme: 'dark', wpm: 300, fontSize: 20 },
     });
     const overlay = createOverlay(opts);
     overlay.mount();
@@ -230,7 +230,7 @@ describe('createOverlay — live system-theme updates (#26)', () => {
     expect(readBg(modal)).toBe(THEME_TOKENS.light.bg);
 
     // User switches to explicit "sepia" via the options page.
-    opts.__push({ theme: 'sepia', wpm: 300 });
+    opts.__push({ theme: 'sepia', wpm: 300, fontSize: 20 });
     expect(readBg(modal)).toBe(THEME_TOKENS.sepia.bg);
 
     // OS flip must no longer touch the modal — explicit override wins.
@@ -244,7 +244,7 @@ describe('createOverlay — live system-theme updates (#26)', () => {
     const mm = installMatchMediaMock(/* initialDarkMatches */ false);
     const holder: Holder = { engine: null };
     const opts = defaultOpts(holder, {
-      initialSettings: { theme: 'light', wpm: 300 },
+      initialSettings: { theme: 'light', wpm: 300, fontSize: 20 },
     });
     const overlay = createOverlay(opts);
     overlay.mount();
@@ -253,7 +253,7 @@ describe('createOverlay — live system-theme updates (#26)', () => {
     expect(readBg(modal)).toBe(THEME_TOKENS.light.bg);
 
     // User switches back to "system" via the options page.
-    opts.__push({ theme: 'system', wpm: 300 });
+    opts.__push({ theme: 'system', wpm: 300, fontSize: 20 });
     // Still light — OS query says light.
     expect(readBg(modal)).toBe(THEME_TOKENS.light.bg);
 
@@ -319,7 +319,7 @@ describe('createOverlay — live system-theme updates (#26)', () => {
     const opts: OverlayOptions = {
       doc: document,
       words: STREAM.slice(),
-      initialSettings: { theme: 'system', wpm: 300 },
+      initialSettings: { theme: 'system', wpm: 300, fontSize: 20 },
       subscribeSettings: (cb) => {
         captured = cb;
         return () => {
@@ -329,7 +329,7 @@ describe('createOverlay — live system-theme updates (#26)', () => {
           // be the real cb — but the overlay closes over its own
           // `currentTheme` and `install/uninstall` helpers, so this
           // call's effect on listener count is what we measure.
-          captured?.({ theme: 'system', wpm: 300 });
+          captured?.({ theme: 'system', wpm: 300, fontSize: 20 });
           captured = null;
         };
       },

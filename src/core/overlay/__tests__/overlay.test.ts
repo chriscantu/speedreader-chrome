@@ -7,7 +7,7 @@ function defaultOpts(overrides: Partial<OverlayOptions> = {}): OverlayOptions {
   return {
     doc: document,
     words: ['hello', 'world'],
-    initialSettings: { theme: 'system', wpm: 300 },
+    initialSettings: { theme: 'system', wpm: 300, fontSize: 20 },
     subscribeSettings: () => () => undefined,
     engineFactory: createRsvpEngine,
     ...overrides,
@@ -68,7 +68,10 @@ describe('createOverlay — engine wiring', () => {
   test('aria-live region announces each word', () => {
     vi.useFakeTimers();
     const overlay = createOverlay(
-      defaultOpts({ words: ['alpha', 'beta'], initialSettings: { theme: 'system', wpm: 600 } }),
+      defaultOpts({
+        words: ['alpha', 'beta'],
+        initialSettings: { theme: 'system', wpm: 600, fontSize: 20 },
+      }),
     );
     overlay.mount();
     vi.advanceTimersByTime(0);
@@ -117,6 +120,7 @@ describe('createOverlay — settings re-theme', () => {
     let notify: (s: {
       theme: 'system' | 'light' | 'dark' | 'sepia' | 'paper' | 'cream' | 'nord';
       wpm: number;
+      fontSize: number;
     }) => void = () => undefined;
     const overlay = createOverlay(
       defaultOpts({
@@ -129,7 +133,7 @@ describe('createOverlay — settings re-theme', () => {
     overlay.mount();
     const modal = getEl<HTMLElement>(getShadow(), '.modal');
     const before = modal.style.getPropertyValue('--bg');
-    notify({ theme: 'dark', wpm: 300 });
+    notify({ theme: 'dark', wpm: 300, fontSize: 20 });
     const after = modal.style.getPropertyValue('--bg');
     expect(after).not.toBe(before);
     expect(after).not.toBe('');
