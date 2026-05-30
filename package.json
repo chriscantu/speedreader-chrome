@@ -18,7 +18,8 @@
     "test:d10": "playwright test --config experiments/activeTab-commands-check/playwright.config.ts",
     "preview": "vite preview",
     "build:e2e-bundle": "vite build --config vite.e2e.config.ts",
-    "build:e2e-ext": "SPEEDREADER_E2E=1 vite build --config vite.e2e-ext.config.ts"
+    "build:e2e-ext": "SPEEDREADER_E2E=1 vite build --config vite.e2e-ext.config.ts",
+    "verify:fonts": "bash bin/verify-font-integrity.sh"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.3",

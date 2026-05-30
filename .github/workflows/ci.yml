@@ -41,8 +41,14 @@ jobs:
       - name: Run tests
         run: npm run test
 
+      - name: Verify font integrity (pre-build, source pins)
+        run: npm run verify:fonts
+
       - name: Build
         run: npm run build
+
+      - name: Verify font integrity (post-build, dist emission)
+        run: npm run verify:fonts -- --check-dist
 
       # Upload built extension from the canonical 22.x matrix leg only —
       # the e2e job consumes this artifact instead of rebuilding from
