@@ -1,0 +1,245 @@
+/* SpeedReader — Welcome page styles.
+ *
+ * Hosted at chrome-extension://<id>/welcome.html. Light DOM (NOT shadow) —
+ * this page is privileged-context-only and never embedded cross-origin, so
+ * normal CSS isolation isn't required.
+ *
+ * Responsive floor: 320px phone width (matches project CLAUDE.md constraint).
+ */
+
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --text: #202124;
+  --text-muted: #5f6368;
+  --accent: #1a73e8;
+  --accent-soft: #e8f0fe;
+  --border: #d0d0d0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #202124;
+    --surface: #292a2d;
+    --text: #e8eaed;
+    --text-muted: #9aa0a6;
+    --accent: #8ab4f8;
+    --accent-soft: #1e3a5f;
+    --border: #444;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wordmark {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+/* Dismiss ✕ — discrete button reachable via keyboard tab order
+   (spec §"Header ✕ semantics"). 44×44 tap target per WCAG 2.5.5. */
+.dismiss {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 1.125rem;
+  cursor: pointer;
+}
+.dismiss:hover {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.dismiss:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+}
+
+.view {
+  display: flex;
+  flex-direction: column;
+}
+
+.view[hidden] {
+  display: none;
+}
+
+h1 {
+  font-size: 2rem;
+  margin: 0 0 12px;
+}
+
+.tagline {
+  font-size: 1.125rem;
+  color: var(--text-muted);
+  margin: 0 0 24px;
+}
+
+.body {
+  margin: 0 0 24px;
+  color: var(--text);
+}
+
+/* CTA buttons — 44×44 tap target floor. */
+.cta {
+  min-height: 44px;
+  padding: 10px 18px;
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-align: center;
+}
+.cta:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.cta--primary {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+.cta--primary:hover {
+  filter: brightness(0.95);
+}
+.cta--secondary {
+  background: var(--surface);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.cta--secondary:hover {
+  background: var(--accent-soft);
+}
+
+/* Calibrate-specific layout. */
+.word-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  margin: 16px 0;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.word {
+  font-size: 2rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  min-height: 1em;
+}
+
+.preview-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 24px;
+}
+
+.slider-row {
+  display: grid;
+  grid-template-columns: max-content 1fr max-content;
+  gap: 12px;
+  align-items: center;
+  margin: 8px 0 16px;
+}
+
+.slider-label-text {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.slider-value {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  min-width: 16ch;
+  text-align: right;
+}
+
+input[type='range'] {
+  width: 100%;
+  /* Larger touch hit area on touch surfaces (WCAG 2.5.5). */
+}
+
+input[type='range']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.finish-row {
+  margin-top: 24px;
+}
+
+.finish-row .cta {
+  width: 100%;
+}
+
+/* Phone floor — 320px width. */
+@media (max-width: 380px) {
+  .page {
+    padding: 16px 12px 32px;
+  }
+  h1 {
+    font-size: 1.5rem;
+  }
+  .tagline {
+    font-size: 1rem;
+  }
+  .word {
+    font-size: 1.5rem;
+  }
+  .slider-row {
+    grid-template-columns: 1fr;
+  }
+  .slider-value {
+    text-align: left;
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cta {
+    transition: none;
+  }
+}

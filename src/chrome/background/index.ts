@@ -23,6 +23,11 @@
  * - Side-effect import of `./commands/register` to install the
  *   `chrome.commands.onCommand` listener for `_toggle_reader`.
  *
+ * Scope of this file (issue #71):
+ * - Side-effect import of `./welcome/register` to install the
+ *   `chrome.runtime.onInstalled` listener that opens `welcome.html` on
+ *   first install. See `2026-05-30-onboarding-surface.md` §"Install Trigger".
+ *
  * Out of scope (deliberately):
  * - `chrome.contextMenus` registration + `onClicked` listener (issue #72).
  * - The `rsvp-session` Port `onConnect` handler — owned by the messaging-
@@ -50,6 +55,13 @@ import './commands/register';
 // wiring for the right-click submenu. Same MV3 invariant — listener
 // registration runs synchronously on every SW wake. See issue #72.
 import './context-menu/register';
+
+// Side-effect import: top-level `chrome.runtime.onInstalled` listener
+// that opens `welcome.html` on `reason === 'install'`. Composes with
+// the context-menu module's own `onInstalled` registration above —
+// Chrome dispatches the event to every registered listener. See
+// issue #71 and `2026-05-30-onboarding-surface.md` §"Install Trigger".
+import './welcome/register';
 
 // Re-export so follow-up issues (#34, #72) can wire their source-specific
 // listeners against the funnel without reaching into the activation
