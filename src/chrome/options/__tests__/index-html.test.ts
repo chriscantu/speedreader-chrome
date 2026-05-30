@@ -86,7 +86,6 @@ describe('options index.html structure', () => {
       ['font', FIELD_IDS.font],
       ['fontSize', FIELD_IDS.fontSize],
       ['alignment', FIELD_IDS.alignment],
-      ['openDyslexic', FIELD_IDS.openDyslexic],
       ['contextLine', FIELD_IDS.contextLine],
     ])('places %s under Appearance', (_, id) => {
       const section = doc.querySelector('fieldset[data-section="appearance"]');
@@ -109,10 +108,9 @@ describe('options index.html structure', () => {
     const EXPECTED_LABELS: Record<keyof typeof FIELD_IDS, string> = {
       wpm: 'Words per minute',
       theme: 'Theme',
-      font: 'Font family',
+      font: 'Font',
       fontSize: 'Font size (px)',
       alignment: 'Word alignment',
-      openDyslexic: 'Use OpenDyslexic font',
       punctuationPacing: 'Slow down at punctuation',
       contextLine: 'Show line of context around current word',
       startFromWordOne: 'Always start from word one',

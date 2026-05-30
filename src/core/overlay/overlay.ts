@@ -2,6 +2,7 @@ import { applyTheme } from '../theme';
 import type { ThemeId } from '../theme';
 import { OVERLAY_CSS } from './styles';
 import { OVERLAY_ATTR, OVERLAY_CLASS, OVERLAY_ID, OVERLAY_TEXT } from './constants';
+import { FONT_IDS, resolveFontId, type FontId } from './font-ids';
 import type {
   OverlayCloseSnapshot,
   OverlayHandle,
@@ -99,20 +100,28 @@ function resolveTheme(theme: ThemeId | 'system', win: Window & typeof globalThis
 const HOST_ATTR = OVERLAY_ATTR.HOST;
 
 /**
- * Build the @font-face rule for the OpenDyslexic bundled woff2 (#27).
+ * Build an @font-face rule for a bundled woff2 (#27 OpenDyslexic, #28
+ * picker generalization).
  *
  * Validates the URL shape before interpolation so an unexpected caller
  * cannot inject CSS via crafted strings. Only `chrome-extension://` URLs
  * with a non-empty path and no quote/angle-bracket/whitespace characters
  * are accepted — anything else throws. The single legitimate caller is
- * `chrome.runtime.getURL()` for the bundled WAR font path.
+ * `chrome.runtime.getURL()` for a bundled WAR font path.
+ *
+ * `family` is interpolated unquoted into a single-quoted CSS string, so
+ * we also reject anything outside `[A-Za-z0-9 -]` to keep the rule
+ * trivially safe — the only callers are this module's own font-id map.
  */
-function buildOpenDyslexicFontFace(url: string): string {
+function buildFontFace(family: string, url: string): string {
   if (!/^chrome-extension:\/\/[a-zA-Z0-9_-]+\/[^"<>\s]+$/.test(url)) {
-    throw new Error(`buildOpenDyslexicFontFace: untrusted URL ${url}`);
+    throw new Error(`buildFontFace: untrusted URL ${url}`);
+  }
+  if (!/^[A-Za-z0-9 -]+$/.test(family)) {
+    throw new Error(`buildFontFace: untrusted family ${family}`);
   }
   return `@font-face {
-  font-family: 'OpenDyslexic';
+  font-family: '${family}';
   src: url("${url}") format('woff2');
   font-weight: normal;
   font-style: normal;
@@ -191,7 +200,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // mid-session is a pure class flip, not a fresh font fetch.
     if (opts.openDyslexicFontUrl) {
       const fontStyle = doc.createElement('style');
-      fontStyle.textContent = buildOpenDyslexicFontFace(opts.openDyslexicFontUrl);
+      fontStyle.textContent = buildFontFace('OpenDyslexic', opts.openDyslexicFontUrl);
       shadow.appendChild(fontStyle);
     }
 
@@ -473,16 +482,21 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // (NaN, Infinity, negative) would otherwise write garbage CSS once.
     applyFontSize(clampFontSize(currentFontSize));
 
-    // OpenDyslexic toggle (#27). Treat undefined as false so callers and
-    // tests that pre-date the field continue to work unchanged. Apply at
-    // mount and re-apply on every settings push so toggling from the
-    // options page updates the live overlay without remount.
-    let currentOpenDyslexic = opts.initialSettings.openDyslexic ?? false;
-    const applyOpenDyslexic = (on: boolean): void => {
-      currentOpenDyslexic = on;
-      modal.classList.toggle(OVERLAY_CLASS.OPENDYSLEXIC, on);
+    // Font picker (#28). The active picker ID drives a `.modal.<font-id>`
+    // class so the matching family-stack rule in styles.ts wins. `system`
+    // intentionally applies no class — the default family stack on `.modal`
+    // is system-ui, and adding a class would be a no-op rule that hides
+    // the "no font selected" state from CSS inspection. resolveFontId
+    // handles the #27 legacy: `openDyslexic: true` without a curated
+    // `font` value promotes to `'opendyslexic'`.
+    let currentFont: FontId = resolveFontId(opts.initialSettings);
+    const applyFont = (next: FontId): void => {
+      currentFont = next;
+      for (const id of FONT_IDS) {
+        modal.classList.toggle(id, id !== 'system' && id === next);
+      }
     };
-    applyOpenDyslexic(currentOpenDyslexic);
+    applyFont(currentFont);
 
     unsubscribeSettings = opts.subscribeSettings((s) => {
       const resolved = resolveTheme(s.theme, view);
@@ -498,9 +512,9 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       if (s.fontSize !== currentFontSize) {
         applyFontSize(clampFontSize(s.fontSize));
       }
-      const nextOd = s.openDyslexic ?? false;
-      if (nextOd !== currentOpenDyslexic) {
-        applyOpenDyslexic(nextOd);
+      const nextFont = resolveFontId(s);
+      if (nextFont !== currentFont) {
+        applyFont(nextFont);
       }
     });
 

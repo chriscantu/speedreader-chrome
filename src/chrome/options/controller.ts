@@ -7,6 +7,7 @@ import {
   WPM_MIN,
   WPM_STEP,
 } from '../../core/settings/bounds';
+import { isFontId, resolveFontId } from '../../core/overlay/font-ids';
 
 export interface SettingsApi {
   load(): Promise<SettingsV4>;
@@ -25,7 +26,6 @@ export const FIELD_IDS = {
   theme: 'theme',
   font: 'font',
   fontSize: 'fontSize',
-  openDyslexic: 'openDyslexic',
   punctuationPacing: 'punctuationPacing',
   alignment: 'alignment',
   contextLine: 'contextLine',
@@ -58,14 +58,16 @@ function populate(doc: Document, s: SettingsV4): void {
   const theme = getInput(doc, FIELD_IDS.theme);
   if (theme) theme.value = s.theme;
 
+  // #28 — populate the picker with the resolved FontId so legacy V4
+  // payloads carrying `openDyslexic: true` (and the V4 default
+  // `font: 'system-ui'` literal) snap to the matching picker option on
+  // first render. resolveFontId returns `'system'` for unknown literals,
+  // which matches the picker default.
   const font = getInput(doc, FIELD_IDS.font);
-  if (font) font.value = s.font;
+  if (font) font.value = resolveFontId(s);
 
   const fontSize = getInput(doc, FIELD_IDS.fontSize);
   if (fontSize) fontSize.value = String(s.fontSize);
-
-  const openDyslexic = getInput(doc, FIELD_IDS.openDyslexic);
-  if (openDyslexic instanceof HTMLInputElement) openDyslexic.checked = s.openDyslexic;
 
   const punctuation = getInput(doc, FIELD_IDS.punctuationPacing);
   if (punctuation instanceof HTMLInputElement) punctuation.checked = s.punctuationPacing;
@@ -121,10 +123,14 @@ function readFontSize(el: HTMLInputElement | HTMLSelectElement): number | null {
 }
 
 function readFont(el: HTMLInputElement | HTMLSelectElement): string | null {
-  // Schema accepts any string; empty is legal but useless. Reject to avoid
-  // an accidental empty-string clobber of the stored value.
+  // #28 — picker UI emits one of the 5 Safari-parity FontIds. The V4
+  // schema accepts any string for back-compat (older payloads carried
+  // raw CSS family names); we tighten validation here so HTML drift
+  // (e.g. an injected <option value="foo">) cannot land a non-picker
+  // value in storage. Empty also rejected — see #27 rationale.
   const v = el.value;
   if (v.trim() === '') return null;
+  if (!isFontId(v)) return null;
   return v;
 }
 
@@ -147,7 +153,6 @@ const FIELD_READERS: { [K in EditableField]: Reader<K> } = {
   theme: readTheme,
   font: readFont,
   fontSize: readFontSize,
-  openDyslexic: readCheckbox,
   punctuationPacing: readCheckbox,
   alignment: readAlignment,
   contextLine: readCheckbox,
@@ -168,6 +173,16 @@ function bindField<K extends EditableField>(
     const value = reader(el);
     if (value === null) return;
     const patch = { [field]: value } as EditablePatch;
+    // #28 — keep the legacy boolean in lockstep with the picker so older
+    // consumers reading `openDyslexic` directly (Chrome content script
+    // pre-#28 build of the overlay glue, future Safari payload-import)
+    // see a consistent value. The picker is the canonical source; the
+    // boolean mirrors it. When the user picks any non-opendyslexic font,
+    // the legacy boolean clears so a stale `true` cannot win over the
+    // picker on payload round-trip.
+    if (field === 'font') {
+      (patch as { openDyslexic?: boolean }).openDyslexic = value === 'opendyslexic';
+    }
     api.save(patch).then(
       () => flashIndicator(doc, win, SAVED_INDICATOR_ID, SAVED_INDICATOR_MS),
       (err) => {

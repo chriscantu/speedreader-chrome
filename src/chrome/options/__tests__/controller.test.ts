@@ -15,13 +15,18 @@ const HTML = `
     <option value="cream"></option>
     <option value="nord"></option>
   </select>
-  <input type="text" id="${FIELD_IDS.font}" />
+  <select id="${FIELD_IDS.font}">
+    <option value="system"></option>
+    <option value="opendyslexic"></option>
+    <option value="newYork"></option>
+    <option value="georgia"></option>
+    <option value="menlo"></option>
+  </select>
   <input type="number" id="${FIELD_IDS.fontSize}" />
   <select id="${FIELD_IDS.alignment}">
     <option value="orp"></option>
     <option value="center"></option>
   </select>
-  <input type="checkbox" id="${FIELD_IDS.openDyslexic}" />
   <input type="checkbox" id="${FIELD_IDS.punctuationPacing}" />
   <input type="checkbox" id="${FIELD_IDS.contextLine}" />
   <input type="checkbox" id="${FIELD_IDS.startFromWordOne}" />
@@ -95,9 +100,9 @@ describe('options controller', () => {
         ...DEFAULT_SETTINGS,
         wpm: 350,
         theme: 'nord',
-        font: 'Georgia',
+        font: 'georgia',
         fontSize: 22,
-        openDyslexic: true,
+        openDyslexic: false,
         punctuationPacing: false,
         alignment: 'center',
         contextLine: true,
@@ -107,13 +112,10 @@ describe('options controller', () => {
 
       expect((document.getElementById(FIELD_IDS.wpm) as HTMLInputElement).value).toBe('350');
       expect((document.getElementById(FIELD_IDS.theme) as HTMLSelectElement).value).toBe('nord');
-      expect((document.getElementById(FIELD_IDS.font) as HTMLInputElement).value).toBe('Georgia');
+      expect((document.getElementById(FIELD_IDS.font) as HTMLSelectElement).value).toBe('georgia');
       expect((document.getElementById(FIELD_IDS.fontSize) as HTMLInputElement).value).toBe('22');
       expect((document.getElementById(FIELD_IDS.alignment) as HTMLSelectElement).value).toBe(
         'center',
-      );
-      expect((document.getElementById(FIELD_IDS.openDyslexic) as HTMLInputElement).checked).toBe(
-        true,
       );
       expect(
         (document.getElementById(FIELD_IDS.punctuationPacing) as HTMLInputElement).checked,
@@ -124,6 +126,32 @@ describe('options controller', () => {
       expect(
         (document.getElementById(FIELD_IDS.startFromWordOne) as HTMLInputElement).checked,
       ).toBe(true);
+    });
+
+    it('migrates legacy openDyslexic=true into the font picker (#28)', async () => {
+      // Pre-#28 payloads carry the boolean without a curated `font` value
+      // (V4 default is `font: 'system-ui'` literal). The picker must snap
+      // to 'opendyslexic' on first render so the user sees their effective
+      // selection rather than a stale 'System' choice.
+      const stub = makeStub({
+        ...DEFAULT_SETTINGS,
+        font: 'system-ui',
+        openDyslexic: true,
+      });
+      await bindOptionsForm(document, window, stub);
+      expect((document.getElementById(FIELD_IDS.font) as HTMLSelectElement).value).toBe(
+        'opendyslexic',
+      );
+    });
+
+    it('unknown legacy font literal falls back to system in the picker (#28)', async () => {
+      const stub = makeStub({
+        ...DEFAULT_SETTINGS,
+        font: 'Comic Sans',
+        openDyslexic: false,
+      });
+      await bindOptionsForm(document, window, stub);
+      expect((document.getElementById(FIELD_IDS.font) as HTMLSelectElement).value).toBe('system');
     });
   });
 
@@ -166,11 +194,11 @@ describe('options controller', () => {
     it('saves checkbox toggle', async () => {
       const stub = makeStub();
       await bindOptionsForm(document, window, stub);
-      const cb = document.getElementById(FIELD_IDS.openDyslexic) as HTMLInputElement;
+      const cb = document.getElementById(FIELD_IDS.contextLine) as HTMLInputElement;
       cb.checked = true;
       fire(cb, 'change');
       await Promise.resolve();
-      expect(stub.saveMock).toHaveBeenCalledWith({ openDyslexic: true });
+      expect(stub.saveMock).toHaveBeenCalledWith({ contextLine: true });
     });
 
     it('saves theme select change', async () => {
@@ -193,14 +221,26 @@ describe('options controller', () => {
       expect(stub.saveMock).toHaveBeenCalledWith({ alignment: 'center' });
     });
 
-    it('saves font text change', async () => {
+    it('saves font picker change and mirrors legacy openDyslexic boolean (#28)', async () => {
       const stub = makeStub();
       await bindOptionsForm(document, window, stub);
-      const font = document.getElementById(FIELD_IDS.font) as HTMLInputElement;
-      font.value = 'Georgia';
+      const font = document.getElementById(FIELD_IDS.font) as HTMLSelectElement;
+      font.value = 'georgia';
       fire(font, 'change');
       await Promise.resolve();
-      expect(stub.saveMock).toHaveBeenCalledWith({ font: 'Georgia' });
+      // Picker write is the canonical update; the legacy boolean clears
+      // so a stale `openDyslexic: true` cannot win on payload round-trip.
+      expect(stub.saveMock).toHaveBeenCalledWith({ font: 'georgia', openDyslexic: false });
+    });
+
+    it('picking opendyslexic sets the legacy boolean to true (#28)', async () => {
+      const stub = makeStub();
+      await bindOptionsForm(document, window, stub);
+      const font = document.getElementById(FIELD_IDS.font) as HTMLSelectElement;
+      font.value = 'opendyslexic';
+      fire(font, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).toHaveBeenCalledWith({ font: 'opendyslexic', openDyslexic: true });
     });
   });
 
@@ -264,11 +304,16 @@ describe('options controller', () => {
       expect(stub.saveMock).not.toHaveBeenCalled();
     });
 
-    it('rejects empty font (avoids accidental clobber)', async () => {
+    it('rejects font value outside the picker enum (#28)', async () => {
+      // HTML drift simulation: an injected <option value="bogus"> must not
+      // land in storage. Same shape as the theme / alignment guards.
       const stub = makeStub();
       await bindOptionsForm(document, window, stub);
-      const font = document.getElementById(FIELD_IDS.font) as HTMLInputElement;
-      font.value = '   ';
+      const font = document.getElementById(FIELD_IDS.font) as HTMLSelectElement;
+      const option = document.createElement('option');
+      option.value = 'comic-sans';
+      font.appendChild(option);
+      font.value = 'comic-sans';
       fire(font, 'change');
       await Promise.resolve();
       expect(stub.saveMock).not.toHaveBeenCalled();

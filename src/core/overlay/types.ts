@@ -1,5 +1,6 @@
 import type { RsvpEngine, RsvpEngineOptions } from '../rsvp-engine';
 import type { ThemeId } from '../theme';
+import type { FontId } from './font-ids';
 
 /**
  * Settings slice the overlay binds to. The wider SettingsV4 is not imported
@@ -31,8 +32,24 @@ export interface OverlaySettings {
    * as `false`. The font binary is loaded via `@font-face` injected at
    * mount time, parameterised by `OverlayOptions.openDyslexicFontUrl`
    * (since `core/` cannot call `chrome.runtime.getURL`).
+   *
+   * #28: superseded by `font: 'opendyslexic'`. The field is retained for
+   * back-compat with persisted V4 payloads that still carry the boolean;
+   * `resolveFontId()` in `font-ids.ts` promotes `openDyslexic: true` to
+   * the `'opendyslexic'` picker ID when `font` is absent or unknown.
    */
   openDyslexic?: boolean;
+  /**
+   * Font picker (#28) — one of the 5 Safari-parity IDs from
+   * `core/overlay/font-ids.ts`. When omitted, the overlay falls back to
+   * `'system'` (no font class applied; the modal uses the default
+   * system-ui stack). When set to `'opendyslexic'`, the bundled woff2
+   * loads via the @font-face rule injected with
+   * `OverlayOptions.openDyslexicFontUrl` — system fonts (`georgia`,
+   * `menlo`, `newYork`) need no bundled binary and resolve via the
+   * family stacks in `styles.ts`.
+   */
+  font?: FontId;
 }
 
 export type SettingsSubscriber = (s: OverlaySettings) => void;

@@ -35,6 +35,7 @@ import { createRsvpEngine } from '../../core/rsvp-engine';
 import { loadSettings, saveSettings, subscribeSettings } from '../settings/storage';
 import { tokenize } from '../../core/tokenize';
 import { recordClose, resumeIndex } from './session-position';
+import { resolveFontId } from '../../core/overlay/font-ids';
 
 console.log('[SpeedReader] Content script loaded');
 
@@ -122,6 +123,12 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             wpm: settings.wpm,
             fontSize: settings.fontSize,
             openDyslexic: settings.openDyslexic,
+            // #28 — resolve the persisted font string to a FontId before
+            // crossing the core boundary. resolveFontId promotes legacy
+            // `openDyslexic: true` payloads and snaps unknown literals to
+            // 'system', so the overlay's typed `font?: FontId` slot stays
+            // honest at the boundary.
+            font: resolveFontId(settings),
           },
           subscribeSettings: (listener) =>
             subscribeSettings((s) =>
@@ -130,6 +137,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
                 wpm: s.wpm,
                 fontSize: s.fontSize,
                 openDyslexic: s.openDyslexic,
+                font: resolveFontId(s),
               }),
             ),
           // OpenDyslexic font URL (#27, #10). `core/` cannot call

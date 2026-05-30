@@ -238,21 +238,22 @@
           </select>
         </div>
 
-        <!-- Font picker — phase 1 (#27) ships the System vs OpenDyslexic toggle
-             below. The free-text `font` field is the existing schema surface;
-             when issue #28 lands the 5-font picker, replace this input with the
-             curated <select> and gate visibility on `openDyslexic === false`. -->
+        <!-- Font picker (#28) — Safari parity 5-font set. The picker is the
+             canonical source; the legacy `openDyslexic` boolean in the
+             persisted V4 schema mirrors `font === 'opendyslexic'` so older
+             consumers reading the boolean keep working. -->
         <div class="field">
-          <label for="font">Font family</label>
-          <input
-            type="text"
-            id="font"
-            autocomplete="off"
-            spellcheck="false"
-            aria-describedby="font-hint"
-          />
+          <label for="font">Font</label>
+          <select id="font" aria-describedby="font-hint">
+            <option value="system">System (San Francisco)</option>
+            <option value="opendyslexic">OpenDyslexic</option>
+            <option value="newYork">New York (Serif)</option>
+            <option value="georgia">Georgia (Serif)</option>
+            <option value="menlo">Menlo (Monospace)</option>
+          </select>
           <span class="hint" id="font-hint">
-            CSS font-family name. A curated picker arrives with issue #28.
+            OpenDyslexic ships bundled; system fonts use the OS-installed face
+            with a serif/monospace fallback when unavailable.
           </span>
         </div>
 
@@ -267,11 +268,6 @@
             <option value="orp">Optimal Recognition Point</option>
             <option value="center">Centered</option>
           </select>
-        </div>
-
-        <div class="field inline">
-          <input type="checkbox" id="openDyslexic" />
-          <label for="openDyslexic">Use OpenDyslexic font</label>
         </div>
 
         <div class="field inline">
