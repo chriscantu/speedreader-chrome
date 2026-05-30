@@ -57,7 +57,9 @@ Interactive WPM picker exercising the real RSVP engine. Renders:
 - Sample passage — a short canned paragraph bundled as a string constant in the welcome module. NOT extracted from any page (no extraction path involved).
 - Live RSVP stream — `src/core/rsvp-engine` pure tick engine (`createRsvpEngine`) bound to an inline word renderer inside a contained `<div>` in welcome.html's own light DOM. NOT the `src/core/overlay/` full-viewport Shadow-DOM mount — that engine takes over the document and installs a focus trap, which is incompatible with the slider + Save UI on the same page. Renderer subscribes to the engine's `'word'` events and updates the contained `<div>`'s text.
 - **Boot state — PAUSED for everyone.** The engine instantiates in `IDLE` and renders the first word of the sample statically. A prominent `▶ Start preview` button is the explicit user action that calls `engine.start()`. No `prefers-reduced-motion` branch — paused-default unifies behavior. Rationale: WCAG 2.2.2 (Pause, Stop, Hide) — auto-playing word-flash alongside the slider + Save UI is "moving content presented in parallel with other content" and requires a pause mechanism; defaulting paused is the cleanest compliance and removes the first-encounter startle for the neurodivergent target audience.
-- **Loop policy — capped at 2 passes, then auto-pause with `↻ Replay` affordance.** Controller subscribes to the engine's `'done'` event; on the 1st `'done'` it re-calls `start()` (1 loop), on the 2nd `'done'` it leaves the engine in `DONE` state and surfaces the Replay button. Indefinite loop in an unattended onboarding tab violates WCAG 2.2.2.
+- **Loop policy — capped at 2 passes, then auto-pause with `↻ Replay` affordance.** Controller subscribes to the engine's `'done'` event; on the 1st `'done'` it calls `engine.setWords(words); engine.start()` (1 loop), on the 2nd `'done'` it leaves the engine in `DONE` state and surfaces the Replay button. Indefinite loop in an unattended onboarding tab violates WCAG 2.2.2.
+
+  **Mechanism note.** `src/core/rsvp-engine/rsvp-engine.ts` `start()` is guarded by `state === IDLE`. After emitting `'done'` the engine sits in `DONE`, so a literal re-call to `start()` is a no-op. `setWords(words)` resets `nextIndex` + transitions the engine back to `IDLE`; the subsequent `start()` then ticks from the top. The Replay handler uses the same `setWords` + `start` pair. A future `engine.restart()` method on `src/core/rsvp-engine/` would let this contract be phrased more naturally — tracked separately, out of scope for this spec.
 - **Pause control** (toggling to `Play`) is exposed beside the slider for users who want to halt mid-stream; pause does NOT block slider reseats — it just calls `engine.pause()` so tick advancement halts while `setWpm()` is still honored.
 - **Preview WPM clamp** — the slider value the user picks SAVES at the full slider range (100–600 wpm per #15/#16 schema bounds), but the preview engine itself clamps its render cadence at `min(sliderValue, 500)` wpm. Above 500 wpm a single-glyph swap approaches the WCAG 2.3.1 (Three Flashes) photosensitivity area+rate threshold; the onboarding surface uses defensive defaults even when the saved setting is permissive. The slider label still shows the slider's true value (e.g., "550 wpm — preview capped at 500 wpm for first-time view"). See OQ-4.
 - Slider — `<input type="range" min="100" max="600" step="10">`. Live label "`{wpm} wpm`". Slider drag immediately reseats the engine's WPM (no save yet — debounced visual preview only).
@@ -148,14 +150,43 @@ All logic lives in `controller.ts` so it tests against an injected `SettingsApi`
 
 ## Manifest Delta + URL Contract
 
-crxjs auto-discovers HTML build inputs from manifest entry fields (`action.default_popup`, `options_page`) and `web_accessible_resources`. `welcome.html` is referenced from neither today, so without an explicit input declaration crxjs will NOT emit it to `dist/` and `chrome.runtime.getURL('welcome.html')` will resolve to a 404 at runtime.
+crxjs auto-discovers HTML build inputs from manifest entry fields (`action.default_popup`, `options_page`) and `web_accessible_resources`. `welcome.html` is referenced from neither, so without an explicit input declaration crxjs will NOT emit it to `dist/` and `chrome.runtime.getURL('welcome.html')` will resolve to a 404 at runtime.
 
 This spec pins the emission via `build.rollupOptions.input` in `vite.config.ts` rather than `web_accessible_resources` — the welcome page is NOT a web-accessible resource semantically (it's only opened via `chrome.tabs.create` from the SW, never embedded cross-origin), and WAR would either require an overbroad `matches: ['<all_urls>']` or the Chrome-119+ empty-matches form. `rollupOptions.input` is cleaner.
 
+**Emission-path caveat.** Bare Vite + `rollupOptions.input` emits HTML inputs at the dist root using the key as the filename (`{ welcome: '...' }` → `dist/welcome.html`). With `@crxjs/vite-plugin` in the plugin chain, however, the source path is preserved — the welcome HTML lands at `dist/src/chrome/welcome/index.html`, NOT at the root. The source-path preservation is intentional crxjs behavior (it keeps `dist/` mirroring `src/` for the manifest-referenced entries `dist/src/chrome/popup/index.html` and `dist/src/chrome/options/index.html`). To honor AC #5's root URL contract under crxjs, this spec pins a small `closeBundle` plugin that copies the emitted HTML to `dist/welcome.html` after the bundle is written:
+
 ```ts
 // vite.config.ts delta
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+
+function aliasWelcomeHtml(): Plugin {
+  return {
+    name: 'speedreader:alias-welcome-html',
+    apply: 'build',
+    closeBundle() {
+      const src = join('dist', 'src', 'chrome', 'welcome', 'index.html');
+      const dest = join('dist', 'welcome.html');
+      if (!existsSync(src)) {
+        // Build didn't produce the expected source — fail loudly so the
+        // dropped emission is caught by the verify gate, not at install.
+        throw new Error(
+          `aliasWelcomeHtml: expected ${src} but it does not exist. ` +
+            `vite.config.ts rollupOptions.input.welcome may be misconfigured.`,
+        );
+      }
+      mkdirSync(dirname(dest), { recursive: true });
+      copyFileSync(src, dest);
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [crx({ manifest, browser: 'chrome' })],
+  plugins: [
+    crx({ manifest, browser: 'chrome' }),
+    aliasWelcomeHtml(),
+  ],
   build: {
     minify: true,
     outDir: 'dist',
@@ -168,7 +199,15 @@ export default defineConfig({
 });
 ```
 
-Vite emits HTML inputs at the dist root using the key as the filename — `{ welcome: '...' }` produces `dist/welcome.html`. This matches AC #5's `chrome-extension://<id>/welcome.html` URL contract exactly. The source file remains at `src/chrome/welcome/index.html` per project convention (mirrors `src/chrome/popup/index.html`).
+The emitted HTML uses absolute `/assets/*` URLs for its `<script>` + `<link>` references, so both copies (`dist/src/chrome/welcome/index.html` AND `dist/welcome.html`) resolve their scripts correctly. The throw-on-missing guard ensures a future regression that drops the `rollupOptions.input` entry fails at the build verify gate rather than silently at install time.
+
+The source file remains at `src/chrome/welcome/index.html` per project convention (mirrors `src/chrome/popup/index.html` + `src/chrome/options/index.html`). Alternative resolutions considered + rejected:
+
+- **Move source to repo root.** Breaks the `src/chrome/<surface>/index.html` parity established by popup + options. Rejected.
+- **Rewrite the SW to `chrome.runtime.getURL('src/chrome/welcome/index.html')`.** Loses AC #5's bare `welcome.html` URL contract. Rejected.
+- **Add `welcome.html` to `web_accessible_resources`.** WAR is semantically wrong for an extension-internal page never embedded cross-origin (see above). Rejected.
+
+**Dev-mode caveat.** `aliasWelcomeHtml` has `apply: 'build'`, so `npm run dev` skips the plugin entirely. In dev mode the SW's `chrome.runtime.getURL('welcome.html')` would 404. The onboarding flow requires a prod build (`npm run build` + Load unpacked from `dist/`) to exercise end-to-end. If dev-mode onboarding rehearsal becomes needed, drop the `apply: 'build'` clause; the plugin is idempotent and safe to run in dev.
 
 No `manifest.ts` change is required for the welcome page's existence. The manifest delta is **zero** — the page is addressable purely through the SW's `chrome.tabs.create` call against the internal `chrome-extension://<id>/welcome.html` URL. Extension-internal navigation to extension-owned URLs does not require WAR exposure.
 
