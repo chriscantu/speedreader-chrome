@@ -81,3 +81,154 @@ h1 {
 .status[data-state='error'] {
   color: #c5221f;
 }
+
+/* #49 — Recently read section. */
+.history {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.history__heading {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.history__off,
+.history__empty {
+  font-size: 0.8125rem;
+  color: #666;
+  margin: 0;
+}
+
+.history__enable-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #1a73e8;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.history__enable-link:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: 2px;
+}
+
+.history__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.history__item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+
+.history__resume {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: inherit;
+  text-align: left;
+  /* Prevent very long derived titles from overflowing the popup width. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history__resume:hover {
+  background-color: #f1f6fd;
+}
+
+.history__resume:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: -2px;
+}
+
+.history__time {
+  font-size: 0.6875rem;
+  color: #888;
+}
+
+.history__delete {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 1.125rem;
+  line-height: 1;
+  color: #888;
+  /* Surface on hover/focus of the row OR direct hover/focus on the button. */
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.history__item:hover .history__delete,
+.history__item:focus-within .history__delete,
+.history__delete:focus-visible {
+  opacity: 1;
+}
+
+.history__delete:hover {
+  background-color: #fde9e8;
+  color: #c5221f;
+}
+
+.history__delete:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: -2px;
+}
+
+.history__clear-all {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  color: #666;
+}
+
+.history__clear-all:hover {
+  background-color: #f5f5f5;
+  color: #c5221f;
+  border-color: #c5221f;
+}
+
+.history__clear-all:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .history__delete {
+    transition: none;
+  }
+}

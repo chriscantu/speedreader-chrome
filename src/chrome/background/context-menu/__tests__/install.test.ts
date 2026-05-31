@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
-import type { SettingsV4 } from '../../../../core/settings';
+import type { SettingsV5 } from '../../../../core/settings';
 import { DEFAULT_SETTINGS } from '../../../../core/settings/defaults';
 
 vi.mock('../../../settings/storage', () => ({
@@ -101,7 +101,7 @@ describe('ensureContextMenu', () => {
     stub.contextMenus.create.mockClear();
     stub.contextMenus.update.mockClear();
 
-    const nextSettings: SettingsV4 = { ...DEFAULT_SETTINGS, lastUsedWpm: 420 };
+    const nextSettings: SettingsV5 = { ...DEFAULT_SETTINGS, lastUsedWpm: 420 };
     loadSettings.mockResolvedValueOnce(nextSettings);
     await ensureContextMenu();
 
@@ -122,7 +122,7 @@ describe('ensureContextMenu', () => {
     stub.contextMenus.create.mockClear();
     stub.contextMenus.update.mockClear();
 
-    const nextSettings: SettingsV4 = { ...DEFAULT_SETTINGS, contextLine: true };
+    const nextSettings: SettingsV5 = { ...DEFAULT_SETTINGS, contextLine: true };
     loadSettings.mockResolvedValueOnce(nextSettings);
     await ensureContextMenu();
 
@@ -155,7 +155,7 @@ describe('ensureContextMenu', () => {
     let loadResolved = false;
     loadSettings.mockImplementationOnce(
       () =>
-        new Promise<SettingsV4>((resolve) => {
+        new Promise<SettingsV5>((resolve) => {
           setTimeout(() => {
             loadResolved = true;
             resolve(DEFAULT_SETTINGS);

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SettingsSchemaV4 } from '../settings/schema';
+import { SettingsSchemaV5 } from '../settings/schema';
 
 /**
  * Per-activation override payload — applied by the CS as one-shot deltas
@@ -12,10 +12,10 @@ import { SettingsSchemaV4 } from '../settings/schema';
  *    `wpm` must be a number, toggles must be booleans. Out-of-bound values
  *    PASS the shape gate — they're caught downstream.
  *  - **Bounds gate** (`pickValidOverrides`) drops fields that fail their
- *    real per-field schema (`SettingsSchemaV4.shape.wpm` for wpm: int,
+ *    real per-field schema (`SettingsSchemaV5.shape.wpm` for wpm: int,
  *    [100,600], multipleOf(10); strict-boolean for toggles).
  *
- * Why split: the bounds gate reuses `SettingsSchemaV4.shape.wpm` so the
+ * Why split: the bounds gate reuses `SettingsSchemaV5.shape.wpm` so the
  * `wpm` constraint stays the single source of truth (no duplication).
  * The shape gate intentionally relaxes wpm to `z.number()` so a hostile
  * 999999 payload reaches the bounds gate to be dropped per-field rather
@@ -23,7 +23,7 @@ import { SettingsSchemaV4 } from '../settings/schema';
  * activation alive with snapshot defaults for the other fields.
  *
  * Field-name alignment: `contextLine` / `startFromWordOne` here match
- * the `SettingsV4` field names exactly so the CS-side
+ * the `SettingsV5` field names exactly so the CS-side
  * `{...snapshot, ...validatedOverrides}` shallow-merge composes
  * cleanly without a wire→settings translation table. The hi-fi mock's
  * "Show context line" submenu label is a display string, not the wire
@@ -65,7 +65,7 @@ export function validateOverrides(raw: unknown): Overrides | null {
 export function pickValidOverrides(raw: Overrides): Overrides {
   const out: Overrides = {};
   if (raw.wpm !== undefined) {
-    const r = SettingsSchemaV4.shape.wpm.safeParse(raw.wpm);
+    const r = SettingsSchemaV5.shape.wpm.safeParse(raw.wpm);
     if (r.success) out.wpm = r.data;
   }
   if (raw.contextLine !== undefined && typeof raw.contextLine === 'boolean') {

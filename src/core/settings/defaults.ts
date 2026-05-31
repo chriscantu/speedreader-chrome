@@ -1,7 +1,7 @@
-import type { SettingsV4 } from './schema';
+import type { SettingsV5 } from './schema';
 
-export const DEFAULT_SETTINGS: SettingsV4 = {
-  version: 4,
+export const DEFAULT_SETTINGS: SettingsV5 = {
+  version: 5,
   wpm: 250,
   theme: 'system',
   font: 'system-ui',
@@ -12,4 +12,7 @@ export const DEFAULT_SETTINGS: SettingsV4 = {
   contextLine: false,
   startFromWordOne: false,
   lastUsedWpm: 250,
+  // #49 — opt-in by default. Reading patterns are sensitive; users that
+  // want the popup "Recently read" surface must enable it explicitly.
+  historyEnabled: false,
 };

@@ -34,6 +34,10 @@
       role="status"
       aria-live="polite"
     ></div>
+    <!-- #49 — "Recently read" surface. Container is populated by
+         bootstrapPopup at DOMContentLoaded; renders nothing until then
+         (no flash-of-empty-list). -->
+    <div id="history-container"></div>
     <script type="module" src="./index.ts"></script>
   </body>
 </html>

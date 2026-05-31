@@ -1,12 +1,12 @@
-import { SettingsSchemaV4, CURRENT_VERSION, type SettingsV4 } from './schema';
+import { SettingsSchemaV5, CURRENT_VERSION, type SettingsV5 } from './schema';
 import { DEFAULT_SETTINGS } from './defaults';
 
 type Migrator = (raw: Record<string, unknown>) => Record<string, unknown>;
 
 /**
  * Sequential migrators keyed by source version. Forward-only chain:
- * `0 -> 1 -> 2 -> 3 -> 4 -> ...`. To add a 4->5 migration in the future,
- * drop in `4: m4to5` and bump `CURRENT_VERSION` in `schema.ts`.
+ * `0 -> 1 -> 2 -> 3 -> 4 -> 5 -> ...`. To add a 5->6 migration in the future,
+ * drop in `5: m5to6` and bump `CURRENT_VERSION` in `schema.ts`.
  *
  * Spread order is load-bearing: `...raw` first, then literals. New
  * payloads get the literal `alignment: 'orp'` stamp; V4-already-present
@@ -30,6 +30,9 @@ type Migrator = (raw: Record<string, unknown>) => Record<string, unknown>;
  * `safeParse` to nuke the entire payload to defaults. The whole-payload
  * fallback still fires if `raw.wpm` itself fails V4 validation — this
  * clamp only protects the derived `lastUsedWpm` field.
+ *
+ * 4 -> 5 (#49) adds `historyEnabled: false`. Existing users opt in
+ * via the options page; the migrator never enables history retroactively.
  */
 function clampLastUsedWpm(raw: unknown): number {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return 250;
@@ -48,6 +51,7 @@ const MIGRATIONS: Record<number, Migrator> = {
     lastUsedWpm: clampLastUsedWpm(raw.wpm),
     version: 4,
   }),
+  4: (raw) => ({ ...raw, historyEnabled: false, version: 5 }),
 };
 
 /**
@@ -71,7 +75,7 @@ const MIGRATIONS: Record<number, Migrator> = {
  * `'migrates v3 blob with missing field by filling defaults (explicit repair
  * behavior)'` in `__tests__/migrations.test.ts`.
  */
-export function migrate(rawValue: unknown): SettingsV4 {
+export function migrate(rawValue: unknown): SettingsV5 {
   if (rawValue == null || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
     return { ...DEFAULT_SETTINGS };
   }
@@ -87,7 +91,7 @@ export function migrate(rawValue: unknown): SettingsV4 {
   }
 
   const merged = { ...DEFAULT_SETTINGS, ...value, version: CURRENT_VERSION };
-  const parsed = SettingsSchemaV4.safeParse(merged);
+  const parsed = SettingsSchemaV5.safeParse(merged);
   if (!parsed.success) {
     console.warn(
       '[speedreader] settings failed validation, falling back to defaults',

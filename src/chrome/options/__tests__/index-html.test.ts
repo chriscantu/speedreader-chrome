@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { bindOptionsForm, FIELD_IDS, type SettingsApi } from '../controller';
 import { DEFAULT_SETTINGS } from '../../../core/settings/defaults';
-import type { SettingsV4 } from '../../../core/settings/schema';
+import type { SettingsV5 } from '../../../core/settings/schema';
 import manifest from '../../manifest';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -50,6 +50,7 @@ describe('options index.html structure', () => {
       ['speed', 'Speed'],
       ['appearance', 'Appearance'],
       ['pacing', 'Pacing'],
+      ['privacy', 'Privacy'],
       ['shortcuts', 'Shortcuts'],
     ])('renders the %s section with legend "%s"', (key, legendText) => {
       const section = doc.querySelector<HTMLFieldSetElement>(`fieldset[data-section="${key}"]`);
@@ -58,7 +59,7 @@ describe('options index.html structure', () => {
       expect(legend?.textContent?.trim()).toBe(legendText);
     });
 
-    it('renders the four sections required by issue #30 (order unconstrained)', () => {
+    it('renders the five sections (issue #30 + #49 privacy section)', () => {
       // No production code reads section order; the per-section it.each above
       // already proves presence + placement. Set-equality avoids overspecifying.
       const sections = new Set(
@@ -66,7 +67,7 @@ describe('options index.html structure', () => {
           el.getAttribute('data-section'),
         ),
       );
-      expect(sections).toEqual(new Set(['speed', 'appearance', 'pacing', 'shortcuts']));
+      expect(sections).toEqual(new Set(['speed', 'appearance', 'pacing', 'privacy', 'shortcuts']));
     });
   });
 
@@ -114,6 +115,7 @@ describe('options index.html structure', () => {
       punctuationPacing: 'Slow down at punctuation',
       contextLine: 'Show line of context around current word',
       startFromWordOne: 'Always start from word one',
+      historyEnabled: 'Remember recently read articles',
     };
 
     it.each(Object.entries(FIELD_IDS))(
@@ -211,7 +213,7 @@ describe('options index.html structure', () => {
    * assertion below go red.
    */
   describe('controller binds against real index.html', () => {
-    function makeStubApi(initial: SettingsV4 = DEFAULT_SETTINGS): SettingsApi & {
+    function makeStubApi(initial: SettingsV5 = DEFAULT_SETTINGS): SettingsApi & {
       loadMock: ReturnType<typeof vi.fn>;
       saveMock: ReturnType<typeof vi.fn>;
       flushMock: ReturnType<typeof vi.fn>;
