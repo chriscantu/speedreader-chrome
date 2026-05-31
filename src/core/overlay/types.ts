@@ -51,13 +51,12 @@ export interface OverlaySettings {
    */
   font?: FontId;
   /**
-   * Multi-word chunk display (#51). Pinned at overlay-construction
-   * time and forwarded to the engine factory. `1` (or undefined) keeps
+   * Multi-word chunk display (#51). Forwarded to the engine factory at
+   * mount time AND on every `subscribeSettings` emission — the overlay
+   * calls `engine.setChunkSize(next)` so live updates apply mid-session
+   * without re-mounting (architect MED #2). `1` (or undefined) keeps
    * today's single-word emission; `2` or `3` enables multi-word chunk
    * mode (engine emits `chunk` events with sentence-boundary respect).
-   * Live updates via `subscribeSettings` are NOT supported in M2 —
-   * changing chunkSize mid-session would require an engine
-   * reconstruction (deferred to a follow-up).
    */
   chunkSize?: 1 | 2 | 3;
 }

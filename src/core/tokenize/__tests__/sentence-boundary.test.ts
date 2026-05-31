@@ -83,33 +83,35 @@ describe('markSentenceBoundaries — Chrome-side cases', () => {
 
   it('case 10: single word', () => {
     const marks = markSentenceBoundaries(tokenize('one'));
-    expect(marks).toEqual([{ kind: 'word', text: 'one', sentenceStart: true, sentenceEnd: false }]);
+    expect(marks).toEqual([
+      { kind: 'word', text: 'one', sentenceStart: true, sentenceEnd: false, rawIndex: 0 },
+    ]);
   });
 
   it('case 11: paragraph break ends a sentence even without .!?', () => {
     const marks = markSentenceBoundaries(tokenize('hello\n\nworld'));
     expect(marks).toEqual([
-      { kind: 'word', text: 'hello', sentenceStart: true, sentenceEnd: false },
+      { kind: 'word', text: 'hello', sentenceStart: true, sentenceEnd: false, rawIndex: 0 },
       { kind: 'paragraph', text: '\n\n' },
-      { kind: 'word', text: 'world', sentenceStart: true, sentenceEnd: false },
+      { kind: 'word', text: 'world', sentenceStart: true, sentenceEnd: false, rawIndex: 2 },
     ]);
   });
 
   it('case 12: em-dash does NOT end a sentence', () => {
     const marks = markSentenceBoundaries(tokenize('a — b'));
     expect(marks).toEqual([
-      { kind: 'word', text: 'a', sentenceStart: true, sentenceEnd: false },
+      { kind: 'word', text: 'a', sentenceStart: true, sentenceEnd: false, rawIndex: 0 },
       { kind: 'dash', text: '—' },
-      { kind: 'word', text: 'b', sentenceStart: false, sentenceEnd: false },
+      { kind: 'word', text: 'b', sentenceStart: false, sentenceEnd: false, rawIndex: 2 },
     ]);
   });
 
   it('case 13: sentence-end then paragraph break', () => {
     const marks = markSentenceBoundaries(tokenize('first.\n\nsecond.'));
     expect(marks).toEqual([
-      { kind: 'word', text: 'first.', sentenceStart: true, sentenceEnd: true },
+      { kind: 'word', text: 'first.', sentenceStart: true, sentenceEnd: true, rawIndex: 0 },
       { kind: 'paragraph', text: '\n\n' },
-      { kind: 'word', text: 'second.', sentenceStart: true, sentenceEnd: true },
+      { kind: 'word', text: 'second.', sentenceStart: true, sentenceEnd: true, rawIndex: 2 },
     ]);
   });
 
@@ -122,10 +124,10 @@ describe('markSentenceBoundaries — Chrome-side cases', () => {
   it('case 15: em-dash before paragraph break (cutoff prose)', () => {
     const marks = markSentenceBoundaries(tokenize('a — \n\nb'));
     expect(marks).toEqual([
-      { kind: 'word', text: 'a', sentenceStart: true, sentenceEnd: false },
+      { kind: 'word', text: 'a', sentenceStart: true, sentenceEnd: false, rawIndex: 0 },
       { kind: 'dash', text: '—' },
       { kind: 'paragraph', text: '\n\n' },
-      { kind: 'word', text: 'b', sentenceStart: true, sentenceEnd: false },
+      { kind: 'word', text: 'b', sentenceStart: true, sentenceEnd: false, rawIndex: 3 },
     ]);
   });
 
@@ -227,5 +229,34 @@ describe('markSentenceBoundaries — invariants', () => {
         expect(m).not.toHaveProperty('sentenceEnd');
       }
     }
+  });
+
+  // rawIndex is the load-bearing field for #51 chunk-mode raw-axis
+  // indices (architect HIGH fix). Mutation hypothesis: a regression
+  // that stops setting rawIndex (or sets it to local-word index
+  // instead of source-array position) silently corrupts chunk bounds
+  // for any article with paragraph or dash tokens — this test pins
+  // the invariant `out[i].rawIndex === i` for word tokens across a
+  // mixed-kind stream.
+  it('rawIndex on word tokens matches source array position (mixed-kind stream)', () => {
+    const tokens = tokenize('a\n\nb — c.');
+    const marks = markSentenceBoundaries(tokens);
+    expect(marks.length).toBe(tokens.length);
+    marks.forEach((m, i) => {
+      if (m.kind === 'word') {
+        expect(m.rawIndex).toBe(i);
+      }
+    });
+    // Spot-check: the second word `b` lives at index 2 (after the
+    // paragraph sentinel); the third word `c.` lives at index 4
+    // (after the em-dash).
+    const wordPositions = marks
+      .map((m, i) => (m.kind === 'word' ? { rawIndex: m.rawIndex, srcPos: i } : null))
+      .filter((x): x is { rawIndex: number; srcPos: number } => x !== null);
+    expect(wordPositions).toEqual([
+      { rawIndex: 0, srcPos: 0 },
+      { rawIndex: 2, srcPos: 2 },
+      { rawIndex: 4, srcPos: 4 },
+    ]);
   });
 });

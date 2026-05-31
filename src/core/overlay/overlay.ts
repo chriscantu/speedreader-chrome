@@ -439,6 +439,10 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // in-overlay ↑/↓ shortcut and slider input update `currentWpm` + the
     // engine and (when `onWpmChange` is wired) persist via the callback.
     let currentWpm = opts.initialSettings.wpm;
+    // Local chunkSize cache so the subscribeSettings handler can
+    // short-circuit no-op emissions and only call `engine.setChunkSize`
+    // when the value actually changed (#51 architect MED #2).
+    let currentChunkSize: 1 | 2 | 3 = opts.initialSettings.chunkSize ?? 1;
 
     // Single point of truth for keeping the slider + readout in sync with
     // `currentWpm`. Called from mount-time init, the ArrowUp/Down keyboard
@@ -511,6 +515,15 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       const nextFont = resolveFontId(s);
       if (nextFont !== currentFont) {
         applyFont(nextFont);
+      }
+      // #51 architect MED #2 — live chunkSize update. Forward to the
+      // engine so a user switching chunkSize mid-session sees the new
+      // grouping immediately rather than only on next mount. Guarded
+      // on a real change so a no-op echo doesn't churn the engine.
+      const nextChunkSize: 1 | 2 | 3 = s.chunkSize ?? 1;
+      if (nextChunkSize !== currentChunkSize) {
+        currentChunkSize = nextChunkSize;
+        engine?.setChunkSize(nextChunkSize);
       }
     });
 

@@ -5,10 +5,13 @@
  * a word-only token stream into display chunks of size 1, 2, or 3 while
  * respecting sentence boundaries — a chunk NEVER spans a sentence start.
  *
- * Indices in the output (`startIndex` / `endIndex`) index into the
- * filtered word stream — the position of each `kind: 'word'` token in
- * the array passed in. Consumers responsible for the engine word axis
- * receive that same array, so the indices are directly addressable.
+ * Indices in the output (`startIndex` / `endIndex`) key to the RAW
+ * token-axis — `WordToken.rawIndex`, the 0-based position of the word
+ * in the source array passed to `markSentenceBoundaries` (which
+ * INCLUDES paragraph + dash tokens). This keeps chunk indices on the
+ * same axis as the engine's raw `nextIndex`, so `chunk.startIndex ===
+ * N` and `engine.nextIndex === N` always point at the same token —
+ * load-bearing for #47 scrubber + #48 cross-mode position persistence.
  *
  * No DOM, no chrome.* / browser.* — safe for src/core/.
  */
@@ -24,15 +27,19 @@ export type ChunkSize = 1 | 2 | 3;
 /**
  * A display chunk — one or more words shown together at a single RSVP tick.
  *
- * `startIndex` / `endIndex` are inclusive positions into the input word
- * stream (the array passed to `buildChunks`). For the engine, the input
- * is the filtered word stream, so consumers can map directly back to
- * the word axis without further bookkeeping.
+ * `startIndex` / `endIndex` are inclusive positions on the RAW token-axis
+ * — the `rawIndex` of the chunk's first / last `WordToken`. The raw axis
+ * is what the engine's `nextIndex` indexes against (and what
+ * `markSentenceBoundaries` numbers from), so consumers can compare
+ * chunk bounds against engine state directly. For a stream with no
+ * paragraph / dash tokens this collapses to the filtered-word position
+ * (back-compat with the pre-rawIndex shape); with structural tokens
+ * interleaved, the two axes diverge and the raw axis wins.
  *
  * `words` holds references to the original `MarkedToken` objects (NOT
  * copies) so downstream consumers can compare by reference and inspect
- * boundary metadata (`sentenceStart` / `sentenceEnd`) without re-walking
- * the source array.
+ * boundary metadata (`sentenceStart` / `sentenceEnd` / `rawIndex`)
+ * without re-walking the source array.
  */
 export interface Chunk {
   words: WordToken[];
@@ -72,8 +79,13 @@ export function buildChunks(words: WordToken[], chunkSize: ChunkSize): Chunk[] {
     }
     chunks.push({
       words: chunkWords,
-      startIndex: i,
-      endIndex: j - 1,
+      // Raw-axis indices: take the rawIndex of the FIRST and LAST
+      // words. For dense word streams this is identical to (i, j-1);
+      // for streams with paragraph / dash tokens interleaved, the
+      // raw indices skip over the structural slots so the chunk's
+      // bounds align with the engine's nextIndex axis.
+      startIndex: chunkWords[0].rawIndex,
+      endIndex: chunkWords[chunkWords.length - 1].rawIndex,
       text: chunkWords.map((w) => w.text).join(' '),
     });
     i = j;
