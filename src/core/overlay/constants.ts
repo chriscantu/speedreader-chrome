@@ -36,6 +36,12 @@ export const OVERLAY_CLASS = Object.freeze({
   /** Reading-position resume toast (#48). */
   RESUME_TOAST: 'resume-toast',
   RESUME_TOAST_BTN: 'resume-toast-start-over',
+  /** Progress scrubber (#47) — Safari-parity time-labeled position control. */
+  SCRUBBER_AREA: 'scrubber-area',
+  SCRUBBER_LABELS: 'scrubber-labels',
+  SCRUBBER_ELAPSED: 'scrubber-elapsed',
+  SCRUBBER_REMAINING: 'scrubber-remaining',
+  SCRUBBER_SLIDER: 'scrubber-slider',
   /**
    * Modifier applied to `.modal` when the user has enabled OpenDyslexic
    * (#27). The CSS rule overrides `font-family` to the bundled
@@ -128,4 +134,29 @@ export const OVERLAY_TEXT = Object.freeze({
   },
   RESUME_TOAST_START_OVER: 'Start over',
   RESUME_TOAST_DISMISS_MS: 5_000,
+
+  /** Progress scrubber (#47). */
+  SCRUBBER_LABEL: 'Reading position',
+
+  /**
+   * Format a non-negative duration (in seconds) as `m:ss`. Mirrors the
+   * Safari upstream helper: rounds seconds, pads `ss` to width 2, joins
+   * with a colon. Negative or non-finite inputs clamp to `0:00` so a
+   * caller cannot leak `NaN:NaN` into the visible label.
+   */
+  formatTime(seconds: number): string {
+    const safe = Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : 0;
+    const minutes = Math.floor(safe / 60);
+    const ss = String(safe % 60).padStart(2, '0');
+    return `${minutes}:${ss}`;
+  },
+
+  /**
+   * Visible-equivalent string for `aria-valuetext` on the scrubber slider.
+   * AT renders `min:ss elapsed, min:ss remaining`; the visible labels carry
+   * the same numbers (with a leading `-` on the remaining label).
+   */
+  scrubberValueText(elapsedSec: number, remainingSec: number): string {
+    return `${OVERLAY_TEXT.formatTime(elapsedSec)} elapsed, ${OVERLAY_TEXT.formatTime(remainingSec)} remaining`;
+  },
 });

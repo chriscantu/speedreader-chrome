@@ -248,7 +248,8 @@ export const OVERLAY_CSS = `
  * WebKit). The base styles below give the slider element a 44px hitbox
  * (touch-primary block bumps to 48px). Track + thumb keep system defaults
  * inside that hitbox so we don't fight the cross-browser thumb shape. */
-.wpm-slider {
+.wpm-slider,
+.scrubber-slider {
   min-height: 44px;
   /* The default range thumb is small; the larger inline-size gives the
    * user enough travel for a 100→600 step=10 sweep. */
@@ -257,9 +258,41 @@ export const OVERLAY_CSS = `
   cursor: pointer;
 }
 
-.wpm-slider:focus-visible {
+.wpm-slider:focus-visible,
+.scrubber-slider:focus-visible {
   outline: 3px solid var(--accent, #2563eb);
   outline-offset: 4px;
+}
+
+/* Progress scrubber (#47). Layout is a labels row above a full-width
+ * native range input. The slider reuses the WPM slider base rules above
+ * (shared min-height/track/thumb); only width differs — the scrubber is
+ * a full-width position control, where the WPM slider is a side control.
+ * Labels use tabular-nums to prevent layout jitter as digits change. */
+.scrubber-area {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-block-start: clamp(12px, 3cqi, 24px);
+  inline-size: 100%;
+  max-inline-size: 60ch;
+  margin-inline: auto;
+}
+
+.scrubber-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font: 600 12px / 1 system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: var(--text, #111111);
+  opacity: 0.85;
+}
+
+.scrubber-slider {
+  /* Override the WPM slider's bounded inline-size — the scrubber is a
+   * full-width position control. */
+  inline-size: 100%;
 }
 
 .wpm-readout {
@@ -401,6 +434,8 @@ export const OVERLAY_CSS = `
   .next-sentence-btn:focus-visible { outline-color: Highlight; }
   .wpm-slider:focus-visible { outline-color: Highlight; }
   .wpm-readout { color: CanvasText; }
+  .scrubber-slider:focus-visible { outline-color: Highlight; }
+  .scrubber-labels { color: CanvasText; opacity: 1; }
   .context-preview { color: CanvasText; opacity: 1; }
   .context-current { color: Highlight; }
   .resume-toast { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
@@ -480,6 +515,11 @@ export const OVERLAY_CSS = `
   .wpm-slider {
     min-height: 48px;
     inline-size: clamp(160px, 30cqi, 320px);
+  }
+  .scrubber-slider {
+    min-height: 48px;
+    /* Stays full-width; the WPM slider gets a wider bounded range above. */
+    inline-size: 100%;
   }
   .footer {
     /* On handsets the control bar can wrap onto two lines without losing
