@@ -11,14 +11,14 @@
  * See docs/superpowers/specs/2026-05-30-onboarding-surface.md.
  */
 
-import type { SettingsV4 } from '../../core/settings/schema';
+import type { SettingsV5 } from '../../core/settings/schema';
 import { DEFAULT_SETTINGS } from '../../core/settings/defaults';
 import { createRsvpEngine, type RsvpEngine } from '../../core/rsvp-engine';
 import { SAMPLE_PASSAGE } from './sample';
 
 export interface SettingsApi {
-  load(): Promise<SettingsV4>;
-  save(partial: Partial<Omit<SettingsV4, 'version' | 'lastUsedWpm'>>): Promise<void>;
+  load(): Promise<SettingsV5>;
+  save(partial: Partial<Omit<SettingsV5, 'version' | 'lastUsedWpm'>>): Promise<void>;
   flush(): Promise<void>;
 }
 
@@ -121,7 +121,7 @@ export async function bindWelcome(
   const $label = label as HTMLElement;
   const $saveFinishBtn = saveFinishBtn as HTMLButtonElement;
 
-  // Initialize slider + label to V4 default; the in-flight `loadSettings`
+  // Initialize slider + label to current default; the in-flight `loadSettings`
   // call below may reseat once it resolves. Spec §"Settings Round-Trip"
   // forbids blocking the render on load.
   const setSliderValue = (value: number): void => {

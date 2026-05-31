@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { bindOptionsForm, FIELD_IDS, type SettingsApi } from '../controller';
 import { DEFAULT_SETTINGS } from '../../../core/settings/defaults';
-import type { SettingsV4 } from '../../../core/settings/schema';
+import type { SettingsV5 } from '../../../core/settings/schema';
 
 const HTML = `
   <div id="load-error-banner"></div>
@@ -30,6 +30,8 @@ const HTML = `
   <input type="checkbox" id="${FIELD_IDS.punctuationPacing}" />
   <input type="checkbox" id="${FIELD_IDS.contextLine}" />
   <input type="checkbox" id="${FIELD_IDS.startFromWordOne}" />
+  <input type="checkbox" id="${FIELD_IDS.historyEnabled}" />
+  <input type="checkbox" id="historyClearOnDisable" />
   <div id="saved"></div>
   <div id="save-error"></div>
 `;
@@ -39,15 +41,15 @@ interface Stub extends SettingsApi {
   saveMock: ReturnType<typeof vi.fn>;
   flushMock: ReturnType<typeof vi.fn>;
   subscribeMock: ReturnType<typeof vi.fn>;
-  emit(s: SettingsV4): void;
+  emit(s: SettingsV5): void;
 }
 
-function makeStub(initial: SettingsV4 = DEFAULT_SETTINGS): Stub {
-  let listener: ((s: SettingsV4) => void) | null = null;
+function makeStub(initial: SettingsV5 = DEFAULT_SETTINGS): Stub {
+  let listener: ((s: SettingsV5) => void) | null = null;
   const loadMock = vi.fn(async () => initial);
   const saveMock = vi.fn(async () => undefined);
   const flushMock = vi.fn(async () => undefined);
-  const subscribeMock = vi.fn((cb: (s: SettingsV4) => void) => {
+  const subscribeMock = vi.fn((cb: (s: SettingsV5) => void) => {
     listener = cb;
     return () => {
       listener = null;
@@ -433,6 +435,104 @@ describe('options controller', () => {
         expect.arrayContaining(['wpm']),
       );
       err.mockRestore();
+    });
+  });
+
+  // #49 — historyEnabled toggle + onHistoryDisabled side-effect hook.
+  // The controller's settings data model is pure SettingsV5; the hook
+  // is the bridge to the position-store wipe action wired in index.ts.
+  describe('history toggle (#49)', () => {
+    it('populates historyEnabled checkbox from loaded settings', async () => {
+      const stub = makeStub({ ...DEFAULT_SETTINGS, historyEnabled: true });
+      await bindOptionsForm(document, window, stub);
+      expect((document.getElementById(FIELD_IDS.historyEnabled) as HTMLInputElement).checked).toBe(
+        true,
+      );
+    });
+
+    it('saves historyEnabled on change like every other field', async () => {
+      const stub = makeStub({ ...DEFAULT_SETTINGS, historyEnabled: false });
+      await bindOptionsForm(document, window, stub);
+      const toggle = document.getElementById(FIELD_IDS.historyEnabled) as HTMLInputElement;
+      toggle.checked = true;
+      fire(toggle, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).toHaveBeenCalledWith({ historyEnabled: true });
+    });
+
+    it('fires onHistoryDisabled when toggle transitions true → false (no companion checked)', async () => {
+      const stub = makeStub({ ...DEFAULT_SETTINGS, historyEnabled: true });
+      const onHistoryDisabled = vi.fn();
+      await bindOptionsForm(document, window, stub, onHistoryDisabled);
+      const toggle = document.getElementById(FIELD_IDS.historyEnabled) as HTMLInputElement;
+      toggle.checked = false;
+      fire(toggle, 'change');
+      await Promise.resolve();
+      expect(onHistoryDisabled).toHaveBeenCalledTimes(1);
+      // Companion checkbox left unchecked — hook receives `false`.
+      expect(onHistoryDisabled).toHaveBeenCalledWith(false);
+    });
+
+    it('passes alsoClearEntries=true when the companion checkbox is checked', async () => {
+      const stub = makeStub({ ...DEFAULT_SETTINGS, historyEnabled: true });
+      const onHistoryDisabled = vi.fn();
+      await bindOptionsForm(document, window, stub, onHistoryDisabled);
+      // User ticks the "Also clear existing entries" companion FIRST,
+      // then disables history. Hook should fire with true.
+      (document.getElementById('historyClearOnDisable') as HTMLInputElement).checked = true;
+      const toggle = document.getElementById(FIELD_IDS.historyEnabled) as HTMLInputElement;
+      toggle.checked = false;
+      fire(toggle, 'change');
+      await Promise.resolve();
+      expect(onHistoryDisabled).toHaveBeenCalledWith(true);
+    });
+
+    it('does NOT fire onHistoryDisabled on false → true transition (only on disable)', async () => {
+      const stub = makeStub({ ...DEFAULT_SETTINGS, historyEnabled: false });
+      const onHistoryDisabled = vi.fn();
+      await bindOptionsForm(document, window, stub, onHistoryDisabled);
+      const toggle = document.getElementById(FIELD_IDS.historyEnabled) as HTMLInputElement;
+      toggle.checked = true;
+      fire(toggle, 'change');
+      await Promise.resolve();
+      expect(onHistoryDisabled).not.toHaveBeenCalled();
+    });
+
+    it('does NOT fire onHistoryDisabled twice when the user toggles off, on, off', async () => {
+      // Each off transition must be observed independently; a stale
+      // "lastHistoryEnabled" cache would either miss the second off
+      // (false positive — hook silent on disable) or fire twice in a
+      // row (false negative — hook fires on re-disable AND on the
+      // initial subscribe re-render). Pin both.
+      const stub = makeStub({ ...DEFAULT_SETTINGS, historyEnabled: true });
+      const onHistoryDisabled = vi.fn();
+      await bindOptionsForm(document, window, stub, onHistoryDisabled);
+      const toggle = document.getElementById(FIELD_IDS.historyEnabled) as HTMLInputElement;
+      toggle.checked = false;
+      fire(toggle, 'change');
+      await Promise.resolve();
+      expect(onHistoryDisabled).toHaveBeenCalledTimes(1);
+
+      toggle.checked = true;
+      fire(toggle, 'change');
+      await Promise.resolve();
+      // Still only the original disable.
+      expect(onHistoryDisabled).toHaveBeenCalledTimes(1);
+
+      toggle.checked = false;
+      fire(toggle, 'change');
+      await Promise.resolve();
+      expect(onHistoryDisabled).toHaveBeenCalledTimes(2);
+    });
+
+    it('does NOT fire onHistoryDisabled when omitted from bindOptionsForm', async () => {
+      // No hook supplied → the controller must not throw when the user
+      // toggles off. Defaults still apply (no wipe).
+      const stub = makeStub({ ...DEFAULT_SETTINGS, historyEnabled: true });
+      await bindOptionsForm(document, window, stub /* no hook */);
+      const toggle = document.getElementById(FIELD_IDS.historyEnabled) as HTMLInputElement;
+      toggle.checked = false;
+      expect(() => fire(toggle, 'change')).not.toThrow();
     });
   });
 

@@ -1,5 +1,5 @@
 /**
- * Canonical numeric bounds for SettingsV4 fields.
+ * Canonical numeric bounds for SettingsV5 fields.
  *
  * Single source of truth — `schema.ts` derives its Zod constraints from these
  * constants, and consumers that need to clamp/validate outside Zod (the

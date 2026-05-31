@@ -2,7 +2,18 @@ import { z } from 'zod';
 import { FONT_SIZE_MAX, FONT_SIZE_MIN, WPM_MAX, WPM_MIN, WPM_STEP } from './bounds';
 
 /**
- * V4 adds three fields for the context-menu integration (#72):
+ * V5 adds `historyEnabled` (issue #49) — opt-in toggle gating the popup
+ * "Recently read" surface. Default is `false` (privacy floor — reading
+ * patterns are sensitive). The 4 -> 5 migrator stamps `historyEnabled:
+ * false` for every existing payload; users that want history must
+ * opt in via the options page.
+ *
+ * Disabling the toggle does NOT clear existing reading-position records
+ * (the options-page UX surfaces a separate "Also clear existing entries"
+ * checkbox for that — see `src/chrome/options/`). The flag only gates
+ * the popup's display of `ReadingPositionStore.list()`.
+ *
+ * V4 added three fields for the context-menu integration (#72):
  * `contextLine` (toggle the line-of-context decoration around the current
  * RSVP word), `startFromWordOne` (always begin playback at token 0 rather
  * than restoring the saved cursor), and `lastUsedWpm` (persistent
@@ -12,8 +23,6 @@ import { FONT_SIZE_MAX, FONT_SIZE_MIN, WPM_MAX, WPM_MIN, WPM_STEP } from './boun
  * false`, and `lastUsedWpm` to the payload's current `wpm` (so first
  * post-migration submenu open shows the user's actual reading speed, not
  * a hardcoded 250). See `src/core/settings/migrations.ts`.
- *
- * No other shape changes from V3.
  */
 /**
  * Shared WPM constraint — used by both `wpm` and `lastUsedWpm` so the
@@ -23,6 +32,29 @@ import { FONT_SIZE_MAX, FONT_SIZE_MIN, WPM_MAX, WPM_MIN, WPM_STEP } from './boun
  */
 const WPM_SCHEMA = z.number().int().min(WPM_MIN).max(WPM_MAX).multipleOf(WPM_STEP);
 
+export const SettingsSchemaV5 = z.object({
+  version: z.literal(5),
+  wpm: WPM_SCHEMA,
+  theme: z.enum(['system', 'light', 'dark', 'sepia', 'paper', 'cream', 'nord']),
+  font: z.string(),
+  fontSize: z.number().int().min(FONT_SIZE_MIN).max(FONT_SIZE_MAX),
+  openDyslexic: z.boolean(),
+  punctuationPacing: z.boolean(),
+  alignment: z.enum(['orp', 'center']),
+  contextLine: z.boolean(),
+  startFromWordOne: z.boolean(),
+  lastUsedWpm: WPM_SCHEMA,
+  historyEnabled: z.boolean(),
+});
+
+export type SettingsV5 = z.infer<typeof SettingsSchemaV5>;
+
+export const CURRENT_VERSION = 5 as const;
+
+/**
+ * V4 preserved for the V4 -> V5 migrator (#49) per the schema retention
+ * policy adopted at V2 (issue #101 AC: "keep prior schema exported").
+ */
 export const SettingsSchemaV4 = z.object({
   version: z.literal(4),
   wpm: WPM_SCHEMA,
@@ -39,14 +71,12 @@ export const SettingsSchemaV4 = z.object({
 
 export type SettingsV4 = z.infer<typeof SettingsSchemaV4>;
 
-export const CURRENT_VERSION = 4 as const;
-
 /**
  * Cardinality-pinned constant mirroring Safari's `VALID_ALIGNMENTS`.
  * Used by tests today; consumed by the future Options-page UI radio
  * group (#30 follow-up) and overlay rendering wiring (pairs with #19).
  * Widening the enum is a future ADR — keep this in lockstep with the
- * `alignment` field in `SettingsSchemaV4` above.
+ * `alignment` field in `SettingsSchemaV5` above.
  */
 export const VALID_ALIGNMENTS = ['orp', 'center'] as const;
 

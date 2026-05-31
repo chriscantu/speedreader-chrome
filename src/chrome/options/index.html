@@ -290,6 +290,26 @@
         </div>
       </fieldset>
 
+      <!-- Privacy — #49 history opt-in. -->
+      <fieldset class="section" data-section="privacy">
+        <legend>Privacy</legend>
+        <div class="field inline">
+          <input type="checkbox" id="historyEnabled" />
+          <label for="historyEnabled">Remember recently read articles</label>
+        </div>
+        <p class="hint" id="historyEnabled-hint">
+          Off by default. When on, the popup shows the last 50 articles you
+          opened SpeedReader on. Data is stored locally and never synced or
+          sent anywhere.
+        </p>
+        <div class="field inline">
+          <input type="checkbox" id="historyClearOnDisable" />
+          <label for="historyClearOnDisable">
+            Also clear existing entries when turning this off
+          </label>
+        </div>
+      </fieldset>
+
       <!-- Shortcuts — read-only reference. The toggle binding is set in the
            manifest and can be re-bound by the user at chrome://extensions/shortcuts. -->
       <fieldset class="section" data-section="shortcuts">

@@ -22,10 +22,20 @@ import {
   tabHasSelection,
   type PopupScope,
 } from './activate';
+import { renderHistorySection, type HistorySectionEntry } from '../../core/popup/history-section';
+import type { ReadingPositionStore } from '../../core/storage/reading-position';
+import { createChromePositionStore } from '../storage/chrome-position-store';
+import { loadSettings } from '../settings/storage';
 
 interface PopupBootstrapDeps {
   readonly api: typeof chrome;
   readonly doc: Document;
+  /** Injectable for tests; defaults to `loadSettings`. */
+  readonly loadSettings?: () => Promise<{ historyEnabled: boolean }>;
+  /** Injectable for tests; defaults to `createChromePositionStore()`. */
+  readonly store?: ReadingPositionStore;
+  /** Injectable for tests; defaults to `Date.now`. */
+  readonly now?: () => number;
 }
 
 /**
@@ -37,6 +47,14 @@ export async function bootstrapPopup(deps: PopupBootstrapDeps): Promise<void> {
   const articleBtn = doc.getElementById('read-article') as HTMLButtonElement | null;
   const selectionBtn = doc.getElementById('read-selection') as HTMLButtonElement | null;
   const statusEl = doc.getElementById('status');
+
+  // #49 — mount the "Recently read" section. Independent of the
+  // activate-reader flow below; failure here must NOT block the
+  // primary buttons from wiring up. Errors are surfaced to console
+  // and the section is left empty (graceful degradation).
+  await mountHistorySection(deps).catch((err: unknown) => {
+    console.error('[speedreader] popup: history section mount failed', err);
+  });
 
   if (!articleBtn || !selectionBtn || !statusEl) {
     // Defensive — the popup HTML controls these IDs. A missing element
@@ -157,6 +175,89 @@ function formatActivationError(resp: ActivationResponse | undefined): string {
     return `Activation failed (${inner}).`;
   }
   return `Activation failed (${outer}).`;
+}
+
+/**
+ * #49 — read settings + position store, render the "Recently read"
+ * section into `#history-container`. Wires callbacks to platform APIs:
+ *   - resume   → `chrome.tabs.create({ url })` (new tab; CS auto-resumes
+ *     on next mount via #48 position store)
+ *   - delete   → `store.clear(url)` then re-mount the section
+ *   - clearAll → `store.clearAll()` then re-mount
+ *   - enable   → `chrome.runtime.openOptionsPage()`
+ *
+ * No live re-render on external store changes — popup re-renders on
+ * next open, which is acceptable for the popup's short lifecycle.
+ */
+async function mountHistorySection(deps: PopupBootstrapDeps): Promise<void> {
+  const { api, doc } = deps;
+  const container = doc.getElementById('history-container');
+  if (!container) return; // HTML drift; non-fatal — primary buttons still work.
+
+  const loadFn = deps.loadSettings ?? loadSettings;
+  const store = deps.store ?? createChromePositionStore();
+  const now = deps.now ?? (() => Date.now());
+
+  const remount = async (): Promise<void> => {
+    let enabled = false;
+    let entries: HistorySectionEntry[] = [];
+    try {
+      const settings = await loadFn();
+      enabled = settings.historyEnabled === true;
+    } catch (err) {
+      console.error('[speedreader] popup: settings load failed in history section', err);
+      // Render the disabled "off" state on settings load failure so
+      // the user has a path back via the Enable link rather than a
+      // mystery-empty section. `enabled` keeps its initial `false`.
+    }
+
+    if (enabled) {
+      try {
+        const list = await store.list();
+        entries = list.map((e) => ({ url: e.url, timestamp: e.position.lastReadAt }));
+      } catch (err) {
+        console.error('[speedreader] popup: history list() failed', err);
+        entries = [];
+      }
+    }
+
+    const section = renderHistorySection({
+      entries,
+      enabled,
+      now: now(),
+      onResume: (url) => {
+        void api.tabs.create({ url });
+      },
+      onDelete: (url) => {
+        void store
+          .clear(url)
+          .then(() => remount())
+          .catch((err: unknown) => {
+            console.error('[speedreader] popup: history clear failed', err);
+          });
+      },
+      onClearAll: () => {
+        void store
+          .clearAll()
+          .then(() => remount())
+          .catch((err: unknown) => {
+            console.error('[speedreader] popup: history clearAll failed', err);
+          });
+      },
+      onEnableInSettings: () => {
+        // openOptionsPage is the canonical MV3 way to surface the
+        // options page programmatically. It honors the user's
+        // `chrome://extensions/?options=` preference (separate page
+        // vs. embedded) without us having to know which.
+        if (api.runtime.openOptionsPage) {
+          void api.runtime.openOptionsPage();
+        }
+      },
+    });
+    container.replaceChildren(section);
+  };
+
+  await remount();
 }
 
 // DOM bootstrap. Skipped in test contexts that import the module

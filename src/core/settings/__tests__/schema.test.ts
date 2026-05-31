@@ -1,18 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { SettingsSchemaV4, SettingsSchemaV3, SettingsSchemaV2, VALID_ALIGNMENTS } from '../schema';
+import {
+  SettingsSchemaV5,
+  SettingsSchemaV4,
+  SettingsSchemaV3,
+  SettingsSchemaV2,
+  VALID_ALIGNMENTS,
+} from '../schema';
 
 const VALID_THEMES_V4 = ['system', 'light', 'dark', 'sepia', 'paper', 'cream', 'nord'] as const;
 import { DEFAULT_SETTINGS } from '../defaults';
 
-describe('SettingsSchemaV4 (current)', () => {
+describe('SettingsSchemaV5 (current)', () => {
   it('accepts the canonical defaults', () => {
-    const parsed = SettingsSchemaV4.safeParse(DEFAULT_SETTINGS);
+    const parsed = SettingsSchemaV5.safeParse(DEFAULT_SETTINGS);
     expect(parsed.success).toBe(true);
   });
 
   it('accepts a known-good payload', () => {
-    const parsed = SettingsSchemaV4.safeParse({
-      version: 4,
+    const parsed = SettingsSchemaV5.safeParse({
+      version: 5,
       wpm: 400,
       theme: 'dark',
       font: 'Georgia',
@@ -23,62 +29,64 @@ describe('SettingsSchemaV4 (current)', () => {
       contextLine: true,
       startFromWordOne: false,
       lastUsedWpm: 400,
+      historyEnabled: false,
     });
     expect(parsed.success).toBe(true);
   });
 
   it('rejects wpm outside [100, 600]', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, wpm: 50 }).success).toBe(false);
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, wpm: 9999 }).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, wpm: 50 }).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, wpm: 9999 }).success).toBe(false);
   });
 
   it('rejects wpm not multiples of 10', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, wpm: 255 }).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, wpm: 255 }).success).toBe(false);
   });
 
   it('rejects fontSize outside [12, 48]', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, fontSize: 8 }).success).toBe(false);
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, fontSize: 64 }).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, fontSize: 8 }).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, fontSize: 64 }).success).toBe(false);
   });
 
   it('rejects an unknown theme', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, theme: 'rainbow' }).success).toBe(
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, theme: 'rainbow' }).success).toBe(
       false,
     );
   });
 
   it('rejects a wrong version literal', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, version: 1 }).success).toBe(false);
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, version: 2 }).success).toBe(false);
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, version: 3 }).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, version: 1 }).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, version: 2 }).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, version: 3 }).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, version: 4 }).success).toBe(false);
   });
 });
 
 // V4 new fields (#72) — pin the three context-menu integration fields.
-describe('SettingsSchemaV4 — context-menu fields (#72)', () => {
+describe('SettingsSchemaV5 — context-menu fields (#72)', () => {
   it('rejects contextLine: non-boolean', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, contextLine: 'yes' }).success).toBe(
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, contextLine: 'yes' }).success).toBe(
       false,
     );
   });
 
   it('rejects startFromWordOne: non-boolean', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, startFromWordOne: 1 }).success).toBe(
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, startFromWordOne: 1 }).success).toBe(
       false,
     );
   });
 
   it('rejects lastUsedWpm outside [100, 600]', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, lastUsedWpm: 50 }).success).toBe(
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, lastUsedWpm: 50 }).success).toBe(
       false,
     );
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, lastUsedWpm: 9999 }).success).toBe(
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, lastUsedWpm: 9999 }).success).toBe(
       false,
     );
   });
 
   it('rejects lastUsedWpm not multiple of 10', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, lastUsedWpm: 255 }).success).toBe(
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, lastUsedWpm: 255 }).success).toBe(
       false,
     );
   });
@@ -86,24 +94,87 @@ describe('SettingsSchemaV4 — context-menu fields (#72)', () => {
   it('rejects missing contextLine', () => {
     const partial = { ...DEFAULT_SETTINGS } as Partial<typeof DEFAULT_SETTINGS>;
     delete partial.contextLine;
-    expect(SettingsSchemaV4.safeParse(partial).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse(partial).success).toBe(false);
   });
 });
 
 // V4 retains V3's 7-value theme enum (ADR #0002). Pin acceptance of
 // each design-pack theme so a regression collapsing back to V2's
 // 3-value set surfaces immediately.
-describe('SettingsSchemaV4 — theme enum (inherited from V3 widening, issue #101)', () => {
+describe('SettingsSchemaV5 — theme enum (inherited from V3 widening, issue #101)', () => {
   it.each(VALID_THEMES_V4)('ACCEPTS theme "%s"', (theme) => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, theme }).success).toBe(true);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, theme }).success).toBe(true);
   });
 
   it.each(['sepia', 'paper', 'cream', 'nord'] as const)(
     'design-pack theme "%s" is parseable',
     (theme) => {
-      expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, theme }).success).toBe(true);
+      expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, theme }).success).toBe(true);
     },
   );
+});
+
+// V5 new field (#49) — pin the historyEnabled boolean.
+describe('SettingsSchemaV5 — historyEnabled field (#49)', () => {
+  it('rejects historyEnabled: non-boolean', () => {
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, historyEnabled: 'yes' }).success).toBe(
+      false,
+    );
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, historyEnabled: 1 }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects missing historyEnabled', () => {
+    const partial = { ...DEFAULT_SETTINGS } as Partial<typeof DEFAULT_SETTINGS>;
+    delete partial.historyEnabled;
+    expect(SettingsSchemaV5.safeParse(partial).success).toBe(false);
+  });
+
+  it('ACCEPTS historyEnabled: true', () => {
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, historyEnabled: true }).success).toBe(
+      true,
+    );
+  });
+
+  it('ACCEPTS historyEnabled: false (default)', () => {
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, historyEnabled: false }).success).toBe(
+      true,
+    );
+  });
+});
+
+// Legacy V4 schema preserved for the V4 -> V5 migrator (#49 retention policy).
+describe('SettingsSchemaV4 (legacy, migration consumer)', () => {
+  const V4_CANONICAL = {
+    version: 4 as const,
+    wpm: 250,
+    theme: 'system' as const,
+    font: 'system-ui',
+    fontSize: 20,
+    openDyslexic: false,
+    punctuationPacing: true,
+    alignment: 'orp' as const,
+    contextLine: false,
+    startFromWordOne: false,
+    lastUsedWpm: 250,
+  };
+
+  it('accepts a V4 payload with version literal 4', () => {
+    expect(SettingsSchemaV4.safeParse(V4_CANONICAL).success).toBe(true);
+  });
+
+  it('rejects version: 5 (V4 schema is version-literal 4)', () => {
+    expect(SettingsSchemaV4.safeParse({ ...V4_CANONICAL, version: 5 }).success).toBe(false);
+  });
+
+  it('strips unknown V5 field historyEnabled (V4 schema has no historyEnabled)', () => {
+    // Zod strips unknown keys; success stays true. Documents the boundary
+    // so a future strict() change on V4 surfaces here.
+    expect(SettingsSchemaV4.safeParse({ ...V4_CANONICAL, historyEnabled: true }).success).toBe(
+      true,
+    );
+  });
 });
 
 // Legacy V3 schema preserved for migration consumers (#72 retention policy).
@@ -172,41 +243,41 @@ describe('SettingsSchemaV2 (legacy, migration consumer)', () => {
 // input. Chrome rejects-on-parse via Zod instead. Both strategies protect
 // downstream code from invalid values; these tests assert the rejection
 // behavior at the same boundaries Safari clamps to.
-describe('SettingsSchemaV4 — boundary cases (Safari parity)', () => {
+describe('SettingsSchemaV5 — boundary cases (Safari parity)', () => {
   it('accepts fontSize at lower boundary 12 (parity: clampFontSize accepts FONT_SIZE_MIN)', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, fontSize: 12 }).success).toBe(true);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, fontSize: 12 }).success).toBe(true);
   });
 
   it('accepts fontSize at upper boundary 48 (parity: clampFontSize accepts FONT_SIZE_MAX)', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, fontSize: 48 }).success).toBe(true);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, fontSize: 48 }).success).toBe(true);
   });
 
   it('accepts wpm at lower boundary 100', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, wpm: 100 }).success).toBe(true);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, wpm: 100 }).success).toBe(true);
   });
 
   it('accepts wpm at upper boundary 600', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, wpm: 600 }).success).toBe(true);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, wpm: 600 }).success).toBe(true);
   });
 
   it('rejects fontSize NaN (parity: clampFontSize returns FONT_SIZE_DEFAULT)', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, fontSize: NaN }).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, fontSize: NaN }).success).toBe(false);
   });
 
   it('rejects fontSize string (parity: clampFontSize returns FONT_SIZE_DEFAULT)', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, fontSize: 'big' }).success).toBe(
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, fontSize: 'big' }).success).toBe(
       false,
     );
   });
 
   it('rejects wpm NaN', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, wpm: NaN }).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, wpm: NaN }).success).toBe(false);
   });
 
   it('rejects missing wpm key', () => {
     const partial = { ...DEFAULT_SETTINGS } as Partial<typeof DEFAULT_SETTINGS>;
     delete partial.wpm;
-    expect(SettingsSchemaV4.safeParse(partial).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse(partial).success).toBe(false);
   });
 });
 
@@ -223,11 +294,11 @@ describe('SettingsSchemaV4 — boundary cases (Safari parity)', () => {
 //     note `project_safari_no_context_menu.md`.
 describe('DEFAULT_SETTINGS covers every schema field (Safari parity)', () => {
   it('DEFAULT_SETTINGS round-trips through the schema', () => {
-    expect(SettingsSchemaV4.safeParse(DEFAULT_SETTINGS).success).toBe(true);
+    expect(SettingsSchemaV5.safeParse(DEFAULT_SETTINGS).success).toBe(true);
   });
 
   it('DEFAULT_SETTINGS has a value for every schema key', () => {
-    const shapeKeys = Object.keys(SettingsSchemaV4.shape);
+    const shapeKeys = Object.keys(SettingsSchemaV5.shape);
     for (const key of shapeKeys) {
       expect(DEFAULT_SETTINGS).toHaveProperty(key);
     }
@@ -238,37 +309,37 @@ describe('DEFAULT_SETTINGS covers every schema field (Safari parity)', () => {
 // spec docs/superpowers/specs/2026-05-23-alignment-field-v2.md).
 // Target: 7 cases (2 accept + 5 reject). Type-mismatch cases (42, true)
 // are paired into a single parameterized it.each per spec author note.
-describe('SettingsSchemaV4 — alignment field (Safari parity)', () => {
+describe('SettingsSchemaV5 — alignment field (Safari parity)', () => {
   it("ACCEPTS alignment: 'orp'", () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, alignment: 'orp' }).success).toBe(
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, alignment: 'orp' }).success).toBe(
       true,
     );
   });
 
   it("ACCEPTS alignment: 'center'", () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, alignment: 'center' }).success).toBe(
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, alignment: 'center' }).success).toBe(
       true,
     );
   });
 
   it("REJECTS alignment: 'left' (string outside enum)", () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, alignment: 'left' }).success).toBe(
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, alignment: 'left' }).success).toBe(
       false,
     );
   });
 
   it("REJECTS alignment: '' (empty string)", () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, alignment: '' }).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, alignment: '' }).success).toBe(false);
   });
 
   it('REJECTS alignment: undefined (missing required key)', () => {
     const partial = { ...DEFAULT_SETTINGS } as Partial<typeof DEFAULT_SETTINGS>;
     delete partial.alignment;
-    expect(SettingsSchemaV4.safeParse(partial).success).toBe(false);
+    expect(SettingsSchemaV5.safeParse(partial).success).toBe(false);
   });
 
   it('REJECTS alignment: null', () => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, alignment: null }).success).toBe(
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, alignment: null }).success).toBe(
       false,
     );
   });
@@ -277,7 +348,7 @@ describe('SettingsSchemaV4 — alignment field (Safari parity)', () => {
     { label: 'number 42', value: 42 },
     { label: 'boolean true', value: true },
   ])('REJECTS alignment: $label (type mismatch)', ({ value }) => {
-    expect(SettingsSchemaV4.safeParse({ ...DEFAULT_SETTINGS, alignment: value }).success).toBe(
+    expect(SettingsSchemaV5.safeParse({ ...DEFAULT_SETTINGS, alignment: value }).success).toBe(
       false,
     );
   });
@@ -286,9 +357,9 @@ describe('SettingsSchemaV4 — alignment field (Safari parity)', () => {
 // Defaults / VALID_ALIGNMENTS export — pins the Safari mirror at the
 // constant layer so accidental enum widening surfaces immediately.
 describe('alignment defaults and VALID_ALIGNMENTS export', () => {
-  it("DEFAULT_SETTINGS.alignment === 'orp' AND version === 4 (current)", () => {
+  it("DEFAULT_SETTINGS.alignment === 'orp' AND version === 5 (current)", () => {
     expect(DEFAULT_SETTINGS.alignment).toBe('orp');
-    expect(DEFAULT_SETTINGS.version).toBe(4);
+    expect(DEFAULT_SETTINGS.version).toBe(5);
   });
 
   it("VALID_ALIGNMENTS has length 2 and equals ['orp', 'center']", () => {

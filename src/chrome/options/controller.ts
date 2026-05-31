@@ -1,4 +1,4 @@
-import type { SettingsV4 } from '../../core/settings/schema';
+import type { SettingsV5 } from '../../core/settings/schema';
 import { DEFAULT_SETTINGS } from '../../core/settings/defaults';
 import {
   FONT_SIZE_MAX,
@@ -10,11 +10,22 @@ import {
 import { resolveFontId } from '../../core/overlay/font-ids';
 
 export interface SettingsApi {
-  load(): Promise<SettingsV4>;
-  save(partial: Partial<Omit<SettingsV4, 'version' | 'lastUsedWpm'>>): Promise<void>;
+  load(): Promise<SettingsV5>;
+  save(partial: Partial<Omit<SettingsV5, 'version' | 'lastUsedWpm'>>): Promise<void>;
   flush(): Promise<void>;
-  subscribe(listener: (s: SettingsV4) => void): () => void;
+  subscribe(listener: (s: SettingsV5) => void): () => void;
 }
+
+/**
+ * Optional side-effect hook (#49). Fires when the user TRANSITIONS the
+ * `historyEnabled` toggle from true → false. The hook receives the
+ * value of the companion "Also clear existing entries" checkbox so the
+ * caller can decide whether to call `store.clearAll()`. Defined here
+ * (not as a method on SettingsApi) so the chrome boundary stays clean:
+ * SettingsApi is pure settings; this is a UX side-effect with no place
+ * in the settings model.
+ */
+export type OnHistoryDisabled = (alsoClearEntries: boolean) => void;
 
 /**
  * IDs the options page HTML form is required to expose. Centralised so the
@@ -30,7 +41,20 @@ export const FIELD_IDS = {
   alignment: 'alignment',
   contextLine: 'contextLine',
   startFromWordOne: 'startFromWordOne',
+  historyEnabled: 'historyEnabled',
 } as const;
+
+/**
+ * Companion checkbox to `historyEnabled` (#49): when the user disables
+ * history, optionally wipe the existing entries from the position store
+ * at the same time. Default unchecked — turning the surface off is the
+ * common case; nuking stored data is the destructive sub-action.
+ *
+ * This ID is read by `index.ts` (the chrome glue), NOT by the controller
+ * — the controller's data model is `SettingsV5` only. The wipe call goes
+ * to the position store directly.
+ */
+export const HISTORY_CLEAR_ON_DISABLE_ID = 'historyClearOnDisable';
 
 const SAVED_INDICATOR_ID = 'saved';
 const SAVE_ERROR_ID = 'save-error';
@@ -39,8 +63,8 @@ const SAVED_INDICATOR_MS = 1500;
 const SAVE_ERROR_MS = 4000;
 
 type EditableField = keyof typeof FIELD_IDS;
-type EditableValue<K extends EditableField> = SettingsV4[K];
-type EditablePatch = Partial<Omit<SettingsV4, 'version' | 'lastUsedWpm'>>;
+type EditableValue<K extends EditableField> = SettingsV5[K];
+type EditablePatch = Partial<Omit<SettingsV5, 'version' | 'lastUsedWpm'>>;
 
 const THEME_VALUES = ['system', 'light', 'dark', 'sepia', 'paper', 'cream', 'nord'] as const;
 const ALIGNMENT_VALUES = ['orp', 'center'] as const;
@@ -51,7 +75,7 @@ function getInput(doc: Document, id: string): HTMLInputElement | HTMLSelectEleme
   return null;
 }
 
-function populate(doc: Document, s: SettingsV4): void {
+function populate(doc: Document, s: SettingsV5): void {
   const wpm = getInput(doc, FIELD_IDS.wpm);
   if (wpm) wpm.value = String(s.wpm);
 
@@ -80,6 +104,9 @@ function populate(doc: Document, s: SettingsV4): void {
 
   const startOne = getInput(doc, FIELD_IDS.startFromWordOne);
   if (startOne instanceof HTMLInputElement) startOne.checked = s.startFromWordOne;
+
+  const historyEnabled = getInput(doc, FIELD_IDS.historyEnabled);
+  if (historyEnabled instanceof HTMLInputElement) historyEnabled.checked = s.historyEnabled;
 }
 
 function flashIndicator(doc: Document, win: Window, id: string, ms: number): void {
@@ -97,7 +124,7 @@ function showLoadErrorBanner(doc: Document): void {
 
 /**
  * Per-field reader. `K` ties the element-read result to the exact
- * `SettingsV4[K]` slot so `theme`-shaped readers can't accidentally return
+ * `SettingsV5[K]` slot so `theme`-shaped readers can't accidentally return
  * a number. Each reader returns `null` to reject invalid input — the binder
  * suppresses save on null, leaving the stored value untouched.
  */
@@ -133,13 +160,13 @@ function readFont(el: HTMLInputElement | HTMLSelectElement): string | null {
   return v;
 }
 
-function readTheme(el: HTMLInputElement | HTMLSelectElement): SettingsV4['theme'] | null {
-  const v = el.value as SettingsV4['theme'];
+function readTheme(el: HTMLInputElement | HTMLSelectElement): SettingsV5['theme'] | null {
+  const v = el.value as SettingsV5['theme'];
   return (THEME_VALUES as readonly string[]).includes(v) ? v : null;
 }
 
-function readAlignment(el: HTMLInputElement | HTMLSelectElement): SettingsV4['alignment'] | null {
-  const v = el.value as SettingsV4['alignment'];
+function readAlignment(el: HTMLInputElement | HTMLSelectElement): SettingsV5['alignment'] | null {
+  const v = el.value as SettingsV5['alignment'];
   return (ALIGNMENT_VALUES as readonly string[]).includes(v) ? v : null;
 }
 
@@ -156,6 +183,7 @@ const FIELD_READERS: { [K in EditableField]: Reader<K> } = {
   alignment: readAlignment,
   contextLine: readCheckbox,
   startFromWordOne: readCheckbox,
+  historyEnabled: readCheckbox,
 };
 
 function bindField<K extends EditableField>(
@@ -205,9 +233,10 @@ export async function bindOptionsForm(
   doc: Document,
   win: Window,
   api: SettingsApi,
+  onHistoryDisabled?: OnHistoryDisabled,
 ): Promise<() => void> {
   let degraded = false;
-  let initial: SettingsV4;
+  let initial: SettingsV5;
   try {
     initial = await api.load();
   } catch (err) {
@@ -238,7 +267,31 @@ export async function bindOptionsForm(
     listeners.push(bindField(doc, win, field, el, api, isSavingAllowed));
   }
 
-  const unsubscribe = api.subscribe((s) => populate(doc, s));
+  // #49 — fire the OnHistoryDisabled hook on a true→false transition of
+  // the historyEnabled toggle. The hook reads the companion checkbox
+  // (HISTORY_CLEAR_ON_DISABLE_ID) to decide whether to wipe entries too.
+  // Tracked locally because settings subscribe re-fires on save and
+  // would double-invoke the hook otherwise.
+  let lastHistoryEnabled = initial.historyEnabled;
+  const historyEl = getInput(doc, FIELD_IDS.historyEnabled);
+  if (historyEl instanceof HTMLInputElement && onHistoryDisabled) {
+    const historyHandler: EventListener = () => {
+      const next = historyEl.checked;
+      if (lastHistoryEnabled === true && next === false) {
+        const clearBox = doc.getElementById(HISTORY_CLEAR_ON_DISABLE_ID);
+        const alsoClear = clearBox instanceof HTMLInputElement && clearBox.checked;
+        onHistoryDisabled(alsoClear);
+      }
+      lastHistoryEnabled = next;
+    };
+    historyEl.addEventListener('change', historyHandler);
+    listeners.push({ el: historyEl, type: 'change', handler: historyHandler });
+  }
+
+  const unsubscribe = api.subscribe((s) => {
+    populate(doc, s);
+    lastHistoryEnabled = s.historyEnabled;
+  });
 
   // Flush pending writes when the page is hidden so a close-before-debounce
   // does not drop the last change. `visibilitychange` covers tab-switch and

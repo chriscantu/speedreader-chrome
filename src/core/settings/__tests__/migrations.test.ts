@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { migrate } from '../migrations';
 import { DEFAULT_SETTINGS } from '../defaults';
-import { SettingsSchemaV4 } from '../schema';
+import { SettingsSchemaV5 } from '../schema';
 
 describe('migrate', () => {
   it('returns a fresh defaults clone for undefined input (first install)', () => {
@@ -37,14 +37,14 @@ describe('migrate', () => {
     const written = JSON.parse(JSON.stringify(modified)); // simulate storage round-trip
     const read = migrate(written);
     expect(read).toEqual(modified);
-    expect(SettingsSchemaV4.safeParse(read).success).toBe(true);
+    expect(SettingsSchemaV5.safeParse(read).success).toBe(true);
   });
 
   it('migrates a synthetic v0 payload up through the full chain to current version', () => {
     // v0 lacks an explicit version field; defaults fill in the rest.
     const v0 = { wpm: 300, theme: 'dark', font: 'Georgia', fontSize: 22 };
     const result = migrate(v0);
-    expect(result.version).toBe(4);
+    expect(result.version).toBe(5);
     expect(result.wpm).toBe(300);
     expect(result.theme).toBe('dark');
     // Fields absent in v0 come from defaults.
@@ -55,7 +55,7 @@ describe('migrate', () => {
   it('fills in missing fields from defaults when partial v2 is stored', () => {
     const partial = { version: 2, wpm: 350 };
     const result = migrate(partial);
-    expect(result.version).toBe(4);
+    expect(result.version).toBe(5);
     expect(result.wpm).toBe(350);
     expect(result.theme).toBe(DEFAULT_SETTINGS.theme);
     expect(result.fontSize).toBe(DEFAULT_SETTINGS.fontSize);
@@ -82,7 +82,7 @@ describe('migrate', () => {
     const result = migrate(v3MissingField);
     expect(result.punctuationPacing).toBe(DEFAULT_SETTINGS.punctuationPacing);
     // And the rest of the user's values survive the repair.
-    expect(result.version).toBe(4);
+    expect(result.version).toBe(5);
     expect(result.wpm).toBe(300);
     expect(result.theme).toBe('dark');
   });
@@ -105,7 +105,7 @@ describe('migrate — V1 -> V2 alignment field (forward-compatible)', () => {
       punctuationPacing: true,
     };
     const result = migrate(v1);
-    expect(result.version).toBe(4);
+    expect(result.version).toBe(5);
     expect(result.alignment).toBe('orp');
     expect(result.wpm).toBe(300);
     expect(result.theme).toBe('dark');
@@ -118,7 +118,7 @@ describe('migrate — V1 -> V2 alignment field (forward-compatible)', () => {
   it('V0 payload (no version) -> chained 0->1->2->3 with alignment: orp', () => {
     const v0 = { wpm: 280, theme: 'light' as const };
     const result = migrate(v0);
-    expect(result.version).toBe(4);
+    expect(result.version).toBe(5);
     expect(result.alignment).toBe('orp');
     expect(result.wpm).toBe(280);
     expect(result.theme).toBe('light');
@@ -136,7 +136,7 @@ describe('migrate — V1 -> V2 alignment field (forward-compatible)', () => {
       alignment: 'center' as const,
     };
     const result = migrate(v2);
-    expect(result.version).toBe(4);
+    expect(result.version).toBe(5);
     expect(result.alignment).toBe('center');
     expect(result.wpm).toBe(300);
     expect(result.theme).toBe('dark');
@@ -176,7 +176,7 @@ describe('migrate — V2 -> V3 theme enum widening (#101)', () => {
     'V2 payload with legacy theme "%s" -> V3 preserves theme, stamps version: 3',
     (theme) => {
       const result = migrate({ ...V2_BASE, theme });
-      expect(result.version).toBe(4);
+      expect(result.version).toBe(5);
       expect(result.theme).toBe(theme);
       expect(result.wpm).toBe(300);
       expect(result.alignment).toBe('orp');
@@ -190,14 +190,14 @@ describe('migrate — V2 -> V3 theme enum widening (#101)', () => {
       const result = migrate(v3);
       expect(result).toEqual(v3);
       expect(result.theme).toBe(newTheme);
-      expect(result.version).toBe(4);
+      expect(result.version).toBe(5);
     },
   );
 
   it('V0 payload with legacy theme: light chains through to V3', () => {
     const v0 = { wpm: 320, theme: 'light' as const };
     const result = migrate(v0);
-    expect(result.version).toBe(4);
+    expect(result.version).toBe(5);
     expect(result.theme).toBe('light');
     expect(result.alignment).toBe('orp'); // stamped at 1->2
   });
@@ -210,7 +210,7 @@ describe('migrate — V2 -> V3 theme enum widening (#101)', () => {
     // here as an intentional change, not silent data loss.
     const v2Corrupt = { ...V2_BASE, theme: 'sepia' as const };
     const result = migrate(v2Corrupt);
-    expect(result.version).toBe(4);
+    expect(result.version).toBe(5);
     expect(result.theme).toBe('sepia');
   });
 });
@@ -224,7 +224,7 @@ describe('migrate — version-boundary policies', () => {
     // a future "reject future versions" change surfaces here.
     const future = { version: 99, wpm: 400, theme: 'dark' as const, alignment: 'orp' as const };
     const result = migrate(future);
-    expect(result.version).toBe(4);
+    expect(result.version).toBe(5);
     expect(result.wpm).toBe(400);
     expect(result.theme).toBe('dark');
     expect(result.alignment).toBe('orp');
@@ -261,7 +261,7 @@ describe('migrate — version-boundary policies', () => {
   it('partial V3 payload (missing alignment) -> defaults fill alignment: orp', () => {
     const partialV3 = { version: 3, wpm: 300, theme: 'nord' };
     const result = migrate(partialV3);
-    expect(result.version).toBe(4);
+    expect(result.version).toBe(5);
     expect(result.theme).toBe('nord');
     expect(result.alignment).toBe('orp');
   });
@@ -287,7 +287,7 @@ describe('migrate — V3 -> V4 context-menu fields (#72)', () => {
 
   it('V3 payload (no contextLine/startFromWordOne/lastUsedWpm) -> V4 defaults the new fields; lastUsedWpm mirrors input wpm', () => {
     const result = migrate(V3_BASE);
-    expect(result.version).toBe(4);
+    expect(result.version).toBe(5);
     expect(result.contextLine).toBe(false);
     expect(result.startFromWordOne).toBe(false);
     expect(result.lastUsedWpm).toBe(V3_BASE.wpm);
@@ -300,7 +300,7 @@ describe('migrate — V3 -> V4 context-menu fields (#72)', () => {
   it('V0 payload chains 0 -> 1 -> 2 -> 3 -> 4 with new V4 fields defaulted', () => {
     const v0 = { wpm: 320, theme: 'light' as const };
     const result = migrate(v0);
-    expect(result.version).toBe(4);
+    expect(result.version).toBe(5);
     expect(result.contextLine).toBe(false);
     expect(result.startFromWordOne).toBe(false);
     expect(result.lastUsedWpm).toBe(320); // mirrors wpm at 3->4 step
@@ -309,16 +309,16 @@ describe('migrate — V3 -> V4 context-menu fields (#72)', () => {
     expect(result.theme).toBe('light');
   });
 
-  it('V4 payload with contextLine: true round-trips unchanged', () => {
-    const v4 = {
+  it('V5 payload with contextLine: true round-trips unchanged', () => {
+    const v5 = {
       ...DEFAULT_SETTINGS,
       contextLine: true,
       startFromWordOne: true,
       lastUsedWpm: 420,
       wpm: 420,
     };
-    const result = migrate(v4);
-    expect(result).toEqual(v4);
+    const result = migrate(v5);
+    expect(result).toEqual(v5);
     expect(result.contextLine).toBe(true);
     expect(result.startFromWordOne).toBe(true);
     expect(result.lastUsedWpm).toBe(420);
@@ -326,7 +326,7 @@ describe('migrate — V3 -> V4 context-menu fields (#72)', () => {
 
   it('V3 payload with custom wpm: 380 -> V4 with lastUsedWpm: 380 (mirrors input wpm)', () => {
     const result = migrate({ ...V3_BASE, wpm: 380 });
-    expect(result.version).toBe(4);
+    expect(result.version).toBe(5);
     expect(result.wpm).toBe(380);
     expect(result.lastUsedWpm).toBe(380);
   });
@@ -343,7 +343,7 @@ describe('migrate — V3 -> V4 context-menu fields (#72)', () => {
       punctuationPacing: true,
       alignment: 'orp',
     });
-    expect(result.version).toBe(4);
+    expect(result.version).toBe(5);
     expect(result.contextLine).toBe(false);
     expect(result.startFromWordOne).toBe(false);
     expect(result.lastUsedWpm).toBe(250);
@@ -364,12 +364,13 @@ describe('migrate — V3 -> V4 context-menu fields (#72)', () => {
   });
 
   it('clamps an out-of-range numeric source to a valid lastUsedWpm without re-nuking via that field', () => {
-    // Pass a V4 blob where wpm is valid but lastUsedWpm is bogus. The
-    // V3->V4 migrator does not run (already V4), so the clamp does not
-    // apply — the safeParse falls back to defaults. Pins the boundary so
-    // future "auto-repair" changes surface here as intentional.
-    const v4Bogus = { ...DEFAULT_SETTINGS, lastUsedWpm: 99999 };
-    expect(migrate(v4Bogus)).toEqual(DEFAULT_SETTINGS);
+    // Pass a current-version blob where wpm is valid but lastUsedWpm is
+    // bogus. The V3->V4 migrator does not run (already past V4), so the
+    // clamp does not apply — the safeParse falls back to defaults. Pins
+    // the boundary so future "auto-repair" changes surface here as
+    // intentional.
+    const currentBogus = { ...DEFAULT_SETTINGS, lastUsedWpm: 99999 };
+    expect(migrate(currentBogus)).toEqual(DEFAULT_SETTINGS);
   });
 
   it('rounds raw.wpm to nearest multipleOf(10) when seeding lastUsedWpm', () => {
@@ -384,5 +385,93 @@ describe('migrate — V3 -> V4 context-menu fields (#72)', () => {
     // → entire payload nukes to defaults. That's correct behavior; this
     // test pins it so a future relaxation surfaces here.
     expect(result).toEqual(DEFAULT_SETTINGS);
+  });
+});
+
+// V4 -> V5 history opt-in toggle — issue #49.
+// V5 adds `historyEnabled: boolean` defaulted to `false` (privacy floor —
+// reading patterns are sensitive). The migrator never enables history
+// retroactively for existing users.
+describe('migrate — V4 -> V5 historyEnabled field (#49)', () => {
+  const V4_BASE = {
+    version: 4 as const,
+    wpm: 250,
+    theme: 'dark' as const,
+    font: 'system-ui',
+    fontSize: 20,
+    openDyslexic: false,
+    punctuationPacing: true,
+    alignment: 'orp' as const,
+    contextLine: false,
+    startFromWordOne: false,
+    lastUsedWpm: 250,
+  };
+
+  it('V4 payload (no historyEnabled) -> V5 with historyEnabled: false (opt-in default)', () => {
+    const result = migrate(V4_BASE);
+    expect(result.version).toBe(5);
+    expect(result.historyEnabled).toBe(false);
+    // Other V4 fields preserved.
+    expect(result.wpm).toBe(250);
+    expect(result.theme).toBe('dark');
+    expect(result.contextLine).toBe(false);
+    expect(result.lastUsedWpm).toBe(250);
+  });
+
+  it('V4 payload with historyEnabled: true is NOT possible — but a hand-edited blob is accepted at the V5 schema gate', () => {
+    // V4 schema strips historyEnabled (unknown key) on shape gates, but the
+    // raw migration step `4 -> 5` only does `...raw, historyEnabled: false`
+    // — meaning a user that hand-edits a V4 blob to add `historyEnabled:
+    // true` STILL ends up at historyEnabled: false after migration. Pins
+    // the migrator's stamp (we never auto-enable history during migration).
+    const hand = { ...V4_BASE, historyEnabled: true };
+    const result = migrate(hand);
+    expect(result.historyEnabled).toBe(false);
+  });
+
+  // TG5 — privacy-floor INTENT (not implementation): a hand-edited V4
+  // blob carrying ANY truthy or invalid `historyEnabled` value MUST end
+  // up at `historyEnabled === false` after migration. The previous
+  // single-case assertion (`historyEnabled: true`) passed by accident of
+  // spread order — the migrator's `{ ...raw, historyEnabled: false }`
+  // happens to put the literal AFTER the spread, so `false` wins. A
+  // defensible refactor flipping to `{ historyEnabled: false, ...raw }`
+  // ("defaults first, then user overrides") would silently allow
+  // `historyEnabled: true` through. These cases pin the contract
+  // independently of spread order: even if the migrator stamp loses,
+  // the V5 safeParse rejects invalid types and the defaults fallback
+  // (historyEnabled: false) restores the privacy floor.
+  it.each([
+    ['boolean true', true],
+    ['number 1', 1],
+    ['truthy string', 'TRUTHY_BUT_INVALID'],
+    ['number 0 (falsy but non-boolean)', 0],
+    ['object {}', {}],
+  ])('V4 -> V5 forces historyEnabled to false regardless of hand-edited %s', (_label, value) => {
+    const hand = { ...V4_BASE, historyEnabled: value };
+    const result = migrate(hand);
+    expect(result.historyEnabled).toBe(false);
+  });
+
+  it('V5-already-present payload with historyEnabled: true round-trips unchanged', () => {
+    const v5 = { ...DEFAULT_SETTINGS, historyEnabled: true };
+    const result = migrate(v5);
+    expect(result).toEqual(v5);
+    expect(result.historyEnabled).toBe(true);
+  });
+
+  it('V0 payload chains all the way to V5 with historyEnabled: false', () => {
+    const v0 = { wpm: 300, theme: 'light' as const };
+    const result = migrate(v0);
+    expect(result.version).toBe(5);
+    expect(result.historyEnabled).toBe(false);
+  });
+
+  it('partial V5 payload missing historyEnabled — defaults fill it as false (forward-compat repair)', () => {
+    const partial: Record<string, unknown> = { ...DEFAULT_SETTINGS };
+    delete partial.historyEnabled;
+    const result = migrate(partial);
+    expect(result.version).toBe(5);
+    expect(result.historyEnabled).toBe(false);
   });
 });
