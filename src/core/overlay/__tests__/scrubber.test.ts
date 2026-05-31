@@ -518,6 +518,129 @@ describe('createOverlay — scrubber pause-on-scrub announcement (#47 ring-revie
   });
 });
 
+describe('createOverlay — scrubber chunk-mode storm suppression (#47 round-2 ITEM-M3)', () => {
+  // Round-1 FIX-6 added `if (!scrubInProgress)` guard on BOTH word AND chunk
+  // branches (overlay.ts ~line 773), but the existing storm-suppression test
+  // only exercises the word branch. A regression that dropped the chunk-branch
+  // guard would leave the suite green while real chunk-mode users on rapid
+  // scrub get the aria-live storm.
+  //
+  // Timing model (confirmed via rsvp-engine.ts `seekToChunk`, lines ~430-490):
+  // in chunk mode the PAUSED-state `engine.seekTo(rawIdx)` snaps the raw word
+  // index to its containing chunk and emits a replacement `chunk` event
+  // (NOT `word`). So driving via the same `input`-on-scrubber path used by
+  // the word-mode test naturally exercises the chunk branch — the scrubber's
+  // input handler calls engine.seekTo(target), which in chunk mode emits a
+  // chunk event into the same subscribe handler whose chunk-branch guard is
+  // under test.
+  test('rapid scrub events do NOT spam aria-live with each replacement chunk', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(
+      defaultOpts(holder, {
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20, chunkSize: 2 },
+      }),
+    );
+    overlay.mount();
+    const live = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.ARIA_LIVE}`);
+    if (!live) throw new Error('missing aria-live');
+    const s = getScrubber();
+    s.focus();
+    // First scrub — establishes session + suppression announcement. Lands
+    // raw word index 2, which snaps to chunk[1] ("are you?" or similar
+    // depending on tokenization of STREAM at chunkSize=2).
+    s.value = '2';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    // Record the aria-live value after FIRST scrub (the SCRUB_PAUSED
+    // announcement). Subsequent scrubs must NOT overwrite it with the
+    // replacement chunk's text.
+    const liveAfterFirst = live.textContent;
+    expect(liveAfterFirst).toBe(OVERLAY_TEXT.SCRUB_PAUSED_ANNOUNCEMENT);
+    for (const v of ['3', '4', '5', '6']) {
+      s.value = v;
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    // The per-emission chunk texts (e.g., "are you?", "I am", "fine. Bye!")
+    // MUST NOT have replaced the aria-live content during the scrub
+    // session. Mutation: dropping `if (!scrubInProgress)` from the chunk
+    // branch in overlay.ts subscribe handler fails this assertion.
+    expect(live.textContent).toBe(liveAfterFirst);
+  });
+
+  test('after debounce window elapses, next chunk emission DOES update aria-live (chunk-mode unblock)', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(
+      defaultOpts(holder, {
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20, chunkSize: 2 },
+      }),
+    );
+    overlay.mount();
+    const live = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.ARIA_LIVE}`);
+    if (!live) throw new Error('missing aria-live');
+    const s = getScrubber();
+    s.focus();
+    s.value = '2';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    // Advance past 250ms debounce window so scrubInProgress clears.
+    vi.advanceTimersByTime(300);
+    // Now drive a fresh paused-state seekTo — the chunk branch should
+    // write the replacement chunk text to aria-live because scrubInProgress
+    // is false again. Use seekTo directly (not the scrubber input handler,
+    // which would re-arm beginScrubSession and re-suppress).
+    engineOf(holder).pause();
+    live.textContent = '';
+    engineOf(holder).seekTo(4);
+    // Paused-state seekTo in chunk mode emits a `chunk` event; the
+    // subscribe handler runs ariaLive write because scrubInProgress is
+    // false again. aria-live should hold the replacement chunk text, not
+    // empty string.
+    expect(live.textContent).not.toBe('');
+  });
+});
+
+describe('createOverlay — scrubber touch-path announcement (#47 round-2 ITEM-M1)', () => {
+  // Touch device firing `touchstart` then synthetic `mousedown` then `input`
+  // calls `beginScrubSession()` three times. Current behavior is correct
+  // (announcement fires once via scrubAnnouncementFired latch) but a
+  // regression that flipped `scrubAnnouncementFired = true` BEFORE the
+  // textContent write would silently skip the first-session announce on
+  // the touchstart path — the latch would already be true by the time the
+  // subsequent `input` ran, and every existing test would still pass
+  // (those start from `input` cold, never from `touchstart`).
+  test('touchstart followed by input fires SCRUB_PAUSED_ANNOUNCEMENT exactly once on aria-live', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    const live = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.ARIA_LIVE}`);
+    if (!live) throw new Error('missing aria-live');
+    const s = getScrubber();
+    // Use the same dispatch pattern as the existing touchstart-pause test
+    // at line 237 — `new Event('touchstart', {bubbles: true})`. jsdom does
+    // not constructor-support TouchEvent reliably; a plain Event is what
+    // the existing scrubber listener (registered without checking event
+    // class) accepts in production touch paths.
+    s.dispatchEvent(new Event('touchstart', { bubbles: true }));
+    // After touchstart: beginScrubSession ran; aria-live holds the
+    // announcement; latch is true.
+    expect(live.textContent).toBe(OVERLAY_TEXT.SCRUB_PAUSED_ANNOUNCEMENT);
+    // Now fire input — beginScrubSession runs again; latch already true,
+    // so no re-fire. The seekTo replacement-word emission is suppressed
+    // by scrubInProgress, so aria-live must STILL hold the announcement.
+    s.value = '3';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(live.textContent).toBe(OVERLAY_TEXT.SCRUB_PAUSED_ANNOUNCEMENT);
+    // Critical mutation guard: a regression that set scrubAnnouncementFired
+    // = true BEFORE the textContent write inside beginScrubSession would
+    // leave aria-live EMPTY here — touchstart's write would be skipped
+    // (the early `if (!scrubAnnouncementFired)` would be false), and
+    // input's write would also be skipped for the same reason. Asserting
+    // exact equality with SCRUB_PAUSED_ANNOUNCEMENT (not per-emission word
+    // STREAM[3] = "you?") catches both the missed announce AND any storm-
+    // suppression regression that let the per-emission word through.
+    expect(live.textContent).not.toBe(STREAM[3]);
+    overlay.unmount();
+  });
+});
+
 describe('createOverlay — scrubber keyboard guard (#47)', () => {
   test('ArrowLeft with scrubber focused does NOT call engine.seekToSentence', () => {
     const holder: Holder = { engine: null };
