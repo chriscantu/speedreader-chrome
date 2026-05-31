@@ -515,43 +515,78 @@ describe('createRsvpEngine — chunk mode (chunkSize >= 2)', () => {
     });
   });
 
-  // FIX-8 — seekTo snapToSentence in chunk mode. Mutation guard:
-  // removing the `if (snapToSentence && rawTarget < totalRawWords)`
-  // block (so snap never fires) must fail.
+  // FIX-8 (round-2 rewrite) — seekTo snapToSentence in chunk mode.
+  // Round-1 stream `['A','B.','C','D','E.','F','G','H.']` was NOT
+  // discriminating: every sentence-start word in that stream is also
+  // a chunk-start word, so snapped vs unsnapped seek lands in the
+  // same chunk (snap walks back to the chunk-start). To make the
+  // snap branch mutation-discriminating we need a stream where the
+  // sentence-start word lives in a PRIOR chunk than the chunk
+  // containing the target word — that requires a sentence that
+  // spans multiple chunks. Stream:
+  //
+  //   ['The', 'quick', 'brown', 'fox.', 'Jumps.']
+  //      0       1        2       3        4
+  //
+  // markSentenceBoundaries:
+  //   The   word rawIndex=0 sentenceStart=true
+  //   quick word rawIndex=1
+  //   brown word rawIndex=2
+  //   fox.  word rawIndex=3 sentenceEnd=true
+  //   Jumps. word rawIndex=4 sentenceStart=true sentenceEnd=true
+  //
+  // buildChunks chunkSize=2:
+  //   chunk 0: [The, quick]   raw 0..1
+  //   chunk 1: [brown, fox.]  raw 2..3
+  //   chunk 2: [Jumps.]       raw 4
+  //
+  // Seek raw=3 (`fox.`) unsnapped → chunk 1 ([brown, fox.],
+  //   startIndex=2). Snap walks back from fox.[3] → brown[2] →
+  //   quick[1] → The[0].sentenceStart=true → raw=0 → chunk 0
+  //   ([The, quick], startIndex=0). DIFFERENT chunks.
+  //
+  // Mutation: removing the `if (snapToSentence && rawTarget <
+  // totalRawWords)` block in `seekToChunk` means snap never fires —
+  // the snapped assertion would see startIndex=2 instead of 0 and
+  // fail. The unsnapped assertion guards against the inverse
+  // mutation (snap always fires).
   describe('seekTo({ snapToSentence: true }) — chunk mode', () => {
-    it('mid-sentence seek snaps to the chunk starting at the sentence start', () => {
-      // Stream: "A B. C D E. F G H." chunkSize=2.
-      // chunkWords (filtered, dense — no paragraphs): A B. C D E. F G H.
-      //                                  rawIdx:      0 1  2 3 4  5 6 7
-      // chunks at chunkSize=2 (respecting sentence boundaries):
-      //   chunk 0: [A, B.]    raw 0..1
-      //   chunk 1: [C, D]     raw 2..3
-      //   chunk 2: [E.]       raw 4   (single — next word starts new sentence)
-      //   chunk 3: [F, G]     raw 5..6
-      //   chunk 4: [H.]       raw 7
-      const engine = createRsvpEngine({
-        words: ['A', 'B.', 'C', 'D', 'E.', 'F', 'G', 'H.'],
-        wpm: 300,
-        chunkSize: 2,
-      });
+    const stream = ['The', 'quick', 'brown', 'fox.', 'Jumps.'];
+
+    it('snapped seek (raw=3, snap=true) lands chunk [The quick] with startIndex=0', () => {
+      const engine = createRsvpEngine({ words: stream, wpm: 300, chunkSize: 2 });
       const events: RsvpEvent[] = [];
       engine.subscribe((e) => events.push(e));
       engine.start();
       engine.pause();
-      // Sanity: chunk 0 emitted.
-      expect(events[0]).toMatchObject({ type: 'chunk', text: 'A B.' });
+      // Sanity: chunk 0 emitted on start.
+      expect(events[0]).toMatchObject({ type: 'chunk', text: 'The quick' });
 
-      // Seek mid-second-sentence to word `D` (rawIndex=3) with snap.
-      // Should snap back to sentence start at `C` (rawIndex=2), which
-      // lands in chunk 1 ([C, D]). Emitted replacement chunk text:
-      // "C D".
       engine.seekTo(3, { snapToSentence: true });
+      const last = events[events.length - 1];
+      expect(last).toMatchObject({
+        type: 'chunk',
+        startIndex: 0,
+        endIndex: 1,
+        text: 'The quick',
+      });
+    });
+
+    it('unsnapped seek (raw=3, no snap) lands chunk [brown fox.] with startIndex=2', () => {
+      const engine = createRsvpEngine({ words: stream, wpm: 300, chunkSize: 2 });
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start();
+      engine.pause();
+      expect(events[0]).toMatchObject({ type: 'chunk', text: 'The quick' });
+
+      engine.seekTo(3);
       const last = events[events.length - 1];
       expect(last).toMatchObject({
         type: 'chunk',
         startIndex: 2,
         endIndex: 3,
-        text: 'C D',
+        text: 'brown fox.',
       });
     });
   });
@@ -662,6 +697,51 @@ describe('createRsvpEngine — chunk mode (chunkSize >= 2)', () => {
       engine.setChunkSize('2');
       expect(events.length).toBe(before);
       expect(engine.state).toBe('paused');
+    });
+
+    // Round-2 ITEM-5: setChunkSize on a DONE engine must NOT emit and
+    // must NOT move nextIndex backward. Captures the failure mode
+    // where a future refactor unifies the DONE / IDLE / PAUSED /
+    // PLAYING branches and accidentally re-emits or resets nextIndex.
+    //
+    // Mutation: removing the `if (state === RSVP_STATE.DONE) { ... return; }`
+    // early-return in `setChunkSize` lets the IDLE/PAUSED reset path
+    // run on a DONE engine, which would either emit a fresh event or
+    // reset nextIndex away from past-end. Either failure mode flips
+    // an assertion below.
+    it('done state: setChunkSize pins past-end and emits no events', () => {
+      // 4 words at chunkSize=2 → 2 chunks. High WPM so timers drain
+      // quickly.
+      const engine = createRsvpEngine({
+        words: ['The', 'quick', 'brown', 'fox.'],
+        wpm: 600,
+        chunkSize: 2,
+      });
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start();
+      // Run all timers to drive the engine to DONE. With 2 chunks at
+      // 600 wpm (msPerWord=100), one tick fires chunk 1 and the
+      // next tick fires `done`.
+      vi.runAllTimers();
+      expect(engine.state).toBe('done');
+      expect(events[events.length - 1]).toEqual({ type: 'done' });
+      const beforeCount = events.length;
+      const beforeProgress = engine.progress();
+      expect(beforeProgress.index).toBe(beforeProgress.total);
+
+      // Live update on DONE engine.
+      engine.setChunkSize(3);
+
+      // No new events emitted.
+      expect(events.length).toBe(beforeCount);
+      // State still DONE.
+      expect(engine.state).toBe('done');
+      // progress() index still pinned to total (past-end). Note:
+      // chunkSize=3 rebuilds chunks to [[The quick brown], [fox.]]
+      // (still 2 chunks); past-end pin yields index === total.
+      const afterProgress = engine.progress();
+      expect(afterProgress.index).toBe(afterProgress.total);
     });
   });
 });

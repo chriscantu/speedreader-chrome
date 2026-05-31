@@ -197,6 +197,19 @@ export interface OverlayOptions {
    * `scope === 'full'` — passing it for a selection-scope mount has
    * no defined meaning and may be removed by a future contract
    * cleanup.
+   *
+   * Axis note (#51 chunk mode): in chunk mode (`chunkSize >= 2`),
+   * `index` and `total` index into the engine's RAW token axis —
+   * the same axis as `WordToken.rawIndex`, which INCLUDES paragraph
+   * sentinels (`'\n\n'`) and dash tokens (`'—'` / `'–'`) — NOT the
+   * filtered-word axis used by earlier API revisions. For a stream
+   * with no structural tokens the two axes collapse to identical
+   * counts; with paragraph / dash tokens interleaved the raw axis
+   * is larger. Word mode (`chunkSize === 1` or undefined) keeps the
+   * pre-existing per-emission progress shape (still raw-axis but
+   * identical to filtered-word counts because word mode iterates
+   * the raw stream directly). Host persistence keyed on this value
+   * must use the same axis on both write and read.
    */
   onWordAdvance?: (index: number, total: number) => void;
   /**

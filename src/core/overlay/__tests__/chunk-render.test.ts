@@ -79,22 +79,44 @@ describe('createOverlay — chunk event rendering (#51)', () => {
   });
 
   test('onWordAdvance fires on each chunk event with post-emit raw-axis progress', () => {
+    // Round-2 ITEM-3: stream contains a paragraph sentinel ('\n\n')
+    // between "quick" and "brown" so raw axis (5) and filtered-word
+    // axis (4) DIVERGE. A regression that reverts progress().index
+    // / total to filtered-word counts would report (2, 4) and
+    // (4, 4); the raw-axis assertions (2, 5) and (5, 5) catch it.
+    //
+    // markSentenceBoundaries:
+    //   The   word rawIndex=0 sentenceStart=true
+    //   quick word rawIndex=1
+    //   \n\n  paragraph (no rawIndex; sets next word sentenceStart)
+    //   brown word rawIndex=3 sentenceStart=true
+    //   fox.  word rawIndex=4 sentenceEnd=true
+    //
+    // buildChunks chunkSize=2 (filtered word axis):
+    //   chunk 0: [The, quick]   raw 0..1
+    //   chunk 1: [brown, fox.]  raw 3..4
+    //
+    // After chunk 0 emit: progress.index = chunk 0 endIndex + 1 = 2.
+    // After chunk 1 emit: nextIndex >= chunks.length → index = total = 5.
     const onWordAdvance = vi.fn();
     const overlay = createOverlay(
       defaultOpts({
         scope: 'full',
-        fullWords: ['The', 'quick', 'brown', 'fox.'],
+        fullWords: ['The', 'quick', '\n\n', 'brown', 'fox.'],
+        // Override default initialSettings to keep chunkSize=2 with
+        // the sentinel-bearing stream.
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20, chunkSize: 2 },
         onWordAdvance,
       }),
     );
     overlay.mount();
-    // After first chunk: progress.index = chunk 0 endIndex + 1 = 2;
-    // total = 4 (raw words; no paragraph sentinels in this stream).
+    // After first chunk: progress.index = 2 (raw), total = 5 (raw
+    // including the paragraph sentinel slot).
     expect(onWordAdvance).toHaveBeenCalledTimes(1);
-    expect(onWordAdvance).toHaveBeenLastCalledWith(2, 4);
+    expect(onWordAdvance).toHaveBeenLastCalledWith(2, 5);
     vi.advanceTimersByTime(60000 / 300);
     expect(onWordAdvance).toHaveBeenCalledTimes(2);
-    expect(onWordAdvance).toHaveBeenLastCalledWith(4, 4);
+    expect(onWordAdvance).toHaveBeenLastCalledWith(5, 5);
     overlay.unmount();
   });
 

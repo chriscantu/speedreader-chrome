@@ -107,29 +107,50 @@ export interface RsvpEngine {
    * Live update to the multi-word chunk display size (#51 architect MED #2).
    * Allows the overlay to switch chunkSize mid-session without re-mounting
    * the engine (the prior wiring only applied chunkSize on next overlay
-   * mount). Validates the input — only `1`, `2`, or `3` are accepted; any
-   * other value is a no-op.
+   * mount).
    *
-   * Semantics:
-   *   - Same value → no-op (no rebuild, no state churn).
-   *   - Different value → rebuild `chunks` from current `words` under
-   *     the new chunkSize; map the current raw-axis position to the
-   *     chunk that contains it (snap-to-chunk-start, consistent with
-   *     Q1 decision); transitions are state-preserving:
-   *       - `idle` → reset `nextIndex` to 0; first `start()` ticks the
-   *         new chunk 0.
-   *       - `paused` → snap to the chunk containing the current raw
-   *         position; emit a replacement event for that chunk (so the
-   *         overlay re-renders the new chunk text); `nextIndex` lands
-   *         at the chunk-after-emit.
-   *       - `playing` → snap to the chunk containing the current raw
-   *         position; clearPending + tick immediately at the new
-   *         cadence (mirrors `seekTo` PLAYING semantics).
-   *       - `done` → update internal state (rebuild chunks for any
-   *         later `setWords`) but do not emit.
-   *   - Switching from `chunkSize >= 2` to `chunkSize === 1` (or vice
-   *     versa) flips the engine between chunk-emission and word-emission
-   *     paths. Subscribers see the matching event type from then on.
+   * Mirrors the `setWpm` shape: validates input, normalizes to the
+   * internal representation, and applies state-dependent re-emission
+   * so subscribers see a consistent stream.
+   *
+   * Input validation:
+   *   - Only `1`, `2`, or `3` are accepted; any other value (`0`, `4`,
+   *     non-integer, non-numeric) is a no-op — protects against a
+   *     miswired call-site corrupting engine state.
+   *   - `chunkSize === 1` ↔ `undefined` normalization: both map to
+   *     internal "word mode" (the engine emits `word` events, not
+   *     `chunk`). Switching between `1` and `undefined` is a no-op;
+   *     switching between `1` and `>=2` flips the engine between
+   *     word-emission and chunk-emission paths and subscribers see
+   *     the matching event type from then on.
+   *   - Same effective value → no-op (no rebuild, no re-emit, no
+   *     state churn). This is what the `same chunkSize value is a
+   *     no-op` test in `chunk-mode.test.ts` pins.
+   *
+   * State-machine semantics (mirrors `setWpm` re-schedule shape):
+   *   - `DONE` → pin `nextIndex` to past-end (`chunks.length` or
+   *     `words.length` depending on the new mode) so a later
+   *     `progress()` reads consistent. NO emission. Verified by
+   *     `done state: setChunkSize pins past-end and emits no events`.
+   *   - `IDLE` → reset `nextIndex` to `0` and clear `lastEmittedWord`
+   *     so the next `start()` ticks chunk 0 / word 0 cleanly under
+   *     the new mode. NO emission. Verified by `idle 1 → 2 enables
+   *     chunk emission for the next start()`.
+   *   - `PAUSED` → rebuild chunks; snap to the chunk containing the
+   *     current raw position (Q1: snap-to-chunk-start); emit a
+   *     replacement event for that chunk so subscribers redraw
+   *     without resuming playback; `nextIndex` lands at
+   *     chunk-after-emit (mirrors `seekTo` PAUSED branch). Verified
+   *     by `paused 2 → 3 rebuilds chunks and emits replacement at
+   *     new chunk`.
+   *   - `PLAYING` → rebuild chunks; snap to chunk containing current
+   *     raw position; `clearPending()` + `tick()` immediately at the
+   *     new cadence (mirrors `seekTo` PLAYING semantics + `setWpm`
+   *     pending-tick reschedule). Verified by `playing 2 → 1 flips
+   *     engine to word emission mid-session`.
+   *
+   * See the `setChunkSize (live update)` describe block in
+   * `chunk-mode.test.ts` for the full behavior matrix.
    */
   setChunkSize(next: 1 | 2 | 3): void;
   subscribe(listener: RsvpListener): () => void;
