@@ -63,12 +63,20 @@ export function formatRelativeTime(timestamp: number, now: number): string {
   // ≥ 7 days — switch to absolute date. Year suffix only when the
   // timestamp's year differs from `now`'s year (keeps the common
   // "earlier this year" case terse).
+  //
+  // UTC getters (vs. local-TZ getters) so output is stable across
+  // contributor / CI timezones. Local-TZ formatting made tests near
+  // UTC-midnight equivalents (e.g., a fixed epoch that sits on Nov 4
+  // UTC but Nov 3 in PDT) brittle. The popup label is informational —
+  // a one-day-off UTC label is a smaller harm than locale-flaky tests
+  // and a Slack-style mismatch between two users seeing the same
+  // history entry.
   const date = new Date(timestamp);
   const nowDate = new Date(now);
-  const month = MONTHS_SHORT[date.getMonth()];
-  const day = date.getDate();
-  if (date.getFullYear() === nowDate.getFullYear()) {
+  const month = MONTHS_SHORT[date.getUTCMonth()];
+  const day = date.getUTCDate();
+  if (date.getUTCFullYear() === nowDate.getUTCFullYear()) {
     return `${month} ${day}`;
   }
-  return `${month} ${day}, ${date.getFullYear()}`;
+  return `${month} ${day}, ${date.getUTCFullYear()}`;
 }

@@ -93,12 +93,20 @@ describe('deriveTitleFromUrl — defensive', () => {
     expect(deriveTitleFromUrl('https://EXAMPLE.com/Page')).toBe('example.com / Page');
   });
 
-  it('handles file:// and other non-http schemes gracefully', () => {
-    // The reading-position store rejects these, but a defensive caller
-    // might still pass one in. Return the hostname (or raw input) rather
-    // than crashing.
-    const result = deriveTitleFromUrl('file:///etc/hosts');
-    expect(typeof result).toBe('string');
-    expect(result.length).toBeGreaterThan(0);
+  it('handles file:// scheme by emitting the empty-host + last-segment shape', () => {
+    // The reading-position store rejects file:// URLs (#48 canonicalization),
+    // so this is a defensive path — a hand-crafted entry or a future
+    // permitted-scheme change shouldn't crash the popup row.
+    //
+    // Contract pinned VERBATIM (anti-tautology): `new URL('file:///etc/hosts')`
+    // exposes `hostname === ''` and `pathname === '/etc/hosts'`. The
+    // current implementation runs the empty hostname through stripWww
+    // (no-op) and concatenates with " / " + last segment, yielding
+    // " / hosts". The leading space is a cosmetic artifact of an empty
+    // host — acceptable because non-http schemes are not part of the
+    // happy path, but pinning the exact string here surfaces any silent
+    // contract drift (e.g., a future change to return the raw input,
+    // hide the row, or throw).
+    expect(deriveTitleFromUrl('file:///etc/hosts')).toBe(' / hosts');
   });
 });

@@ -266,5 +266,14 @@ describe('renderHistorySection — entry cap', () => {
     // The FIRST entry (most recent) must be present; the 51st must not.
     expect(section.textContent).toContain('article-0');
     expect(section.textContent).not.toContain('article-50');
+    // Pin DOM ORDER == INPUT ORDER for the first 50 entries. The previous
+    // assertion only proved "article-0 present, article-50 absent" — a
+    // future `entries.slice(-MAX_DISPLAY_ENTRIES)` mutation would still
+    // pass (article-0 would be in slot 0 of the trimmed tail and article-50
+    // would be excluded). Walking the items asserts the render trusts
+    // input order, not "first present, last absent".
+    for (let i = 0; i < 50; i += 1) {
+      expect(items[i].textContent).toContain(`article-${i}`);
+    }
   });
 });

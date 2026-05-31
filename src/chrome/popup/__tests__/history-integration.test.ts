@@ -252,4 +252,73 @@ describe('bootstrapPopup — history section graceful degradation', () => {
     const articleBtn = document.getElementById('read-article') as HTMLButtonElement;
     expect(articleBtn.disabled).toBe(false);
   });
+
+  // TG2 — store.list() rejection path: regression turning the try/catch
+  // around store.list() into a re-throw would crash popup boot, blocking
+  // the article button. Pin the graceful-degradation contract: empty-state
+  // renders, primary button stays wired, console.error fired exactly once.
+  it('store.list() rejection renders the empty-state, does NOT block primary buttons', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const api = makeChromeStub();
+    const failingStore = makeStoreStub([]);
+    failingStore.list = vi.fn(async () => {
+      throw new Error('storage failed');
+    });
+
+    await bootstrapPopup({
+      api,
+      doc: document,
+      loadSettings: async () => ({ historyEnabled: true }),
+      store: failingStore,
+      now: () => NOW,
+    });
+
+    const container = document.getElementById('history-container') as HTMLElement;
+    // Enabled + list() failed → renders the enabled empty-state copy,
+    // not the disabled "off" message. The list() error path falls back
+    // to entries:[] while keeping enabled:true.
+    expect(container.textContent ?? '').toMatch(/No articles yet/i);
+    // No list element when entries are empty (anti-tautology: pin
+    // "list absent" not "list has 0 items").
+    expect(container.querySelector('[role="list"]')).toBeNull();
+    // Primary article button stays wired.
+    const articleBtn = document.getElementById('read-article') as HTMLButtonElement;
+    expect(articleBtn.disabled).toBe(false);
+    // console.error fired exactly once for the list() failure path.
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    expect(failingStore.list).toHaveBeenCalledTimes(1);
+  });
+});
+
+// TG1 (integration leg) — pin that the rendering layer TRUSTS the
+// ordering returned by `store.list()` rather than re-sorting in the
+// popup. Feeding oldest-first must render oldest-first in the DOM —
+// proves a future popup-side `entries.sort(...)` would surface here.
+describe('bootstrapPopup — history section trusts store.list() ordering', () => {
+  it('renders entries in the order store.list() returns them (no client-side re-sort)', async () => {
+    const api = makeChromeStub();
+    // Store returns OLDEST-first deliberately. The contract (#48) is
+    // newest-first, but the popup layer should not silently paper over
+    // a regression in the store's ordering — if it did, oldest-first
+    // would be rendered without anyone noticing.
+    const store = makeStoreStub([
+      { url: 'https://example.com/oldest', lastReadAt: NOW - 10 * 86_400_000 },
+      { url: 'https://example.com/middle', lastReadAt: NOW - 5 * 86_400_000 },
+      { url: 'https://example.com/newest', lastReadAt: NOW - 60_000 },
+    ]);
+    await bootstrapPopup({
+      api,
+      doc: document,
+      loadSettings: async () => ({ historyEnabled: true }),
+      store,
+      now: () => NOW,
+    });
+
+    const items = document.querySelectorAll<HTMLElement>('[role="listitem"]');
+    expect(items.length).toBe(3);
+    // Walking input order proves the renderer did NOT re-sort.
+    expect(items[0].textContent).toContain('oldest');
+    expect(items[1].textContent).toContain('middle');
+    expect(items[2].textContent).toContain('newest');
+  });
 });

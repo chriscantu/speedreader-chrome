@@ -429,6 +429,30 @@ describe('migrate — V4 -> V5 historyEnabled field (#49)', () => {
     expect(result.historyEnabled).toBe(false);
   });
 
+  // TG5 — privacy-floor INTENT (not implementation): a hand-edited V4
+  // blob carrying ANY truthy or invalid `historyEnabled` value MUST end
+  // up at `historyEnabled === false` after migration. The previous
+  // single-case assertion (`historyEnabled: true`) passed by accident of
+  // spread order — the migrator's `{ ...raw, historyEnabled: false }`
+  // happens to put the literal AFTER the spread, so `false` wins. A
+  // defensible refactor flipping to `{ historyEnabled: false, ...raw }`
+  // ("defaults first, then user overrides") would silently allow
+  // `historyEnabled: true` through. These cases pin the contract
+  // independently of spread order: even if the migrator stamp loses,
+  // the V5 safeParse rejects invalid types and the defaults fallback
+  // (historyEnabled: false) restores the privacy floor.
+  it.each([
+    ['boolean true', true],
+    ['number 1', 1],
+    ['truthy string', 'TRUTHY_BUT_INVALID'],
+    ['number 0 (falsy but non-boolean)', 0],
+    ['object {}', {}],
+  ])('V4 -> V5 forces historyEnabled to false regardless of hand-edited %s', (_label, value) => {
+    const hand = { ...V4_BASE, historyEnabled: value };
+    const result = migrate(hand);
+    expect(result.historyEnabled).toBe(false);
+  });
+
   it('V5-already-present payload with historyEnabled: true round-trips unchanged', () => {
     const v5 = { ...DEFAULT_SETTINGS, historyEnabled: true };
     const result = migrate(v5);
