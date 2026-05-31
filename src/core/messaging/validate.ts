@@ -23,7 +23,7 @@ import { SettingsSchemaV5 } from '../settings/schema';
  * activation alive with snapshot defaults for the other fields.
  *
  * Field-name alignment: `contextLine` / `startFromWordOne` here match
- * the `SettingsV5` field names exactly so the CS-side
+ * the `SettingsV6` field names exactly so the CS-side
  * `{...snapshot, ...validatedOverrides}` shallow-merge composes
  * cleanly without a wire→settings translation table. The hi-fi mock's
  * "Show context line" submenu label is a display string, not the wire

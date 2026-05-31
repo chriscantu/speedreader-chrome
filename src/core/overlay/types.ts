@@ -3,13 +3,13 @@ import type { ThemeId } from '../theme';
 import type { FontId } from './font-ids';
 
 /**
- * Settings slice the overlay binds to. The wider SettingsV5 is not imported
+ * Settings slice the overlay binds to. The wider SettingsV6 is not imported
  * here so `core/overlay` stays portable (no transitive dependency on the
  * Chrome storage shape).
  *
  * `theme` extends `ThemeId` with `'system'` — the concrete-theme enum
  * covers the six design-pack values; `'system'` resolves at mount time via
- * `prefers-color-scheme` matching `SettingsV5.theme` (which includes
+ * `prefers-color-scheme` matching `SettingsV6.theme` (which includes
  * `'system'` as the auto-detect sentinel). Keeping the sentinel here avoids
  * callers having to pre-resolve before constructing the overlay.
  */
@@ -50,6 +50,16 @@ export interface OverlaySettings {
    * family stacks in `styles.ts`.
    */
   font?: FontId;
+  /**
+   * Multi-word chunk display (#51). Pinned at overlay-construction
+   * time and forwarded to the engine factory. `1` (or undefined) keeps
+   * today's single-word emission; `2` or `3` enables multi-word chunk
+   * mode (engine emits `chunk` events with sentence-boundary respect).
+   * Live updates via `subscribeSettings` are NOT supported in M2 —
+   * changing chunkSize mid-session would require an engine
+   * reconstruction (deferred to a follow-up).
+   */
+  chunkSize?: 1 | 2 | 3;
 }
 
 export type SettingsSubscriber = (s: OverlaySettings) => void;

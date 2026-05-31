@@ -6,13 +6,13 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import type { SettingsV5 } from '../../../../core/settings';
+import type { SettingsV6 } from '../../../../core/settings';
 import { DEFAULT_SETTINGS } from '../../../../core/settings/defaults';
 import { buildMenuItems, type CtxMenuItemId } from '../factory';
 
 const HTTP = ['http://*/*', 'https://*/*'];
 
-function withSettings(partial: Partial<SettingsV5>): SettingsV5 {
+function withSettings(partial: Partial<SettingsV6>): SettingsV6 {
   return { ...DEFAULT_SETTINGS, ...partial };
 }
 

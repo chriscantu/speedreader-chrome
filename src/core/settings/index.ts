@@ -1,10 +1,12 @@
 export {
+  SettingsSchemaV6,
   SettingsSchemaV5,
   SettingsSchemaV4,
   SettingsSchemaV3,
   SettingsSchemaV2,
   CURRENT_VERSION,
   VALID_ALIGNMENTS,
+  type SettingsV6,
   type SettingsV5,
   type SettingsV4,
   type SettingsV3,

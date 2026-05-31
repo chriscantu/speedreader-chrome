@@ -2,6 +2,11 @@ import { z } from 'zod';
 import { FONT_SIZE_MAX, FONT_SIZE_MIN, WPM_MAX, WPM_MIN, WPM_STEP } from './bounds';
 
 /**
+ * V6 adds `chunkSize` (issue #51) — multi-word RSVP display. Default
+ * `1` (single-word, today's behavior). The 5 -> 6 migrator stamps
+ * `chunkSize: 1` for every existing payload; users opt into 2 or 3
+ * via the options page.
+ *
  * V5 adds `historyEnabled` (issue #49) — opt-in toggle gating the popup
  * "Recently read" surface. Default is `false` (privacy floor — reading
  * patterns are sensitive). The 4 -> 5 migrator stamps `historyEnabled:
@@ -32,6 +37,39 @@ import { FONT_SIZE_MAX, FONT_SIZE_MIN, WPM_MAX, WPM_MIN, WPM_STEP } from './boun
  */
 const WPM_SCHEMA = z.number().int().min(WPM_MIN).max(WPM_MAX).multipleOf(WPM_STEP);
 
+/**
+ * Chunk-size constraint (#51). Bounded literal union mirrors the
+ * `ChunkSize` type in `core/rsvp-engine/chunks.ts`. Widening past 3
+ * is a future ADR — Safari upstream caps at 3, and human RSVP
+ * comprehension typically degrades past 3-word chunks per the
+ * reading-research literature.
+ */
+const CHUNK_SIZE_SCHEMA = z.union([z.literal(1), z.literal(2), z.literal(3)]);
+
+export const SettingsSchemaV6 = z.object({
+  version: z.literal(6),
+  wpm: WPM_SCHEMA,
+  theme: z.enum(['system', 'light', 'dark', 'sepia', 'paper', 'cream', 'nord']),
+  font: z.string(),
+  fontSize: z.number().int().min(FONT_SIZE_MIN).max(FONT_SIZE_MAX),
+  openDyslexic: z.boolean(),
+  punctuationPacing: z.boolean(),
+  alignment: z.enum(['orp', 'center']),
+  contextLine: z.boolean(),
+  startFromWordOne: z.boolean(),
+  lastUsedWpm: WPM_SCHEMA,
+  historyEnabled: z.boolean(),
+  chunkSize: CHUNK_SIZE_SCHEMA,
+});
+
+export type SettingsV6 = z.infer<typeof SettingsSchemaV6>;
+
+export const CURRENT_VERSION = 6 as const;
+
+/**
+ * V5 preserved for the V5 -> V6 migrator (#51) per the schema retention
+ * policy adopted at V2 (issue #101 AC: "keep prior schema exported").
+ */
 export const SettingsSchemaV5 = z.object({
   version: z.literal(5),
   wpm: WPM_SCHEMA,
@@ -48,8 +86,6 @@ export const SettingsSchemaV5 = z.object({
 });
 
 export type SettingsV5 = z.infer<typeof SettingsSchemaV5>;
-
-export const CURRENT_VERSION = 5 as const;
 
 /**
  * V4 preserved for the V4 -> V5 migrator (#49) per the schema retention
@@ -76,7 +112,7 @@ export type SettingsV4 = z.infer<typeof SettingsSchemaV4>;
  * Used by tests today; consumed by the future Options-page UI radio
  * group (#30 follow-up) and overlay rendering wiring (pairs with #19).
  * Widening the enum is a future ADR — keep this in lockstep with the
- * `alignment` field in `SettingsSchemaV5` above.
+ * `alignment` field in `SettingsSchemaV6` above.
  */
 export const VALID_ALIGNMENTS = ['orp', 'center'] as const;
 

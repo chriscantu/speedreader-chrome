@@ -515,7 +515,13 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     });
 
     const engineWords = scopeView ? scopeView.activeWords : opts.words;
-    engine = opts.engineFactory({ words: engineWords, wpm: currentWpm });
+    // #51 — forward chunkSize when set. Engine treats undefined OR 1 as
+    // word mode (back-compat); only 2 or 3 enable chunk emission.
+    engine = opts.engineFactory({
+      words: engineWords,
+      wpm: currentWpm,
+      chunkSize: opts.initialSettings.chunkSize,
+    });
 
     const reflectEngineState = (): void => {
       const s = engine?.state ?? 'idle';
@@ -606,6 +612,19 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         // the per-word PLAYING tick path we MUST skip the call entirely;
         // clearPreview's idempotency guard makes the no-op cheap, but
         // not calling it at all is cheaper still (perf-adversary F1).
+        if (engine?.state === 'paused') renderPreview();
+      } else if (ev.type === 'chunk') {
+        // #51 — multi-word display. ORP highlighting on the chunk is a
+        // separate concern (tracked as a follow-up issue); for now we
+        // render the chunk text verbatim into the word region. The
+        // aria-live region announces the whole chunk so screen readers
+        // hear the same unit the user sees.
+        renderWord(word, ev.text);
+        ariaLive.textContent = ev.text;
+        if (opts.onWordAdvance && engine) {
+          const p = engine.progress();
+          opts.onWordAdvance(p.index, p.total);
+        }
         if (engine?.state === 'paused') renderPreview();
       } else if (ev.type === 'done') {
         reflectEngineState();

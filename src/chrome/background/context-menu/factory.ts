@@ -4,7 +4,7 @@
  * No `chrome.*` calls — `install.ts` owns the adapter side. Keeping this
  * file pure means every shape decision (titles, checkbox state, separator
  * placement) is exercised by `factory.test.ts` against a plain
- * `SettingsV5` input without any chrome-stub scaffolding.
+ * `SettingsV6` input without any chrome-stub scaffolding.
  *
  * See:
  * - `docs/superpowers/specs/2026-05-25-context-menu-integration.md`
@@ -13,7 +13,7 @@
  *   §"File Layout" — the factory / adapter / listener split.
  */
 
-import type { SettingsV5 } from '../../../core/settings';
+import type { SettingsV6 } from '../../../core/settings';
 
 /**
  * Stable, versioned menu-item IDs. The `v1` suffix lets a future shape
@@ -63,7 +63,7 @@ const HTTP_PATTERNS = ['http://*/*', 'https://*/*'] as const;
  * `chrome.*` references. Items are emitted in the order they should
  * appear in the submenu; the adapter preserves order on `create`.
  */
-export function buildMenuItems(settings: SettingsV5): CtxItemSpec[] {
+export function buildMenuItems(settings: SettingsV6): CtxItemSpec[] {
   const PARENT_ID: CtxMenuItemId = 'speedreader.ctx.parent.v1';
 
   const parent: CtxItemSpec = {

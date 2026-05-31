@@ -271,6 +271,11 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             // 'system', so the overlay's typed `font?: FontId` slot stays
             // honest at the boundary.
             font: resolveFontId(settings),
+            // #51 — chunk size pinned at mount. Live-update via
+            // subscribeSettings is intentionally NOT wired (engine
+            // reconstruction required); changes apply on next overlay
+            // mount.
+            chunkSize: settings.chunkSize,
           },
           subscribeSettings: (listener) =>
             subscribeSettings((s) =>
@@ -280,6 +285,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
                 fontSize: s.fontSize,
                 openDyslexic: s.openDyslexic,
                 font: resolveFontId(s),
+                chunkSize: s.chunkSize,
               }),
             ),
           // OpenDyslexic font URL (#27, #10). `core/` cannot call

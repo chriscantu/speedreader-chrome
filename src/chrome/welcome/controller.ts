@@ -11,14 +11,14 @@
  * See docs/superpowers/specs/2026-05-30-onboarding-surface.md.
  */
 
-import type { SettingsV5 } from '../../core/settings/schema';
+import type { SettingsV6 } from '../../core/settings/schema';
 import { DEFAULT_SETTINGS } from '../../core/settings/defaults';
 import { createRsvpEngine, type RsvpEngine } from '../../core/rsvp-engine';
 import { SAMPLE_PASSAGE } from './sample';
 
 export interface SettingsApi {
-  load(): Promise<SettingsV5>;
-  save(partial: Partial<Omit<SettingsV5, 'version' | 'lastUsedWpm'>>): Promise<void>;
+  load(): Promise<SettingsV6>;
+  save(partial: Partial<Omit<SettingsV6, 'version' | 'lastUsedWpm'>>): Promise<void>;
   flush(): Promise<void>;
 }
 

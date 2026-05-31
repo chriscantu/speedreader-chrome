@@ -20,7 +20,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { bindWelcome, WELCOME_IDS, type SettingsApi } from '../controller';
 import { DEFAULT_SETTINGS } from '../../../core/settings/defaults';
 import { SAMPLE_PASSAGE } from '../sample';
-import type { SettingsV5 } from '../../../core/settings/schema';
+import type { SettingsV6 } from '../../../core/settings/schema';
 
 const HTML = `
   <header>
@@ -46,16 +46,16 @@ interface Stub extends SettingsApi {
   loadMock: ReturnType<typeof vi.fn>;
   saveMock: ReturnType<typeof vi.fn>;
   flushMock: ReturnType<typeof vi.fn>;
-  resolveLoad(s: SettingsV5): void;
+  resolveLoad(s: SettingsV6): void;
   rejectLoad(err: unknown): void;
 }
 
-function makeStub(options: { initial?: SettingsV5; deferLoad?: boolean } = {}): Stub {
+function makeStub(options: { initial?: SettingsV6; deferLoad?: boolean } = {}): Stub {
   const initial = options.initial ?? DEFAULT_SETTINGS;
-  let resolveLoad: (s: SettingsV5) => void = () => undefined;
+  let resolveLoad: (s: SettingsV6) => void = () => undefined;
   let rejectLoad: (e: unknown) => void = () => undefined;
   const loadPromise = options.deferLoad
-    ? new Promise<SettingsV5>((res, rej) => {
+    ? new Promise<SettingsV6>((res, rej) => {
         resolveLoad = res;
         rejectLoad = rej;
       })

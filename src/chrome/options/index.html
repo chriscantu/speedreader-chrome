@@ -274,6 +274,22 @@
           <input type="checkbox" id="contextLine" />
           <label for="contextLine">Show line of context around current word</label>
         </div>
+
+        <!-- #51 — chunk size select (1 | 2 | 3). Multi-word display is
+             a Safari-parity feature; the safe default is single-word. -->
+        <div class="field">
+          <label for="chunkSize">Words per display</label>
+          <select id="chunkSize" aria-describedby="chunkSize-hint">
+            <option value="1">1 word</option>
+            <option value="2">2 words</option>
+            <option value="3">3 words</option>
+          </select>
+          <span class="hint" id="chunkSize-hint">
+            Larger chunks reduce eye movement but require more focus.
+            Sentence boundaries are always respected — chunks never span
+            across the end of a sentence.
+          </span>
+        </div>
       </fieldset>
 
       <!-- Pacing -->
