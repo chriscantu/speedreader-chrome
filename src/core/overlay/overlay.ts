@@ -704,16 +704,54 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     let scrubberHovered = false;
     let scrubberFocused = false;
     const scrubberArea = scrubber.parentElement;
+    // visibility:hidden removes the element from the AT rotor during playback —
+    // intentional reduction of noise; user can still discover via voice control
+    // because the label is preserved.
     const recomputeScrubberVisibility = (): void => {
       if (!scrubberArea) return;
       const playing = engine?.state === 'playing';
       const shouldHide = playing && !scrubberHovered && !scrubberFocused && !scrubInProgress;
+      const wasHidden = scrubberArea.dataset.hidden === 'true';
       if (shouldHide) {
         scrubberArea.style.opacity = '0';
         scrubberArea.style.visibility = 'hidden';
         scrubberArea.style.pointerEvents = 'none';
         scrubberArea.dataset.hidden = 'true';
       } else {
+        // A11y MED #3 — focus-reveal race. When the bar transitions
+        // hidden→visible because focus arrived (tab into the slider while
+        // the engine is playing), the 200ms CSS opacity transition would
+        // leave the focus indicator at < 100% opacity during the fade.
+        // WCAG SC 2.4.7 requires the focus indicator be visible at the
+        // moment focus is received. Skip the fade in this specific path
+        // by inlining `transition: none`, forcing a reflow, writing the
+        // visible state, then restoring the transition on the next frame
+        // so subsequent hover-driven reveals still animate.
+        if (wasHidden && scrubberFocused) {
+          scrubberArea.style.transition = 'none';
+          // Force reflow so the transition-none write takes effect before
+          // the opacity write below — without this, the browser may batch
+          // both writes and animate anyway.
+          void scrubberArea.offsetHeight;
+          scrubberArea.style.opacity = '1';
+          scrubberArea.style.visibility = 'visible';
+          scrubberArea.style.pointerEvents = '';
+          scrubberArea.dataset.hidden = 'false';
+          // Restore the CSS-declared transition on the next frame so
+          // future fade-outs / hover reveals retain the 200ms animation.
+          // requestAnimationFrame is preferred but fall back to setTimeout
+          // for environments without it (jsdom under fake timers).
+          const restoreTransition = (): void => {
+            if (scrubberArea) scrubberArea.style.transition = '';
+          };
+          const view2 = opts.doc.defaultView;
+          if (view2 && typeof view2.requestAnimationFrame === 'function') {
+            view2.requestAnimationFrame(restoreTransition);
+          } else {
+            setTimeout(restoreTransition, 0);
+          }
+          return;
+        }
         scrubberArea.style.opacity = '1';
         scrubberArea.style.visibility = 'visible';
         scrubberArea.style.pointerEvents = '';

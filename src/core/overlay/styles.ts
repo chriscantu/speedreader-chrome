@@ -560,8 +560,20 @@ export const OVERLAY_CSS = `
   }
   .word-region {
     flex: 1 1 auto;
-    display: grid;
-    place-items: center;
+    /* #52 PART C / architect H1 — preserve the flex+wrap layout from the
+     * base .word-region rule so chunk-mode (chunkSize >= 2) renders its
+     * multiple .word-run siblings inline on one line. The previous
+     * "display: grid; place-items: center" here OVERRODE the base flex
+     * layout, causing multi-run chunks to stack/overlap inside a single
+     * grid cell on touch-primary viewports. The base rule's
+     * "justify-content: center; align-items: baseline" already centers
+     * the runs horizontally; we only override align-items to "center" here
+     * so the runs are vertically centred within the now-larger touch
+     * .word-region flex slot. */
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
     /* Tap target hint for assistive tech / a11y devtools — the click
      * handler is wired in JS. */
     cursor: pointer;

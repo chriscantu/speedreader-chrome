@@ -125,6 +125,48 @@ describe('renderChunk — per-word ORP render (#52 PART C)', () => {
     expect(region.childNodes).toHaveLength(1);
     expect(region.querySelectorAll(`.${OVERLAY_CLASS.WORD_RUN}`)).toHaveLength(1);
   });
+
+  test('empty-string word inside chunk — no throw, still emits N runs each with focus span', () => {
+    // Test-gap MED #3 — degenerate input edge. Engine guards against
+    // emitting empty chunks in practice, but renderChunk MUST tolerate an
+    // empty-string word (splitWordAtFocus has its own empty-input guard
+    // returning all-empty parts; dropping that guard would crash here).
+    const doc = document.implementation.createHTMLDocument('t');
+    const region = doc.createElement('div');
+    expect(() => renderChunk(region, '', ['', 'b'])).not.toThrow();
+    const runs = region.querySelectorAll(`.${OVERLAY_CLASS.WORD_RUN}`);
+    expect(runs).toHaveLength(2);
+    // Each run still has a .focus span (even if textContent is empty for
+    // the empty-string word) — structural invariant preserved.
+    for (const run of runs) {
+      expect(run.querySelectorAll('.focus')).toHaveLength(1);
+    }
+  });
+
+  test('whitespace-only words inside chunk — no throw, structurally intact', () => {
+    // Test-gap MED #3 — whitespace-only tokens (' ', '\t'). Tokenizer
+    // strips these in practice, but renderChunk's contract is to render
+    // whatever it's given without crashing.
+    const doc = document.implementation.createHTMLDocument('t');
+    const region = doc.createElement('div');
+    expect(() => renderChunk(region, '  ', [' ', 'b'])).not.toThrow();
+    const runs = region.querySelectorAll(`.${OVERLAY_CLASS.WORD_RUN}`);
+    expect(runs).toHaveLength(2);
+  });
+
+  test('single-word chunk with single-char word — no throw, exactly one .focus span', () => {
+    // Test-gap MED #3 — short-word edge (orp() returns 0 for stripped
+    // length <= 3 → focus index 0). Verifies the boundary path through
+    // splitWordAtFocus.
+    const doc = document.implementation.createHTMLDocument('t');
+    const region = doc.createElement('div');
+    expect(() => renderChunk(region, 'a', ['a'])).not.toThrow();
+    expect(region.querySelectorAll(`.${OVERLAY_CLASS.WORD_RUN}`)).toHaveLength(1);
+    expect(region.querySelectorAll('.focus')).toHaveLength(1);
+    // Focus char IS 'a' (the entire word, idx 0).
+    const focus = region.querySelector('.focus');
+    expect(focus?.textContent).toBe('a');
+  });
 });
 
 describe('createOverlay — chunk ORP integration (#52 PART C)', () => {

@@ -104,6 +104,43 @@ describe('createOverlay — alignment wire-up (#52 PART A)', () => {
     overlay.unmount();
   });
 
+  test('alignment mid-emission: live push does NOT rebuild word DOM (CSS-only switch)', () => {
+    // Test-gap MED #5 — alignment is a CSS-only switch (data-alignment on
+    // host drives :host([data-alignment="…"]) selectors). The overlay
+    // MUST NOT call renderWord / renderChunk on a subscribeSettings push;
+    // doing so would cause a flash of layout swap mid-emission. We assert
+    // by capturing the rendered .word-run shape BEFORE and AFTER the
+    // push and confirming identity (same element instance).
+    let notify: SettingsSubscriber = () => undefined;
+    const overlay = createOverlay(
+      defaultOpts({
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20, alignment: 'orp' },
+        subscribeSettings: (cb) => {
+          notify = cb;
+          return () => undefined;
+        },
+      }),
+    );
+    overlay.mount();
+    const host = getHost();
+    const region = host.shadowRoot?.querySelector('.word-region');
+    if (!region) throw new Error('missing word-region');
+    const runBefore = region.querySelector('.word-run');
+    if (!runBefore) throw new Error('expected .word-run before push');
+    const childrenBefore = Array.from(runBefore.children);
+    // Push alignment change.
+    notify({ theme: 'system', wpm: 300, fontSize: 20, alignment: 'center' });
+    // Host attribute flipped (live update works).
+    expect(host.getAttribute(OVERLAY_ATTR.ALIGNMENT)).toBe('center');
+    // Word DOM is UNCHANGED — same element instance, same children.
+    const runAfter = region.querySelector('.word-run');
+    expect(runAfter).toBe(runBefore);
+    if (!runAfter) throw new Error('expected .word-run after push');
+    const childrenAfter = Array.from(runAfter.children);
+    expect(childrenAfter).toEqual(childrenBefore);
+    overlay.unmount();
+  });
+
   test('subscribeSettings echo with same alignment does not churn the attribute', () => {
     // No observable side-effect to assert beyond "no throw and value stays
     // the same" — but a regression that always re-wrote the attribute would
