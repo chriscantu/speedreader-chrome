@@ -11,7 +11,7 @@ import type {
   OverlayStatus,
 } from './types';
 import type { RsvpEngine } from '../rsvp-engine';
-import { renderWord } from './word';
+import { renderChunk, renderWord } from './word';
 import { buildSentenceContext } from './sentence-context';
 import { installFocusTrap } from './focus-trap';
 import {
@@ -413,6 +413,13 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     opts.doc.documentElement.style.overflow = 'hidden';
     host = opts.doc.createElement('div');
     host.setAttribute(HOST_ATTR, '');
+    // #52 PART A — alignment attribute mirrors the user's `alignment`
+    // setting on the host element. Styles in styles.ts consume via
+    // `:host([data-alignment="orp"])` / `:host([data-alignment="center"])`
+    // selectors. `subscribeSettings` updates the attribute on live push
+    // (see below). Default `'orp'` matches the schema default and the
+    // Safari upstream behaviour.
+    host.setAttribute(OVERLAY_ATTR.ALIGNMENT, opts.initialSettings.alignment ?? 'orp');
     // Critical positioning styles inline with !important so external host-page
     // CSS targeting `div` cannot override them. `:host` selector specificity
     // is (0,0,0) which any outer-document `div` rule beats; inline !important
@@ -503,6 +510,10 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // short-circuit no-op emissions and only call `engine.setChunkSize`
     // when the value actually changed (#51 architect MED #2).
     let currentChunkSize: 1 | 2 | 3 = opts.initialSettings.chunkSize ?? 1;
+    // #52 PART A — local cache so the subscribeSettings handler can
+    // short-circuit no-op echoes and only re-write the host attribute
+    // when alignment actually changed. Default `'orp'` matches schema.
+    let currentAlignment: 'orp' | 'center' = opts.initialSettings.alignment ?? 'orp';
 
     // Single point of truth for keeping the slider + readout in sync with
     // `currentWpm`. Called from mount-time init, the ArrowUp/Down keyboard
@@ -588,6 +599,15 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         currentChunkSize = nextChunkSize;
         engine?.setChunkSize(nextChunkSize);
       }
+      // #52 PART A — live alignment update. Flip the host attribute so
+      // the CSS `:host([data-alignment="…"])` selectors swap layout
+      // mid-session without a remount. Guarded on a real change so a
+      // no-op echo doesn't churn the attribute.
+      const nextAlignment: 'orp' | 'center' = s.alignment ?? 'orp';
+      if (nextAlignment !== currentAlignment) {
+        currentAlignment = nextAlignment;
+        host?.setAttribute(OVERLAY_ATTR.ALIGNMENT, nextAlignment);
+      }
     });
 
     const engineWords = scopeView ? scopeView.activeWords : opts.words;
@@ -663,6 +683,82 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       );
     };
 
+    // #52 PART D — scrubber visibility state machine.
+    //
+    // Hidden when ALL of:
+    //   - engine.state === 'playing'
+    //   - no hover on scrubber-area
+    //   - no focus-within scrubber-area
+    //   - not mid-scrub (scrubInProgress is false)
+    // Visible otherwise.
+    //
+    // Uses opacity + visibility + pointer-events (NOT display:none) so
+    // the layout slot stays reserved — display:none would collapse the
+    // margin-block-start and reflow the word region's vertical center
+    // every toggle, fighting RSVP cadence (FIX-5 ring-review guidance
+    // in styles.ts at the .scrubber-area block).
+    //
+    // The CSS transition (`transition: opacity 200ms ease-out, visibility
+    // 200ms`) is declared on .scrubber-area in styles.ts; prefers-reduced-
+    // motion overrides it to `transition: none`.
+    let scrubberHovered = false;
+    let scrubberFocused = false;
+    const scrubberArea = scrubber.parentElement;
+    // visibility:hidden removes the element from the AT rotor during playback —
+    // intentional reduction of noise; user can still discover via voice control
+    // because the label is preserved.
+    const recomputeScrubberVisibility = (): void => {
+      if (!scrubberArea) return;
+      const playing = engine?.state === 'playing';
+      const shouldHide = playing && !scrubberHovered && !scrubberFocused && !scrubInProgress;
+      const wasHidden = scrubberArea.dataset.hidden === 'true';
+      if (shouldHide) {
+        scrubberArea.style.opacity = '0';
+        scrubberArea.style.visibility = 'hidden';
+        scrubberArea.style.pointerEvents = 'none';
+        scrubberArea.dataset.hidden = 'true';
+      } else {
+        // A11y MED #3 — focus-reveal race. When the bar transitions
+        // hidden→visible because focus arrived (tab into the slider while
+        // the engine is playing), the 200ms CSS opacity transition would
+        // leave the focus indicator at < 100% opacity during the fade.
+        // WCAG SC 2.4.7 requires the focus indicator be visible at the
+        // moment focus is received. Skip the fade in this specific path
+        // by inlining `transition: none`, forcing a reflow, writing the
+        // visible state, then restoring the transition on the next frame
+        // so subsequent hover-driven reveals still animate.
+        if (wasHidden && scrubberFocused) {
+          scrubberArea.style.transition = 'none';
+          // Force reflow so the transition-none write takes effect before
+          // the opacity write below — without this, the browser may batch
+          // both writes and animate anyway.
+          void scrubberArea.offsetHeight;
+          scrubberArea.style.opacity = '1';
+          scrubberArea.style.visibility = 'visible';
+          scrubberArea.style.pointerEvents = '';
+          scrubberArea.dataset.hidden = 'false';
+          // Restore the CSS-declared transition on the next frame so
+          // future fade-outs / hover reveals retain the 200ms animation.
+          // requestAnimationFrame is preferred but fall back to setTimeout
+          // for environments without it (jsdom under fake timers).
+          const restoreTransition = (): void => {
+            if (scrubberArea) scrubberArea.style.transition = '';
+          };
+          const view2 = opts.doc.defaultView;
+          if (view2 && typeof view2.requestAnimationFrame === 'function') {
+            view2.requestAnimationFrame(restoreTransition);
+          } else {
+            setTimeout(restoreTransition, 0);
+          }
+          return;
+        }
+        scrubberArea.style.opacity = '1';
+        scrubberArea.style.visibility = 'visible';
+        scrubberArea.style.pointerEvents = '';
+        scrubberArea.dataset.hidden = 'false';
+      }
+    };
+
     const reflectEngineState = (): void => {
       const s = engine?.state ?? 'idle';
       if (s === 'playing') {
@@ -682,6 +778,12 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         playPauseBtn.textContent = OVERLAY_TEXT.PLAY_GLYPH;
         playPauseBtn.disabled = s === 'done';
       }
+      // Engine-state transitions can flip the auto-hide outcome (e.g.
+      // playing → paused → visible). Recompute here so any caller of
+      // reflectEngineState (togglePlayPause, swapToFull, start, done
+      // branch) keeps visibility in sync without each caller having to
+      // remember to call recompute themselves.
+      recomputeScrubberVisibility();
     };
 
     const clearPreview = (): void => {
@@ -762,14 +864,17 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         // label follows (matches Safari spec render order).
         updateScrubber();
       } else if (ev.type === 'chunk') {
-        // #51 — multi-word display. ORP highlighting on the chunk is a
-        // separate concern (tracked as a follow-up issue); for now we
-        // render the chunk text verbatim into the word region. The
-        // aria-live region announces the whole chunk so screen readers
-        // hear the same unit the user sees. FIX-6 suppression applies
-        // here too — chunk-mode scrub would otherwise spam aria-live
-        // with replacement chunk text.
-        renderWord(word, ev.text);
+        // #51 + #52 PART C — multi-word display with per-word ORP. The
+        // pre-#52 path called `renderWord(word, ev.text)` which ran
+        // `splitWordAtFocus` over the WHOLE joined chunk string, producing
+        // a nonsensical focus position somewhere inside the join. The
+        // fix delegates to `renderChunk`, which builds one `.word-run`
+        // per chunk word (each with its own before/focus/after spans
+        // sourced from `splitWordAtFocus` on the individual word).
+        // aria-live still announces the WHOLE chunk text (single readable
+        // unit). FIX-6 suppression applies here too — chunk-mode scrub
+        // would otherwise spam aria-live with replacement chunk text.
+        renderChunk(word, ev.text, ev.words);
         if (!scrubInProgress) ariaLive.textContent = ev.text;
         if (opts.onWordAdvance && engine) {
           const p = engine.progress();
@@ -808,6 +913,12 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       engine.seekTo(resumedAt);
     }
     engine.start();
+    // #52 PART D — initial visibility computation now that engine state
+    // is settled. engine.start() emits the first word/chunk synchronously
+    // and may transition to 'done' on an empty stream; either way, the
+    // recompute below establishes the correct initial visibility before
+    // the user sees the mounted overlay.
+    recomputeScrubberVisibility();
     if (scopeView?.fallback === 'empty-selection') {
       // Overrides the word[0] textContent that fired via the subscribe
       // handler during engine.start(). The polite live-region status fires
@@ -1063,6 +1174,11 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         scrubAnnouncementFired = true;
       }
       scrubInProgress = true;
+      // #52 PART D — scrubInProgress is an input into the auto-hide
+      // computation; recompute so a mid-drag user keeps the bar visible
+      // even if the engine state is still 'playing' (e.g. before the
+      // scrubFromPause call lands).
+      recomputeScrubberVisibility();
       // Reset the debounce window every event so a held Arrow / sustained
       // drag stays in one session.
       if (scrubDebounceTimer !== null) clearTimeout(scrubDebounceTimer);
@@ -1070,6 +1186,10 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         scrubDebounceTimer = null;
         scrubInProgress = false;
         scrubAnnouncementFired = false;
+        // #52 PART D — scrubInProgress is now false; recompute so the
+        // bar can auto-hide if engine is back to 'playing' AND no hover
+        // / focus is active.
+        recomputeScrubberVisibility();
       }, SCRUB_DEBOUNCE_MS);
     };
     const scrubFromPause = (): void => {
@@ -1090,6 +1210,31 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       },
       { passive: true },
     );
+    // #52 PART D — hover + focus listeners drive the auto-hide override.
+    // Bound on the scrubber-area parent so hovering ANY part of the bar
+    // (including the time-label row) keeps it visible; bound to focusin /
+    // focusout (the bubbling counterparts of focus / blur) so a focused
+    // scrubber slider keeps the bar visible without each focusable child
+    // needing its own listener. The parent element is captured in
+    // `scrubberArea` (set during the recompute closure setup).
+    if (scrubberArea) {
+      scrubberArea.addEventListener('mouseenter', () => {
+        scrubberHovered = true;
+        recomputeScrubberVisibility();
+      });
+      scrubberArea.addEventListener('mouseleave', () => {
+        scrubberHovered = false;
+        recomputeScrubberVisibility();
+      });
+      scrubberArea.addEventListener('focusin', () => {
+        scrubberFocused = true;
+        recomputeScrubberVisibility();
+      });
+      scrubberArea.addEventListener('focusout', () => {
+        scrubberFocused = false;
+        recomputeScrubberVisibility();
+      });
+    }
     scrubber.addEventListener('input', () => {
       if (!engine) return;
       const raw = Number(scrubber.value);

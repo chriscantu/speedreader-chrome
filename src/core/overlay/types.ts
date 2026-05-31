@@ -59,6 +59,20 @@ export interface OverlaySettings {
    * mode (engine emits `chunk` events with sentence-boundary respect).
    */
   chunkSize?: 1 | 2 | 3;
+  /**
+   * Word alignment (#52). `'orp'` (default) drives a 3-column CSS grid
+   * on each word-run so the ORP focus character anchors at the same
+   * horizontal position across successive words (matches Spritz / Reedy
+   * presentation). `'center'` reverts to centered inline layout (the
+   * pre-#52 behaviour and Spreeder / Velocity presentation).
+   *
+   * Optional so existing callers and tests that pre-date this field
+   * continue to type-check — overlay treats `undefined` as `'orp'`. The
+   * resolved value is written to the host `data-alignment` attribute,
+   * which `styles.ts` consumes via `:host([data-alignment="…"])`
+   * selectors. Live updates land via `subscribeSettings`.
+   */
+  alignment?: 'orp' | 'center';
 }
 
 export type SettingsSubscriber = (s: OverlaySettings) => void;
