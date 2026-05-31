@@ -60,6 +60,18 @@ let adapter: ReturnType<typeof createMemoryAdapter>;
 let store: ReadingPositionStore;
 let now: number;
 
+/**
+ * Test helper: every URL these tests pass in is a valid https URL, so
+ * `positionKey` always returns a string. Throwing on null surfaces a
+ * test-data typo instead of letting the assertion downstream blow up
+ * with a confusing message.
+ */
+function keyOf(url: string): string {
+  const k = positionKey(url);
+  if (k === null) throw new Error(`test setup error — positionKey null for ${url}`);
+  return k;
+}
+
 beforeEach(() => {
   adapter = createMemoryAdapter();
   now = 1_700_000_000_000;
@@ -101,7 +113,7 @@ describe('reading-position store — write + read round-trip', () => {
 
   test('persists a schema version on the stored payload (forward-compat)', async () => {
     await store.write('https://example.com/a', { wordIndex: 1, totalWords: 2 });
-    const raw = adapter.snapshot()[positionKey('https://example.com/a')] as {
+    const raw = adapter.snapshot()[keyOf('https://example.com/a')] as {
       schemaVersion: number;
     };
     expect(raw.schemaVersion).toBe(POSITION_SCHEMA_VERSION);
@@ -148,7 +160,7 @@ describe('reading-position store — LRU eviction at cap', () => {
     // Index must also reflect the eviction.
     const index = (await adapter.get([POSITION_INDEX_KEY]))[POSITION_INDEX_KEY] as string[];
     expect(index).toHaveLength(POSITION_LRU_MAX);
-    expect(index).not.toContain(positionKey('https://example.com/article-0'));
+    expect(index).not.toContain(keyOf('https://example.com/article-0'));
   });
 
   test('overwriting an existing URL does NOT count as a new LRU slot', async () => {
@@ -182,7 +194,7 @@ describe('reading-position store — touch reorders LRU without changing positio
 
     const index = (await adapter.get([POSITION_INDEX_KEY]))[POSITION_INDEX_KEY] as string[];
     // The touched URL should be at the END of the index (most-recent).
-    expect(index[index.length - 1]).toBe(positionKey('https://example.com/old'));
+    expect(index[index.length - 1]).toBe(keyOf('https://example.com/old'));
     // Position data unchanged — only lastReadAt moves.
     const got = await store.read('https://example.com/old');
     expect(got).toEqual({ wordIndex: 1, totalWords: 10, lastReadAt: now });
@@ -255,7 +267,7 @@ describe('reading-position store — canonicalization is applied on every API', 
 
 describe('reading-position store — schema version guard', () => {
   test('reads with a future schemaVersion are ignored (forward-incompat payload)', async () => {
-    const key = positionKey('https://example.com/a');
+    const key = keyOf('https://example.com/a');
     await adapter.set({
       [key]: {
         schemaVersion: POSITION_SCHEMA_VERSION + 1,
@@ -269,11 +281,254 @@ describe('reading-position store — schema version guard', () => {
   });
 
   test('reads of malformed payloads silently return undefined (not throw)', async () => {
-    const key = positionKey('https://example.com/a');
+    const key = keyOf('https://example.com/a');
     await adapter.set({
       [key]: { totally: 'wrong shape' },
       [POSITION_INDEX_KEY]: [key],
     });
     expect(await store.read('https://example.com/a')).toBeUndefined();
+  });
+
+  test('write does NOT clobber a stored record carrying a higher schemaVersion (downgrade preserve)', async () => {
+    // Pre-populate with a v2 (future) record. Index points at it.
+    const key = keyOf('https://example.com/future');
+    const futureRecord = {
+      schemaVersion: POSITION_SCHEMA_VERSION + 1,
+      wordIndex: 999,
+      totalWords: 1234,
+      lastReadAt: now,
+      // A field a hypothetical v2 might add — preserved as-is.
+      futureExtraField: 'newer-build-data',
+    };
+    await adapter.set({
+      [key]: futureRecord,
+      [POSITION_INDEX_KEY]: [key],
+    });
+
+    // A v1 (downgrade) build tries to write the same URL — must be a
+    // silent no-op so the newer record survives.
+    await store.write('https://example.com/future', { wordIndex: 7, totalWords: 50 });
+
+    const snap = adapter.snapshot();
+    expect(snap[key]).toEqual(futureRecord);
+    // Index must not be modified — no LRU promotion for an aborted write.
+    expect(snap[POSITION_INDEX_KEY]).toEqual([key]);
+  });
+
+  test('touch does NOT clobber a stored record carrying a higher schemaVersion', async () => {
+    const key = keyOf('https://example.com/future');
+    const futureRecord = {
+      schemaVersion: POSITION_SCHEMA_VERSION + 1,
+      wordIndex: 5,
+      totalWords: 10,
+      lastReadAt: now,
+    };
+    await adapter.set({
+      [key]: futureRecord,
+      [POSITION_INDEX_KEY]: [key],
+    });
+
+    await store.touch('https://example.com/future');
+    expect(adapter.snapshot()[key]).toEqual(futureRecord);
+  });
+});
+
+describe('reading-position store — non-canonicalizable URLs skip persistence', () => {
+  test.each([
+    ['javascript:alert(1)'],
+    ['data:text/plain,hello'],
+    ['chrome-extension://abcdefghijklmnopabcdefghijklmnop/popup.html'],
+    ['file:///tmp/x'],
+    ['about:blank'],
+    ['ws://example.com/'],
+    ['not a url'],
+  ])('write on %s is a no-op', async (url) => {
+    await store.write(url, { wordIndex: 1, totalWords: 10 });
+    const snap = adapter.snapshot();
+    // No keys at all should have been written — neither a payload nor
+    // the index.
+    expect(Object.keys(snap)).toHaveLength(0);
+  });
+
+  test('read on a non-canonicalizable URL returns undefined without touching the adapter', async () => {
+    expect(await store.read('javascript:alert(1)')).toBeUndefined();
+    expect(await store.read('chrome://settings/')).toBeUndefined();
+    // Adapter state unchanged.
+    expect(Object.keys(adapter.snapshot())).toHaveLength(0);
+  });
+
+  test('clear on a non-canonicalizable URL is a no-op', async () => {
+    await expect(store.clear('javascript:alert(1)')).resolves.toBeUndefined();
+    expect(Object.keys(adapter.snapshot())).toHaveLength(0);
+  });
+
+  test('touch on a non-canonicalizable URL is a no-op', async () => {
+    await expect(store.touch('javascript:alert(1)')).resolves.toBeUndefined();
+    expect(Object.keys(adapter.snapshot())).toHaveLength(0);
+  });
+
+  test('valid https URL still writes through after the guard', async () => {
+    await store.write('https://example.com/a', { wordIndex: 3, totalWords: 30 });
+    expect(await store.read('https://example.com/a')).toEqual({
+      wordIndex: 3,
+      totalWords: 30,
+      lastReadAt: now,
+    });
+  });
+});
+
+describe('reading-position store — concurrent writes serialize through the queue', () => {
+  test('10 concurrent writes for distinct URLs all land in the index with no corruption', async () => {
+    // Adapter with a deterministic delay between the get() and set()
+    // phases — this is the window that would let two concurrent writes
+    // each compute filtered = [] and end up overwriting each other's
+    // index update if mutations weren't serialised.
+    const map = new Map<string, unknown>();
+    let getCount = 0;
+    const slowAdapter: StorageAdapter = {
+      async get(keys) {
+        // First call (and every odd call) yields to the microtask queue
+        // BEFORE returning, mimicking an adapter where get() resolves
+        // asynchronously after a tick — long enough for a concurrent
+        // dispatch to interleave under a non-serialised implementation.
+        getCount++;
+        if (getCount % 1 === 0) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        }
+        const out: Record<string, unknown> = {};
+        for (const k of keys) {
+          if (map.has(k)) out[k] = structuredClone(map.get(k));
+        }
+        return out;
+      },
+      async set(items) {
+        // Set also yields so the race window spans the entire
+        // read-modify-write cycle.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        for (const [k, v] of Object.entries(items)) {
+          map.set(k, structuredClone(v));
+        }
+      },
+      async remove(keys) {
+        for (const k of keys) map.delete(k);
+      },
+    };
+
+    const slowStore = createReadingPositionStore({
+      adapter: slowAdapter,
+      now: () => now,
+    });
+
+    // Dispatch all 10 writes WITHOUT awaiting between them — this is
+    // the race the queue is supposed to prevent.
+    const pending: Array<Promise<void>> = [];
+    for (let i = 0; i < 10; i++) {
+      pending.push(
+        slowStore.write(`https://example.com/article-${i}`, {
+          wordIndex: i + 1,
+          totalWords: 100,
+        }),
+      );
+    }
+    await Promise.all(pending);
+
+    // Index must carry every URL, in insertion order (the queue
+    // preserves dispatch order).
+    const index = (await slowAdapter.get([POSITION_INDEX_KEY]))[POSITION_INDEX_KEY] as string[];
+    expect(index).toHaveLength(10);
+    for (let i = 0; i < 10; i++) {
+      expect(index[i]).toBe(keyOf(`https://example.com/article-${i}`));
+    }
+
+    // Every payload must be readable.
+    for (let i = 0; i < 10; i++) {
+      const got = await slowStore.read(`https://example.com/article-${i}`);
+      expect(got?.wordIndex).toBe(i + 1);
+    }
+  });
+});
+
+describe('reading-position store — list()', () => {
+  test('returns empty array when no entries exist', async () => {
+    expect(await store.list()).toEqual([]);
+  });
+
+  test('returns entries in LRU order, most-recent first', async () => {
+    await store.write('https://example.com/oldest', { wordIndex: 1, totalWords: 10 });
+    now += 1_000;
+    await store.write('https://example.com/middle', { wordIndex: 2, totalWords: 10 });
+    now += 1_000;
+    await store.write('https://example.com/newest', { wordIndex: 3, totalWords: 10 });
+
+    const got = await store.list();
+    expect(got).toHaveLength(3);
+    expect(got[0].url).toBe('https://example.com/newest');
+    expect(got[0].position.wordIndex).toBe(3);
+    expect(got[1].url).toBe('https://example.com/middle');
+    expect(got[2].url).toBe('https://example.com/oldest');
+  });
+
+  test('reflects touch — touched entry moves to the front of list output', async () => {
+    await store.write('https://example.com/a', { wordIndex: 1, totalWords: 10 });
+    now += 1_000;
+    await store.write('https://example.com/b', { wordIndex: 2, totalWords: 10 });
+    now += 1_000;
+    await store.touch('https://example.com/a');
+
+    const got = await store.list();
+    expect(got[0].url).toBe('https://example.com/a');
+    expect(got[1].url).toBe('https://example.com/b');
+  });
+
+  test('skips malformed records silently (does not throw)', async () => {
+    const goodKey = keyOf('https://example.com/good');
+    const badKey = keyOf('https://example.com/bad');
+    await adapter.set({
+      [goodKey]: {
+        schemaVersion: POSITION_SCHEMA_VERSION,
+        wordIndex: 5,
+        totalWords: 50,
+        lastReadAt: now,
+      },
+      [badKey]: { totally: 'wrong' },
+      [POSITION_INDEX_KEY]: [badKey, goodKey],
+    });
+
+    const got = await store.list();
+    expect(got).toHaveLength(1);
+    expect(got[0].url).toBe('https://example.com/good');
+  });
+});
+
+describe('reading-position store — clearAll()', () => {
+  test('removes every persisted position and the index', async () => {
+    await store.write('https://example.com/a', { wordIndex: 1, totalWords: 10 });
+    await store.write('https://example.com/b', { wordIndex: 2, totalWords: 10 });
+    await store.write('https://example.com/c', { wordIndex: 3, totalWords: 10 });
+
+    await store.clearAll();
+
+    expect(await store.read('https://example.com/a')).toBeUndefined();
+    expect(await store.read('https://example.com/b')).toBeUndefined();
+    expect(await store.read('https://example.com/c')).toBeUndefined();
+    expect(await store.list()).toEqual([]);
+
+    // Adapter snapshot — no position:* keys, no index.
+    const snap = adapter.snapshot();
+    expect(Object.keys(snap)).toHaveLength(0);
+  });
+
+  test('clearAll on an empty store is a no-op (does not throw)', async () => {
+    await expect(store.clearAll()).resolves.toBeUndefined();
+  });
+
+  test('clearAll leaves unrelated adapter keys untouched', async () => {
+    await adapter.set({ 'unrelated-key': { keep: true } });
+    await store.write('https://example.com/a', { wordIndex: 1, totalWords: 10 });
+
+    await store.clearAll();
+
+    const snap = adapter.snapshot();
+    expect(snap['unrelated-key']).toEqual({ keep: true });
   });
 });

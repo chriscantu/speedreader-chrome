@@ -48,6 +48,16 @@ let activeOverlay: OverlayHandle | null = null;
 // hygiene measure.
 const positionStore = createChromePositionStore();
 
+// #48 — single module-load warn when the local-storage surface is
+// missing (test harnesses, non-MV3 hosts). Matches the
+// `chrome.runtime.getURL` branch below — emit ONCE so per-mount
+// retries don't spam the console.
+if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+  console.warn(
+    '[speedreader] chrome.storage.local unavailable, reading-position persistence disabled',
+  );
+}
+
 /**
  * #48 — debounce reading-position writes. The overlay emits an
  * `onWordAdvance` callback for every word event (~10 Hz at 600 wpm).
@@ -97,6 +107,49 @@ function flushPendingPositionWrite(): void {
     .catch((err: unknown) => {
       console.warn('[speedreader] reading-position flush failed', err);
     });
+}
+
+/**
+ * #48 — flush hooks for tab teardown. The browser fires `pagehide`
+ * when the tab navigates away, closes, or enters the back-forward
+ * cache; `visibilitychange` with `document.visibilityState === 'hidden'`
+ * fires when the user switches tabs / minimises the window AND covers
+ * the iOS-Safari case where `pagehide` is the only signal. Catch both
+ * so an article the user just stepped away from has its latest
+ * position pinned before any debounce timer would have fired.
+ *
+ * These are NOT awaited — fire-and-forget is correct here. We can't
+ * meaningfully delay tab unload, and the SW (via `chrome.storage.local`)
+ * will queue the IDB write into its own lifecycle. Tracked separately
+ * by #195: a future SW-owned store may upgrade this to a message-port
+ * `dispatch+ack` if eviction proves to drop writes in the wild.
+ *
+ * Listeners attach on first overlay mount and detach on overlay
+ * teardown so the content script (which outlives the overlay across
+ * close/reopen cycles) doesn't leak handlers across mounts.
+ */
+let positionFlushListenersAttached = false;
+function onVisibilityChange(): void {
+  if (document.visibilityState === 'hidden') {
+    flushPendingPositionWrite();
+  }
+}
+function onPageHide(): void {
+  flushPendingPositionWrite();
+}
+function attachPositionFlushListeners(): void {
+  if (positionFlushListenersAttached) return;
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('pagehide', onPageHide);
+  positionFlushListenersAttached = true;
+}
+function detachPositionFlushListeners(): void {
+  if (!positionFlushListenersAttached) return;
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  document.removeEventListener('visibilitychange', onVisibilityChange);
+  window.removeEventListener('pagehide', onPageHide);
+  positionFlushListenersAttached = false;
 }
 
 /**
@@ -176,10 +229,14 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
         // The chrome.storage.local guard handles test harnesses + non-MV3
         // host environments that stub a partial `chrome` surface without
         // the local namespace; the persistence path silently degrades
-        // when storage is unavailable rather than firing a console
-        // warning on every mount.
+        // when storage is unavailable. The single module-load warn at
+        // the top of the file leaves a breadcrumb without spamming
+        // per-mount.
         const pageUrl = window.location.href;
         const persistAvailable = !!chrome.storage?.local;
+        if (persistAvailable && scope === 'full') {
+          attachPositionFlushListeners();
+        }
         let persistentResume: number | undefined;
         if (persistAvailable && scope === 'full' && sessionResume === undefined) {
           try {
@@ -297,6 +354,14 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             // the page may unload. setTimeout(0) inside flush would
             // race; we call the store directly.
             flushPendingPositionWrite();
+            // Drop the visibility / pagehide listeners — the content
+            // script outlives the overlay across close/reopen cycles,
+            // so leaving them attached would (a) hold dead closures
+            // referencing this mount's `pageUrl` and (b) re-fire the
+            // flush every time the user backgrounds the tab, even
+            // with no overlay active. They're re-attached on the next
+            // mount.
+            detachPositionFlushListeners();
           },
           // Font-size stepper (#29) — overlay clamps to FONT_SIZE_MIN/MAX
           // before invoking. saveSettings is debounced (300 ms trailing

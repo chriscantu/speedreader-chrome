@@ -181,6 +181,13 @@ export interface OverlayOptions {
    * `chrome.storage.local` so a later visit can resume. Optional —
    * omitting it disables persistence; the overlay still operates
    * normally.
+   *
+   * Invoked only on full-scope mounts; selection-scope mounts do not
+   * persist position because selection text does not survive
+   * navigation. The host wires `onWordAdvance` only when
+   * `scope === 'full'` — passing it for a selection-scope mount has
+   * no defined meaning and may be removed by a future contract
+   * cleanup.
    */
   onWordAdvance?: (index: number, total: number) => void;
   /**
