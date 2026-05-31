@@ -3,13 +3,13 @@ import type { ThemeId } from '../theme';
 import type { FontId } from './font-ids';
 
 /**
- * Settings slice the overlay binds to. The wider SettingsV5 is not imported
+ * Settings slice the overlay binds to. The wider SettingsV6 is not imported
  * here so `core/overlay` stays portable (no transitive dependency on the
  * Chrome storage shape).
  *
  * `theme` extends `ThemeId` with `'system'` — the concrete-theme enum
  * covers the six design-pack values; `'system'` resolves at mount time via
- * `prefers-color-scheme` matching `SettingsV5.theme` (which includes
+ * `prefers-color-scheme` matching `SettingsV6.theme` (which includes
  * `'system'` as the auto-detect sentinel). Keeping the sentinel here avoids
  * callers having to pre-resolve before constructing the overlay.
  */
@@ -50,6 +50,15 @@ export interface OverlaySettings {
    * family stacks in `styles.ts`.
    */
   font?: FontId;
+  /**
+   * Multi-word chunk display (#51). Forwarded to the engine factory at
+   * mount time AND on every `subscribeSettings` emission — the overlay
+   * calls `engine.setChunkSize(next)` so live updates apply mid-session
+   * without re-mounting (architect MED #2). `1` (or undefined) keeps
+   * today's single-word emission; `2` or `3` enables multi-word chunk
+   * mode (engine emits `chunk` events with sentence-boundary respect).
+   */
+  chunkSize?: 1 | 2 | 3;
 }
 
 export type SettingsSubscriber = (s: OverlaySettings) => void;
@@ -188,6 +197,19 @@ export interface OverlayOptions {
    * `scope === 'full'` — passing it for a selection-scope mount has
    * no defined meaning and may be removed by a future contract
    * cleanup.
+   *
+   * Axis note (#51 chunk mode): in chunk mode (`chunkSize >= 2`),
+   * `index` and `total` index into the engine's RAW token axis —
+   * the same axis as `WordToken.rawIndex`, which INCLUDES paragraph
+   * sentinels (`'\n\n'`) and dash tokens (`'—'` / `'–'`) — NOT the
+   * filtered-word axis used by earlier API revisions. For a stream
+   * with no structural tokens the two axes collapse to identical
+   * counts; with paragraph / dash tokens interleaved the raw axis
+   * is larger. Word mode (`chunkSize === 1` or undefined) keeps the
+   * pre-existing per-emission progress shape (still raw-axis but
+   * identical to filtered-word counts because word mode iterates
+   * the raw stream directly). Host persistence keyed on this value
+   * must use the same axis on both write and read.
    */
   onWordAdvance?: (index: number, total: number) => void;
   /**

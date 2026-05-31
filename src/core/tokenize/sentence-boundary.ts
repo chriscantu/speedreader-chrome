@@ -17,6 +17,16 @@
  * - `sentenceStart` and `sentenceEnd` live ONLY on `kind: 'word'` tokens.
  * - `paragraph.text` is always the literal `'\n\n'`.
  * - `dash.text` is always `'—'` (em) or `'–'` (en).
+ * - `rawIndex` (on `kind: 'word'`) is the 0-based position of the token in
+ *   the SOURCE token array passed to `markSentenceBoundaries` — INCLUDING
+ *   paragraph + dash tokens. Lets downstream consumers (chunk builder,
+ *   engine seek logic) keep a single canonical "raw word axis" so that
+ *   `word.rawIndex === engine.nextIndex` and `chunk.startIndex ===
+ *   word.rawIndex` for the chunk's first word. Without this field
+ *   chunk-mode indices key to local filtered-word positions, which
+ *   diverge from the raw axis for any article with non-word tokens
+ *   (issue #51 architect HIGH — would break #47 scrubber + #48 cross-mode
+ *   position persistence).
  *
  * Sequential invariants (NOT encoded in the type; held by
  * `markSentenceBoundaries` and verified by tests):
@@ -24,13 +34,21 @@
  * - The first `kind: 'word'` token after a `kind: 'paragraph'` has `sentenceStart: true`.
  * - The next `kind: 'word'` after a word with `sentenceEnd: true` has `sentenceStart: true`.
  * - `markSentenceBoundaries(tokens).length === tokens.length` — the helper is a 1:1 mapping.
+ * - `out[i].rawIndex === i` for every `kind: 'word'` token (1:1 mapping
+ *   preserves source positions).
  *
  * Encoding the sequential invariants in the type would require dependent-type
  * shapes (non-empty-list witnesses, etc.) that burden every consumer with
  * destructuring. The producer + tests carry those invariants instead.
  */
 export type MarkedToken =
-  | { kind: 'word'; text: string; sentenceStart: boolean; sentenceEnd: boolean }
+  | {
+      kind: 'word';
+      text: string;
+      sentenceStart: boolean;
+      sentenceEnd: boolean;
+      rawIndex: number;
+    }
   | { kind: 'paragraph'; text: '\n\n' }
   | { kind: 'dash'; text: '—' | '–' };
 
@@ -66,7 +84,8 @@ export function markSentenceBoundaries(tokens: string[]): MarkedToken[] {
   const out: MarkedToken[] = [];
   let nextWordStartsSentence = true;
 
-  for (const token of tokens) {
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
     if (token === PARAGRAPH_SENTINEL) {
       out.push({ kind: 'paragraph', text: PARAGRAPH_SENTINEL });
       nextWordStartsSentence = true;
@@ -82,6 +101,11 @@ export function markSentenceBoundaries(tokens: string[]): MarkedToken[] {
       text: token,
       sentenceStart: nextWordStartsSentence,
       sentenceEnd: wordEnds,
+      // rawIndex pins each word token to its position in the source
+      // array (includes paragraph + dash tokens) so consumers that
+      // need to map a word token back to the engine's raw-word axis
+      // (chunk builder, seek logic) can do so without re-walking.
+      rawIndex: i,
     });
     nextWordStartsSentence = wordEnds;
   }
