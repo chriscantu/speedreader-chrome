@@ -36,10 +36,68 @@ import { loadSettings, saveSettings, subscribeSettings } from '../settings/stora
 import { tokenize } from '../../core/tokenize';
 import { recordClose, resumeIndex } from './session-position';
 import { resolveFontId } from '../../core/overlay/font-ids';
+import { createChromePositionStore } from '../storage/chrome-position-store';
 
 console.log('[SpeedReader] Content script loaded');
 
 let activeOverlay: OverlayHandle | null = null;
+
+// #48 — persistent per-URL reading-position store. Module-scoped so a
+// fresh activation reuses the same chrome.storage.local adapter. The
+// store itself is stateless; the singleton is just an allocation
+// hygiene measure.
+const positionStore = createChromePositionStore();
+
+/**
+ * #48 — debounce reading-position writes. The overlay emits an
+ * `onWordAdvance` callback for every word event (~10 Hz at 600 wpm).
+ * `chrome.storage.local` has no published per-minute write quota the
+ * way `.sync` does, but writing 10×/sec for the duration of a long
+ * article is wasteful disk I/O. A 1 s trailing-edge debounce keeps
+ * the on-disk position no more than a second stale, which is well
+ * within the resume-experience floor.
+ */
+const POSITION_WRITE_DEBOUNCE_MS = 1_000;
+
+interface PendingWrite {
+  url: string;
+  wordIndex: number;
+  totalWords: number;
+}
+
+let pendingWrite: PendingWrite | null = null;
+let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+
+function schedulePositionWrite(write: PendingWrite): void {
+  pendingWrite = write;
+  if (pendingTimer !== null) clearTimeout(pendingTimer);
+  pendingTimer = setTimeout(() => {
+    pendingTimer = null;
+    const w = pendingWrite;
+    pendingWrite = null;
+    if (!w) return;
+    positionStore
+      .write(w.url, { wordIndex: w.wordIndex, totalWords: w.totalWords })
+      .catch((err: unknown) => {
+        console.warn('[speedreader] reading-position write failed', err);
+      });
+  }, POSITION_WRITE_DEBOUNCE_MS);
+}
+
+function flushPendingPositionWrite(): void {
+  if (pendingTimer !== null) {
+    clearTimeout(pendingTimer);
+    pendingTimer = null;
+  }
+  const w = pendingWrite;
+  pendingWrite = null;
+  if (!w) return;
+  positionStore
+    .write(w.url, { wordIndex: w.wordIndex, totalWords: w.totalWords })
+    .catch((err: unknown) => {
+      console.warn('[speedreader] reading-position flush failed', err);
+    });
+}
 
 /**
  * Issue #142 — resident-cost trade-off (surfaced by the antagonistic-ring
@@ -106,7 +164,34 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
         // stream length so a mutated page falls back to start-of-stream
         // rather than seeking into a stale offset.
         const activeStreamLength = scope === 'selection' ? selectionWords.length : fullWords.length;
-        const initialIndex = resumeIndex(scope, activeStreamLength);
+        const sessionResume = resumeIndex(scope, activeStreamLength);
+
+        // #48 — persistent per-URL resume. Only applies to full-article
+        // mounts; selection scope is a per-session ephemeral construct
+        // (the selection itself doesn't survive page navigation, so a
+        // persisted selection position cannot be replayed). The
+        // in-session sessionResume above still handles selection-scope
+        // close/reopen within the same content-script lifetime.
+        //
+        // The chrome.storage.local guard handles test harnesses + non-MV3
+        // host environments that stub a partial `chrome` surface without
+        // the local namespace; the persistence path silently degrades
+        // when storage is unavailable rather than firing a console
+        // warning on every mount.
+        const pageUrl = window.location.href;
+        const persistAvailable = !!chrome.storage?.local;
+        let persistentResume: number | undefined;
+        if (persistAvailable && scope === 'full' && sessionResume === undefined) {
+          try {
+            const saved = await positionStore.read(pageUrl);
+            if (saved !== undefined && saved.wordIndex > 0 && saved.wordIndex < fullWords.length) {
+              persistentResume = saved.wordIndex;
+            }
+          } catch (err: unknown) {
+            console.warn('[speedreader] reading-position read failed', err);
+          }
+        }
+        const initialIndex = sessionResume ?? persistentResume;
         activeOverlay = createOverlay({
           doc: document,
           // Legacy single-list field retained for the type contract; the
@@ -163,9 +248,55 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             return chrome.runtime.getURL('fonts/OpenDyslexic-Regular.woff2');
           })(),
           engineFactory: createRsvpEngine,
+          // #48 — toast the persistent resume so the user knows their
+          // position was restored AND has a one-click escape hatch to
+          // start the article over. We pass the toast ONLY when the
+          // persistent path supplied the index — session-resume (#25)
+          // happens silently within the same page lifetime where the
+          // user implicitly knows they just closed and reopened.
+          resumeToast:
+            persistentResume !== undefined
+              ? {
+                  totalWords: fullWords.length,
+                  onStartOver: () => {
+                    // Drop the persisted position so the next visit
+                    // starts fresh. Cancel any pending write so the
+                    // debounced flush doesn't immediately re-create
+                    // the entry against the rewound index.
+                    if (pendingTimer !== null) {
+                      clearTimeout(pendingTimer);
+                      pendingTimer = null;
+                    }
+                    pendingWrite = null;
+                    positionStore.clear(pageUrl).catch((err: unknown) => {
+                      console.warn('[speedreader] reading-position clear failed', err);
+                    });
+                  },
+                }
+              : undefined,
+          // #48 — per-word advance. Only persisted for full-scope
+          // mounts (selection-scope positions cannot be replayed across
+          // navigation). The store is keyed by canonical URL so utm
+          // tags, fragments, and host casing all collapse into one
+          // slot. Writes are debounced so we land at most one set per
+          // second; closing the overlay flushes any pending write.
+          onWordAdvance:
+            persistAvailable && scope === 'full'
+              ? (index, total) => {
+                  schedulePositionWrite({
+                    url: pageUrl,
+                    wordIndex: index,
+                    totalWords: total,
+                  });
+                }
+              : undefined,
           onClose: (snapshot) => {
             activeOverlay = null;
             recordClose(snapshot);
+            // #48 — flush any pending debounced position write before
+            // the page may unload. setTimeout(0) inside flush would
+            // race; we call the store directly.
+            flushPendingPositionWrite();
           },
           // Font-size stepper (#29) — overlay clamps to FONT_SIZE_MIN/MAX
           // before invoking. saveSettings is debounced (300 ms trailing

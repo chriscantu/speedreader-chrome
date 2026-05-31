@@ -64,6 +64,7 @@ export default defineConfig({
       'src/chrome/content/**/__tests__/**/*.test.ts',
       'src/chrome/options/**/__tests__/**/*.test.ts',
       'src/chrome/popup/**/__tests__/**/*.test.ts',
+      'src/chrome/storage/**/__tests__/**/*.test.ts',
       'src/chrome/welcome/**/__tests__/**/*.test.ts',
     ],
     exclude: ['node_modules/**', 'dist/**'],

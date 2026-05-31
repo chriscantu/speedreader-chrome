@@ -134,6 +134,10 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
   // theme between `'system'` and an explicit override.
   let uninstallSystemThemeListener: (() => void) | null = null;
   let priorOverflow: string | null = null;
+  // #48 — toast auto-dismiss timer. Hoisted so unmount can clear it if
+  // the user closes the overlay inside the 5 s window (otherwise the
+  // setTimeout pins the removed shadow root + toast node until it fires).
+  let resumeToastTimer: ReturnType<typeof setTimeout> | null = null;
   // Lifted into the outer closure so `unmount()` can build the close
   // snapshot for `onClose` (#25). Reassigned on scope-swap so the
   // snapshot reflects the active stream at close time, not the mount
@@ -587,6 +591,15 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       if (ev.type === 'word') {
         renderWord(word, ev.word);
         ariaLive.textContent = ev.word;
+        // #48 — emit the post-emit 1-based progress count so the host can
+        // persist it. Reading `engine.progress().index` AFTER the emit
+        // matches the persistence semantics: closing after the last word
+        // stores `wordIndex === totalWords`, which the resume check then
+        // treats as "finished, start fresh."
+        if (opts.onWordAdvance && engine) {
+          const p = engine.progress();
+          opts.onWordAdvance(p.index, p.total);
+        }
         // Only re-render the preview if the just-emitted word landed
         // while the engine was already paused (paused-state seekTo emits
         // a replacement `word` event — see RsvpEngine.seekTo docs). On
@@ -613,13 +626,15 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // conditional is here so we skip the no-op when there's nothing to
     // restore.
     const resume = opts.initialIndex;
-    if (
+    const resumedAt: number | null =
       typeof resume === 'number' &&
       Number.isInteger(resume) &&
       resume > 0 &&
       resume < engineWords.length
-    ) {
-      engine.seekTo(resume);
+        ? resume
+        : null;
+    if (resumedAt !== null) {
+      engine.seekTo(resumedAt);
     }
     engine.start();
     if (scopeView?.fallback === 'empty-selection') {
@@ -631,6 +646,61 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     }
     reflectEngineState();
     renderPreview();
+
+    // #48 — resume toast. Only renders when the mount actually resumed
+    // AND the caller opted in via `resumeToast`. The toast lives inside
+    // the modal as a `role="status"` chip so it announces politely
+    // alongside the visible chip. Auto-dismisses after 5 s; Start Over
+    // rewinds the engine to word 0 and invokes `onStartOver` so the
+    // host can clear the persisted entry.
+    if (resumedAt !== null && opts.resumeToast) {
+      const toast = opts.doc.createElement('div');
+      toast.className = OVERLAY_CLASS.RESUME_TOAST;
+      toast.setAttribute('role', 'status');
+      toast.setAttribute('aria-live', 'polite');
+      // Custom data attribute pins the element for tests + the Start Over
+      // descendant selector without depending on the visual class name.
+      toast.setAttribute('data-sr-resume-toast', '');
+
+      const label = opts.doc.createElement('span');
+      label.textContent = OVERLAY_TEXT.resumeToast(resumedAt, opts.resumeToast.totalWords);
+      toast.appendChild(label);
+
+      const startOver = opts.doc.createElement('button');
+      startOver.type = 'button';
+      startOver.className = OVERLAY_CLASS.RESUME_TOAST_BTN;
+      startOver.setAttribute('data-sr-start-over', '');
+      startOver.textContent = OVERLAY_TEXT.RESUME_TOAST_START_OVER;
+      toast.appendChild(startOver);
+
+      const onStartOverCb = opts.resumeToast.onStartOver;
+      const dismissToast = (): void => {
+        if (resumeToastTimer !== null) {
+          clearTimeout(resumeToastTimer);
+          resumeToastTimer = null;
+        }
+        toast.remove();
+      };
+      startOver.addEventListener('click', () => {
+        // Rewind the engine to word 0. seekTo(0) handles both PLAYING
+        // (clearPending + tick from 0) and PAUSED (replacement word
+        // event for words[0]) state transitions in-place, so we don't
+        // need a separate pause/start dance here.
+        engine?.seekTo(0);
+        dismissToast();
+        reflectEngineState();
+        onStartOverCb?.();
+      });
+
+      // Insert above the word region so the toast sits visually at the
+      // top of the reading surface without disturbing the dialog header.
+      word.parentNode?.insertBefore(toast, word);
+
+      resumeToastTimer = setTimeout(() => {
+        resumeToastTimer = null;
+        toast.remove();
+      }, OVERLAY_TEXT.RESUME_TOAST_DISMISS_MS);
+    }
 
     const togglePlayPause = (): void => {
       if (!engine) return;
@@ -847,6 +917,12 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
 
   function unmount(): void {
     if (status === 'unmounted') return;
+    // #48 — drop the toast auto-dismiss timer first so a late fire after
+    // unmount can't reach into a detached shadow root.
+    if (resumeToastTimer !== null) {
+      clearTimeout(resumeToastTimer);
+      resumeToastTimer = null;
+    }
     uninstallTrap?.();
     uninstallTrap = null;
     if (onKeydown) opts.doc.removeEventListener('keydown', onKeydown, true);
