@@ -19,6 +19,15 @@ export const OVERLAY_CLASS = Object.freeze({
   SCOPE_HEADER: 'scope-header',
   SCOPE_SUBTITLE: 'scope-subtitle',
   WORD_REGION: 'word-region',
+  /**
+   * Per-word wrapper inside `.word-region` (#52). Always present (one
+   * per word in single-word mode, N per chunk in chunk mode). Carries
+   * the 3-column ORP grid when `data-alignment="orp"` so each word's
+   * focus character anchors at the same horizontal position across
+   * successive runs. In chunk mode, multiple word-runs are separated
+   * by space text nodes inside `.word-region`.
+   */
+  WORD_RUN: 'word-run',
   ARIA_LIVE: 'aria-live',
   TRAP_SENTINEL: 'trap-sentinel',
   CLOSE_BTN: 'close-btn',
@@ -59,6 +68,14 @@ export const OVERLAY_ID = Object.freeze({
 /** HTML attribute names owned by the overlay (e.g., the host marker). */
 export const OVERLAY_ATTR = Object.freeze({
   HOST: 'data-speedreader-overlay',
+  /**
+   * Word alignment (#52). Written on the host element with values
+   * `'orp'` (default — 3-column ORP-aligned grid) or `'center'`
+   * (centered inline layout). `styles.ts` consumes via
+   * `:host([data-alignment="…"])` selectors. Matches the Safari
+   * upstream pattern (`docs/superpowers/specs/2026-04-04-orp-alignment-design.md`).
+   */
+  ALIGNMENT: 'data-alignment',
 });
 
 /**

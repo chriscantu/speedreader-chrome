@@ -276,6 +276,12 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             // reconstruction required); changes apply on next overlay
             // mount.
             chunkSize: settings.chunkSize,
+            // #52 PART A — ORP alignment. Drives the host
+            // `data-alignment` attribute that styles.ts consumes via
+            // `:host([data-alignment="…"])` selectors. Live-updated
+            // via subscribeSettings below so a user can toggle modes
+            // mid-session.
+            alignment: settings.alignment,
           },
           subscribeSettings: (listener) =>
             subscribeSettings((s) =>
@@ -286,6 +292,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
                 openDyslexic: s.openDyslexic,
                 font: resolveFontId(s),
                 chunkSize: s.chunkSize,
+                alignment: s.alignment,
               }),
             ),
           // OpenDyslexic font URL (#27, #10). `core/` cannot call

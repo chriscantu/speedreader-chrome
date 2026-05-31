@@ -286,6 +286,16 @@ export const OVERLAY_CSS = `
   inline-size: 100%;
   max-inline-size: 60ch;
   margin-inline: auto;
+  /* #52 PART D — auto-hide transition. Overlay JS toggles opacity +
+   * visibility + pointer-events inline; the 200ms ease-out transition
+   * here smooths the flip so the bar fades in/out rather than blinking.
+   * Visibility is transitioned alongside opacity so the bar becomes
+   * non-interactive at the right moment (visibility:hidden takes effect
+   * at the END of the transition for fade-out; the simultaneous
+   * pointer-events:none ensures input is blocked the instant hide
+   * begins). prefers-reduced-motion (below) drops the transition entirely
+   * so the flip is instant for users who opt out of motion. */
+  transition: opacity 200ms ease-out, visibility 200ms ease-out;
 }
 
 .scrubber-labels {
@@ -315,7 +325,24 @@ export const OVERLAY_CSS = `
 }
 
 .word-region {
+  /*
+   * Flex layout (#52 PART C) so multiple .word-run wrappers inside a
+   * chunk flow on one line separated by the space text nodes
+   * renderChunk injects. text-align: center is kept for legacy single-
+   * span content (e.g. tests that write textContent directly); the
+   * justify-content: center below is what actually centers the
+   * .word-run children produced by renderWord / renderChunk.
+   *
+   * Wrap so a long chunk on a narrow viewport breaks gracefully rather
+   * than overflowing the modal — flex-wrap keeps the modal width as the
+   * hard cap.
+   */
   text-align: center;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0 0.4ch;
   /*
    * When the in-modal A−/A+ stepper (#29) sets --rsvp-font-size as an
    * inline custom property, this font-size resolves to the user-chosen
@@ -332,6 +359,45 @@ export const OVERLAY_CSS = `
 
 .word-region .focus {
   color: var(--accent, #2563eb);
+}
+
+/* Word alignment (#52 PART A). Each word — single-word emission AND each
+ * word inside a chunk — is wrapped in a .word-run span. The
+ * data-alignment host attribute drives the per-run layout:
+ *
+ *   - "orp" (default, Safari upstream): 3-column grid where before /
+ *     focus / after sit in columns of width 1fr / auto / 1fr. The focus
+ *     character anchors at the same horizontal position across successive
+ *     runs so the eye doesn't micro-saccade between words. Matches the
+ *     Safari spec at docs/superpowers/specs/2026-04-04-orp-alignment-design.md.
+ *   - "center": inline layout (display: block on the run reverts the grid
+ *     and lets the centered .word-region parent center the inline
+ *     before/focus/after spans naturally).
+ *
+ * In chunk mode (chunkSize ≥ 2), multiple .word-run wrappers sit inside
+ * .word-region separated by space text nodes; the grid layout per-run
+ * keeps each word independently ORP-aligned (the chunk is read as a
+ * unit; cross-word column alignment is NOT a goal). */
+:host([data-alignment="orp"]) .word-run {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: baseline;
+}
+
+:host([data-alignment="orp"]) .word-run > span:first-child {
+  /* before — right-aligned so text flows TOWARD the focus column. */
+  text-align: end;
+}
+
+:host([data-alignment="orp"]) .word-run > span:last-child {
+  /* after — left-aligned so text flows AWAY from the focus column. */
+  text-align: start;
+}
+
+:host([data-alignment="center"]) .word-run {
+  /* Revert the grid; inline before/focus/after spans flow naturally
+   * inside the centered .word-region parent. */
+  display: block;
 }
 
 .aria-live {
@@ -454,6 +520,10 @@ export const OVERLAY_CSS = `
 
 @media (prefers-reduced-motion: reduce) {
   .backdrop, .modal { transition: none !important; animation: none !important; }
+  /* #52 PART D — drop the auto-hide fade for users who opt out of motion.
+   * The visibility / opacity flip still happens (the bar still hides on
+   * play, shows on pause/hover/focus), just instantly. */
+  .scrubber-area { transition: none !important; }
 }
 
 /*
