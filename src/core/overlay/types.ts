@@ -153,6 +153,44 @@ export interface OverlayOptions {
    */
   onWpmChange?: (next: number) => void;
   /**
+   * Resume toast (#48). When provided AND the mount actually resumes
+   * (i.e. `initialIndex` is a positive in-range integer), the overlay
+   * renders a non-blocking `role="status"` toast inside the shadow root
+   * with text "Resumed at word N of M" and a "Start over" link. The
+   * toast auto-dismisses after 5 s; clicking "Start over" rewinds the
+   * engine to word 0 and invokes `onStartOver` so the host can clear
+   * the persisted entry.
+   *
+   * Omitted when no resume is in flight — the toast must never render
+   * on a fresh first-time mount.
+   */
+  resumeToast?: {
+    /** Total words in the active stream (denominator of the toast). */
+    totalWords: number;
+    /**
+     * Called when the user clicks "Start over". The overlay has
+     * already rewound the engine; the callback exists so the host can
+     * delete the persisted position for the canonical URL.
+     */
+    onStartOver?: () => void;
+  };
+  /**
+   * Called on every `word` event with the post-emit progress index
+   * (1-based count of words consumed) and the active stream's total
+   * (#48). The host debounces and persists this value to
+   * `chrome.storage.local` so a later visit can resume. Optional —
+   * omitting it disables persistence; the overlay still operates
+   * normally.
+   *
+   * Invoked only on full-scope mounts; selection-scope mounts do not
+   * persist position because selection text does not survive
+   * navigation. The host wires `onWordAdvance` only when
+   * `scope === 'full'` — passing it for a selection-scope mount has
+   * no defined meaning and may be removed by a future contract
+   * cleanup.
+   */
+  onWordAdvance?: (index: number, total: number) => void;
+  /**
    * Absolute URL of the bundled OpenDyslexic woff2 (#27, #10). The chrome
    * glue resolves this via `chrome.runtime.getURL('fonts/...')` and passes
    * it in; `core/` cannot call `chrome.*`. When the URL is provided, the

@@ -33,6 +33,9 @@ export const OVERLAY_CLASS = Object.freeze({
   WPM_READOUT: 'wpm-readout',
   CONTEXT_PREVIEW: 'context-preview',
   CONTEXT_CURRENT: 'context-current',
+  /** Reading-position resume toast (#48). */
+  RESUME_TOAST: 'resume-toast',
+  RESUME_TOAST_BTN: 'resume-toast-start-over',
   /**
    * Modifier applied to `.modal` when the user has enabled OpenDyslexic
    * (#27). The CSS rule overrides `font-family` to the bundled
@@ -118,4 +121,11 @@ export const OVERLAY_TEXT = Object.freeze({
   expandedAnnouncement(totalWords: number): string {
     return `Expanded to full article. Restarting from word 1 of ${totalWords}. Paused.`;
   },
+
+  /** Reading-position resume toast template (#48). */
+  resumeToast(wordIndex: number, totalWords: number): string {
+    return `Resumed at word ${wordIndex} of ${totalWords}`;
+  },
+  RESUME_TOAST_START_OVER: 'Start over',
+  RESUME_TOAST_DISMISS_MS: 5_000,
 });

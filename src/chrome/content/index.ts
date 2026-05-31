@@ -36,10 +36,121 @@ import { loadSettings, saveSettings, subscribeSettings } from '../settings/stora
 import { tokenize } from '../../core/tokenize';
 import { recordClose, resumeIndex } from './session-position';
 import { resolveFontId } from '../../core/overlay/font-ids';
+import { createChromePositionStore } from '../storage/chrome-position-store';
 
 console.log('[SpeedReader] Content script loaded');
 
 let activeOverlay: OverlayHandle | null = null;
+
+// #48 — persistent per-URL reading-position store. Module-scoped so a
+// fresh activation reuses the same chrome.storage.local adapter. The
+// store itself is stateless; the singleton is just an allocation
+// hygiene measure.
+const positionStore = createChromePositionStore();
+
+// #48 — single module-load warn when the local-storage surface is
+// missing (test harnesses, non-MV3 hosts). Matches the
+// `chrome.runtime.getURL` branch below — emit ONCE so per-mount
+// retries don't spam the console.
+if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+  console.warn(
+    '[speedreader] chrome.storage.local unavailable, reading-position persistence disabled',
+  );
+}
+
+/**
+ * #48 — debounce reading-position writes. The overlay emits an
+ * `onWordAdvance` callback for every word event (~10 Hz at 600 wpm).
+ * `chrome.storage.local` has no published per-minute write quota the
+ * way `.sync` does, but writing 10×/sec for the duration of a long
+ * article is wasteful disk I/O. A 1 s trailing-edge debounce keeps
+ * the on-disk position no more than a second stale, which is well
+ * within the resume-experience floor.
+ */
+const POSITION_WRITE_DEBOUNCE_MS = 1_000;
+
+interface PendingWrite {
+  url: string;
+  wordIndex: number;
+  totalWords: number;
+}
+
+let pendingWrite: PendingWrite | null = null;
+let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+
+function schedulePositionWrite(write: PendingWrite): void {
+  pendingWrite = write;
+  if (pendingTimer !== null) clearTimeout(pendingTimer);
+  pendingTimer = setTimeout(() => {
+    pendingTimer = null;
+    const w = pendingWrite;
+    pendingWrite = null;
+    if (!w) return;
+    positionStore
+      .write(w.url, { wordIndex: w.wordIndex, totalWords: w.totalWords })
+      .catch((err: unknown) => {
+        console.warn('[speedreader] reading-position write failed', err);
+      });
+  }, POSITION_WRITE_DEBOUNCE_MS);
+}
+
+function flushPendingPositionWrite(): void {
+  if (pendingTimer !== null) {
+    clearTimeout(pendingTimer);
+    pendingTimer = null;
+  }
+  const w = pendingWrite;
+  pendingWrite = null;
+  if (!w) return;
+  positionStore
+    .write(w.url, { wordIndex: w.wordIndex, totalWords: w.totalWords })
+    .catch((err: unknown) => {
+      console.warn('[speedreader] reading-position flush failed', err);
+    });
+}
+
+/**
+ * #48 — flush hooks for tab teardown. The browser fires `pagehide`
+ * when the tab navigates away, closes, or enters the back-forward
+ * cache; `visibilitychange` with `document.visibilityState === 'hidden'`
+ * fires when the user switches tabs / minimises the window AND covers
+ * the iOS-Safari case where `pagehide` is the only signal. Catch both
+ * so an article the user just stepped away from has its latest
+ * position pinned before any debounce timer would have fired.
+ *
+ * These are NOT awaited — fire-and-forget is correct here. We can't
+ * meaningfully delay tab unload, and the SW (via `chrome.storage.local`)
+ * will queue the IDB write into its own lifecycle. Tracked separately
+ * by #195: a future SW-owned store may upgrade this to a message-port
+ * `dispatch+ack` if eviction proves to drop writes in the wild.
+ *
+ * Listeners attach on first overlay mount and detach on overlay
+ * teardown so the content script (which outlives the overlay across
+ * close/reopen cycles) doesn't leak handlers across mounts.
+ */
+let positionFlushListenersAttached = false;
+function onVisibilityChange(): void {
+  if (document.visibilityState === 'hidden') {
+    flushPendingPositionWrite();
+  }
+}
+function onPageHide(): void {
+  flushPendingPositionWrite();
+}
+function attachPositionFlushListeners(): void {
+  if (positionFlushListenersAttached) return;
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('pagehide', onPageHide);
+  positionFlushListenersAttached = true;
+}
+function detachPositionFlushListeners(): void {
+  if (!positionFlushListenersAttached) return;
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  document.removeEventListener('visibilitychange', onVisibilityChange);
+  window.removeEventListener('pagehide', onPageHide);
+  positionFlushListenersAttached = false;
+}
 
 /**
  * Issue #142 — resident-cost trade-off (surfaced by the antagonistic-ring
@@ -106,7 +217,38 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
         // stream length so a mutated page falls back to start-of-stream
         // rather than seeking into a stale offset.
         const activeStreamLength = scope === 'selection' ? selectionWords.length : fullWords.length;
-        const initialIndex = resumeIndex(scope, activeStreamLength);
+        const sessionResume = resumeIndex(scope, activeStreamLength);
+
+        // #48 — persistent per-URL resume. Only applies to full-article
+        // mounts; selection scope is a per-session ephemeral construct
+        // (the selection itself doesn't survive page navigation, so a
+        // persisted selection position cannot be replayed). The
+        // in-session sessionResume above still handles selection-scope
+        // close/reopen within the same content-script lifetime.
+        //
+        // The chrome.storage.local guard handles test harnesses + non-MV3
+        // host environments that stub a partial `chrome` surface without
+        // the local namespace; the persistence path silently degrades
+        // when storage is unavailable. The single module-load warn at
+        // the top of the file leaves a breadcrumb without spamming
+        // per-mount.
+        const pageUrl = window.location.href;
+        const persistAvailable = !!chrome.storage?.local;
+        if (persistAvailable && scope === 'full') {
+          attachPositionFlushListeners();
+        }
+        let persistentResume: number | undefined;
+        if (persistAvailable && scope === 'full' && sessionResume === undefined) {
+          try {
+            const saved = await positionStore.read(pageUrl);
+            if (saved !== undefined && saved.wordIndex > 0 && saved.wordIndex < fullWords.length) {
+              persistentResume = saved.wordIndex;
+            }
+          } catch (err: unknown) {
+            console.warn('[speedreader] reading-position read failed', err);
+          }
+        }
+        const initialIndex = sessionResume ?? persistentResume;
         activeOverlay = createOverlay({
           doc: document,
           // Legacy single-list field retained for the type contract; the
@@ -163,9 +305,63 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             return chrome.runtime.getURL('fonts/OpenDyslexic-Regular.woff2');
           })(),
           engineFactory: createRsvpEngine,
+          // #48 — toast the persistent resume so the user knows their
+          // position was restored AND has a one-click escape hatch to
+          // start the article over. We pass the toast ONLY when the
+          // persistent path supplied the index — session-resume (#25)
+          // happens silently within the same page lifetime where the
+          // user implicitly knows they just closed and reopened.
+          resumeToast:
+            persistentResume !== undefined
+              ? {
+                  totalWords: fullWords.length,
+                  onStartOver: () => {
+                    // Drop the persisted position so the next visit
+                    // starts fresh. Cancel any pending write so the
+                    // debounced flush doesn't immediately re-create
+                    // the entry against the rewound index.
+                    if (pendingTimer !== null) {
+                      clearTimeout(pendingTimer);
+                      pendingTimer = null;
+                    }
+                    pendingWrite = null;
+                    positionStore.clear(pageUrl).catch((err: unknown) => {
+                      console.warn('[speedreader] reading-position clear failed', err);
+                    });
+                  },
+                }
+              : undefined,
+          // #48 — per-word advance. Only persisted for full-scope
+          // mounts (selection-scope positions cannot be replayed across
+          // navigation). The store is keyed by canonical URL so utm
+          // tags, fragments, and host casing all collapse into one
+          // slot. Writes are debounced so we land at most one set per
+          // second; closing the overlay flushes any pending write.
+          onWordAdvance:
+            persistAvailable && scope === 'full'
+              ? (index, total) => {
+                  schedulePositionWrite({
+                    url: pageUrl,
+                    wordIndex: index,
+                    totalWords: total,
+                  });
+                }
+              : undefined,
           onClose: (snapshot) => {
             activeOverlay = null;
             recordClose(snapshot);
+            // #48 — flush any pending debounced position write before
+            // the page may unload. setTimeout(0) inside flush would
+            // race; we call the store directly.
+            flushPendingPositionWrite();
+            // Drop the visibility / pagehide listeners — the content
+            // script outlives the overlay across close/reopen cycles,
+            // so leaving them attached would (a) hold dead closures
+            // referencing this mount's `pageUrl` and (b) re-fire the
+            // flush every time the user backgrounds the tab, even
+            // with no overlay active. They're re-attached on the next
+            // mount.
+            detachPositionFlushListeners();
           },
           // Font-size stepper (#29) — overlay clamps to FONT_SIZE_MIN/MAX
           // before invoking. saveSettings is debounced (300 ms trailing

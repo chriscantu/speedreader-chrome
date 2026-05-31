@@ -47,14 +47,17 @@ src/
 │   ├── tokenize/             # Pure text → RSVP token stream
 │   ├── orp/                  # Optimal Recognition Point (focus character)
 │   ├── rsvp-engine/          # Word emission cadence (WPM → setTimeout)
-│   └── settings/             # Zod schema + defaults + version migrations
+│   ├── settings/             # Zod schema + defaults + version migrations
+│   ├── storage/              # Adapter-agnostic stores (e.g. reading-position #48)
+│   └── url/                  # URL canonicalization (storage-key join key, #48)
 ├── chrome/                   # Chrome MV3-specific glue
 │   ├── manifest.ts           # Generates manifest.json at build time
 │   ├── background/           # Service worker entry
 │   ├── content/              # Content script entry (lazy-injected)
 │   ├── popup/                # Browser-action popup (HTML + TS)
 │   ├── options/              # Options page (HTML + TS)
-│   └── settings/             # chrome.storage.sync adapter over core/settings
+│   ├── settings/             # chrome.storage.sync adapter over core/settings
+│   └── storage/              # chrome.storage.* glue for core/storage stores (#48)
 └── icons/                    # (build-time icon staging, if used)
 ```
 

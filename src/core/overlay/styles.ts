@@ -331,6 +331,39 @@ export const OVERLAY_CSS = `
   pointer-events: none;
 }
 
+/* Reading-position resume toast (#48). Non-blocking polite status
+ * region pinned to the top of the modal. role="status" carries the
+ * polite announcement; the visual style is a subdued chip so the eye
+ * lands on the word region, not the toast. */
+.resume-toast {
+  margin-block-end: clamp(8px, 2cqi, 16px);
+  padding: clamp(8px, 1.5cqi + 4px, 14px) clamp(12px, 2cqi + 6px, 20px);
+  border-radius: 8px;
+  background: var(--surface-alt, rgba(0, 0, 0, 0.06));
+  color: var(--text, #111111);
+  font-size: clamp(0.85rem, 1cqi + 0.4rem, 1rem);
+  display: flex;
+  flex-wrap: wrap;
+  gap: clamp(8px, 1.5cqi, 16px);
+  align-items: center;
+  justify-content: center;
+}
+
+.resume-toast-start-over {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--accent, #2563eb);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+
+.resume-toast-start-over:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: 2px;
+}
+
 @media (forced-colors: active) {
   .modal { background: Canvas; color: CanvasText; }
   .close-btn { border-color: ButtonText; color: ButtonText; }
@@ -370,6 +403,9 @@ export const OVERLAY_CSS = `
   .wpm-readout { color: CanvasText; }
   .context-preview { color: CanvasText; opacity: 1; }
   .context-current { color: Highlight; }
+  .resume-toast { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
+  .resume-toast-start-over { color: LinkText; }
+  .resume-toast-start-over:focus-visible { outline-color: Highlight; }
 }
 
 @media (prefers-reduced-motion: reduce) {
