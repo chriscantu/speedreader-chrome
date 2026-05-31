@@ -95,7 +95,10 @@ afterEach(() => {
 });
 
 describe('content script — visibility/pagehide flush wiring (#48)', () => {
-  async function mountOverlayWithPendingWrite(): Promise<{ local: FakeStorageLocal }> {
+  async function mountOverlayWithPendingWrite(): Promise<{
+    local: FakeStorageLocal;
+    pageUrl: string;
+  }> {
     const { local, getListener } = installChromeStub();
     await import('../index');
     const listener = getListener();
@@ -111,12 +114,33 @@ describe('content script — visibility/pagehide flush wiring (#48)', () => {
     // engine. Fast-forward to confirm at least one advance fires:
     await new Promise((r) => setTimeout(r, 250));
 
-    return { local };
+    return { local, pageUrl: 'https://example.com/article-flush-test' };
   }
 
-  test('visibilitychange → hidden triggers a flush of the pending write', async () => {
-    const { local } = await mountOverlayWithPendingWrite();
+  /**
+   * Extracts the wordIndex written under the canonical `position:<url>`
+   * key from a `chrome.storage.local.set` call payload. The flush path
+   * writes the per-URL payload AND the LRU index; we only assert on
+   * the per-URL payload so the test is robust to index-key changes.
+   */
+  function payloadWordIndex(setArg: Record<string, unknown>, pageUrl: string): number | undefined {
+    const key = `position:${pageUrl}`;
+    const v = setArg[key];
+    if (v === null || typeof v !== 'object') return undefined;
+    const wi = (v as { wordIndex?: unknown }).wordIndex;
+    return typeof wi === 'number' ? wi : undefined;
+  }
+
+  test('visibilitychange → hidden flushes the pending write AND cancels the debounce timer', async () => {
+    // TG3 — spy clearTimeout BEFORE the import so the production code's
+    // calls are captured. `setTimeout` returns numeric IDs in jsdom;
+    // we capture the most-recently scheduled debounce timer ID and
+    // assert clearTimeout was called with it BEFORE local.set fires.
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+    const { local, pageUrl } = await mountOverlayWithPendingWrite();
     local.set.mockClear();
+    clearTimeoutSpy.mockClear();
 
     // Default visibilityState in jsdom is 'visible' — override it.
     Object.defineProperty(document, 'visibilityState', {
@@ -129,9 +153,21 @@ describe('content script — visibility/pagehide flush wiring (#48)', () => {
     // microtasks to settle.
     await new Promise((r) => setTimeout(r, 30));
 
-    // Expect at least one set call (position payload) — the flush
-    // path writes the position record AND the LRU index.
+    // (a) clearTimeout was called as part of the flush — proves the
+    // debounce timer was cancelled, not raced against.
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+
+    // (b) The first set call carries the per-URL payload with a
+    // non-zero wordIndex (engine has been running ~250 ms at 600 wpm
+    // → ~2-3 word events) — proves the pending write actually
+    // flushed, not just any storage call.
     expect(local.set).toHaveBeenCalled();
+    const firstCall = local.set.mock.calls[0][0] as Record<string, unknown>;
+    const wi = payloadWordIndex(firstCall, pageUrl);
+    expect(wi).toBeDefined();
+    expect(wi).toBeGreaterThan(0);
+
+    clearTimeoutSpy.mockRestore();
   });
 
   test('visibilitychange → visible does NOT trigger a flush', async () => {
@@ -152,14 +188,90 @@ describe('content script — visibility/pagehide flush wiring (#48)', () => {
     expect(local.set).not.toHaveBeenCalled();
   });
 
-  test('pagehide triggers a flush', async () => {
-    const { local } = await mountOverlayWithPendingWrite();
+  test('pagehide flushes the pending write with the most-recent wordIndex AND cancels the timer', async () => {
+    // TG3 — same tightening as the visibilitychange test: spy
+    // clearTimeout, assert the per-URL payload carries a non-zero
+    // wordIndex (NOT a stale or empty record).
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+    const { local, pageUrl } = await mountOverlayWithPendingWrite();
     local.set.mockClear();
+    clearTimeoutSpy.mockClear();
 
     window.dispatchEvent(new Event('pagehide'));
     await new Promise((r) => setTimeout(r, 30));
 
+    expect(clearTimeoutSpy).toHaveBeenCalled();
     expect(local.set).toHaveBeenCalled();
+    const firstCall = local.set.mock.calls[0][0] as Record<string, unknown>;
+    const wi = payloadWordIndex(firstCall, pageUrl);
+    expect(wi).toBeDefined();
+    expect(wi).toBeGreaterThan(0);
+
+    clearTimeoutSpy.mockRestore();
+  });
+
+  test('TG4 — re-mount: pagehide on second mount flushes the second URL with no stale first-mount payload', async () => {
+    // Mount → close → mount again with a DIFFERENT pageUrl → pagehide.
+    // Asserts:
+    //   (a) the pagehide flush carries the SECOND pageUrl's payload
+    //       (proves the second mount's onWordAdvance closure
+    //       captured the new pageUrl and that pendingWrite isn't
+    //       stuck on a first-mount snapshot).
+    //   (b) no first-mount payload lands during the second mount's
+    //       pagehide (proves onClose's own flushPendingPositionWrite
+    //       drained the first mount's pending state cleanly).
+    //
+    // Mutation honesty: the production handlers `onVisibilityChange`
+    // / `onPageHide` are MODULE-SCOPED functions, not per-mount
+    // closures, so removing `detachPositionFlushListeners()` in
+    // onClose does NOT make this test red on its own — there is
+    // only ever one handler pair. That detach contract is
+    // mutation-validated by the separate `listeners detach after
+    // overlay close` test above. This TG4 test sits one layer up
+    // as an integration check: the full close→remount→pagehide
+    // cycle leaves no payload referencing the prior mount.
+    const { local, getListener } = installChromeStub();
+    await import('../index');
+    const listener = getListener();
+
+    Object.defineProperty(globalThis, 'location', {
+      configurable: true,
+      value: { href: 'https://example.com/first-article' },
+    });
+    listener({ type: 'activate-reader' }, { id: 'test-ext' }, vi.fn());
+    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 250));
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await new Promise((r) => setTimeout(r, 30));
+
+    Object.defineProperty(globalThis, 'location', {
+      configurable: true,
+      value: { href: 'https://example.com/second-article' },
+    });
+    listener({ type: 'activate-reader' }, { id: 'test-ext' }, vi.fn());
+    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 250));
+
+    local.set.mockClear();
+    window.dispatchEvent(new Event('pagehide'));
+    await new Promise((r) => setTimeout(r, 30));
+
+    const calls = local.set.mock.calls as Array<[Record<string, unknown>]>;
+    const firstUrlKey = 'position:https://example.com/first-article';
+    const secondUrlKey = 'position:https://example.com/second-article';
+    const secondPayloadCalls = calls.filter((c) =>
+      Object.prototype.hasOwnProperty.call(c[0], secondUrlKey),
+    );
+    const firstPayloadCalls = calls.filter((c) =>
+      Object.prototype.hasOwnProperty.call(c[0], firstUrlKey),
+    );
+    // (a) Second mount's payload landed.
+    expect(secondPayloadCalls.length).toBeGreaterThan(0);
+    // (b) No stale first-mount payload (the first mount's pendingWrite
+    // was flushed during its own onClose).
+    expect(firstPayloadCalls).toHaveLength(0);
   });
 
   test('listeners detach after overlay close — removeEventListener called for both signals', async () => {

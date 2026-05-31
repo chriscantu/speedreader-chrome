@@ -23,6 +23,15 @@ import {
   type StorageAdapter,
 } from '../../core/storage/reading-position';
 
+/**
+ * Thin wrapper over `chrome.storage.local` matching the
+ * `StorageAdapter` interface. Each call returns a fresh adapter object
+ * but the underlying `chrome.storage.local` surface is process-wide —
+ * the adapter itself carries no state. Serialization of writes lives
+ * one layer up in `createReadingPositionStore`'s internal write-queue;
+ * see `createChromePositionStore` for the construction discipline that
+ * preserves that queue.
+ */
 function chromeStorageAdapter(): StorageAdapter {
   return {
     async get(keys) {
@@ -41,9 +50,19 @@ function chromeStorageAdapter(): StorageAdapter {
 
 /**
  * Constructs a `ReadingPositionStore` wired to `chrome.storage.local`
- * with `Date.now` as the time source. Returned instance is stateless —
- * safe to construct per-call or reuse across the content-script
- * lifetime.
+ * with `Date.now` as the time source. Each call returns a NEW store
+ * carrying its own internal write-queue.
+ *
+ * Concurrency invariant: to preserve cross-call write serialization
+ * (the queue that protects the LRU index read-modify-write cycle from
+ * interleaving), construct ONCE per content-script lifetime and reuse
+ * the same store instance for every `read`/`write`/`touch`/`clear`/
+ * `clearAll` call. Constructing per-mount or per-call yields fresh
+ * queues that cannot coordinate with each other and reintroduces the
+ * race the queue exists to prevent. The call site in
+ * `src/chrome/content/index.ts` constructs at module scope to honour
+ * this; if a future refactor moves construction inside `attachOverlay`
+ * or any per-mount path, the serialization guarantee is lost.
  */
 export function createChromePositionStore(): ReadingPositionStore {
   return createReadingPositionStore({

@@ -166,16 +166,18 @@ describe('reading-position store — LRU eviction at cap', () => {
   test('overwriting an existing URL does NOT count as a new LRU slot', async () => {
     for (let i = 0; i < POSITION_LRU_MAX; i++) {
       now = 1_700_000_000_000 + i;
-      await store.write(`https://example.com/a-${i}`, { wordIndex: i + 1, totalWords: 100 });
+      // totalWords must strictly exceed every wordIndex written below;
+      // we cap at POSITION_LRU_MAX (=100) so use 1000 to stay clear.
+      await store.write(`https://example.com/a-${i}`, { wordIndex: i + 1, totalWords: 1000 });
     }
     // Overwrite the FIRST entry — should NOT evict a-1 (and a-0 should
     // remain present, just moved to the most-recent slot).
     now = 1_700_000_001_000;
-    await store.write('https://example.com/a-0', { wordIndex: 99, totalWords: 100 });
+    await store.write('https://example.com/a-0', { wordIndex: 99, totalWords: 1000 });
 
     expect(await store.read('https://example.com/a-0')).toEqual({
       wordIndex: 99,
-      totalWords: 100,
+      totalWords: 1000,
       lastReadAt: now,
     });
     // a-1 must still be present (NOT evicted by the overwrite).
@@ -213,7 +215,7 @@ describe('reading-position store — touch reorders LRU without changing positio
   test('touching the oldest entry protects it from the NEXT eviction', async () => {
     for (let i = 0; i < POSITION_LRU_MAX; i++) {
       now = 1_700_000_000_000 + i;
-      await store.write(`https://example.com/x-${i}`, { wordIndex: i + 1, totalWords: 100 });
+      await store.write(`https://example.com/x-${i}`, { wordIndex: i + 1, totalWords: 1000 });
     }
     // Touch x-0 — now x-1 is the oldest.
     now = 1_700_000_002_000;
@@ -378,23 +380,19 @@ describe('reading-position store — non-canonicalizable URLs skip persistence',
 });
 
 describe('reading-position store — concurrent writes serialize through the queue', () => {
-  test('10 concurrent writes for distinct URLs all land in the index with no corruption', async () => {
-    // Adapter with a deterministic delay between the get() and set()
-    // phases — this is the window that would let two concurrent writes
-    // each compute filtered = [] and end up overwriting each other's
-    // index update if mutations weren't serialised.
+  /**
+   * Builds a slow `StorageAdapter` where every `get()` and `set()`
+   * yields to the macrotask queue (`setTimeout(0)`) before completing.
+   * The yields make the read-modify-write window observable: a
+   * non-serialised implementation will let a second dispatch's `get()`
+   * resolve against an adapter snapshot that pre-dates the first
+   * dispatch's `set()`, then both writes will race on the LRU index.
+   */
+  function createSlowAdapter(): StorageAdapter & { snapshot(): Record<string, unknown> } {
     const map = new Map<string, unknown>();
-    let getCount = 0;
-    const slowAdapter: StorageAdapter = {
+    return {
       async get(keys) {
-        // First call (and every odd call) yields to the microtask queue
-        // BEFORE returning, mimicking an adapter where get() resolves
-        // asynchronously after a tick — long enough for a concurrent
-        // dispatch to interleave under a non-serialised implementation.
-        getCount++;
-        if (getCount % 1 === 0) {
-          await new Promise<void>((resolve) => setTimeout(resolve, 0));
-        }
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
         const out: Record<string, unknown> = {};
         for (const k of keys) {
           if (map.has(k)) out[k] = structuredClone(map.get(k));
@@ -402,8 +400,6 @@ describe('reading-position store — concurrent writes serialize through the que
         return out;
       },
       async set(items) {
-        // Set also yields so the race window spans the entire
-        // read-modify-write cycle.
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
         for (const [k, v] of Object.entries(items)) {
           map.set(k, structuredClone(v));
@@ -412,39 +408,229 @@ describe('reading-position store — concurrent writes serialize through the que
       async remove(keys) {
         for (const k of keys) map.delete(k);
       },
+      snapshot() {
+        return Object.fromEntries(map.entries());
+      },
     };
+  }
 
+  test('concurrent writes for DISTINCT URLs serialize on the LRU index: all entries land in dispatch order', async () => {
+    // Three writes dispatched without awaits — each performs a
+    // read-modify-write on the SHARED `position-index` key. Under the
+    // slow adapter, a non-serialised implementation lets each
+    // dispatch's `get(index)` resolve against the EMPTY initial
+    // snapshot, then each one independently sets the index to its own
+    // single-entry array. The last `set()` of `position-index` wins,
+    // so the index ends up with ONE entry instead of THREE.
+    //
+    // Under the queue, dispatch N's `get(index)` only runs after
+    // dispatch N-1's `set(index)` has resolved, so each dispatch sees
+    // the prior writes accumulated. Final index = [A, B, C].
+    //
+    // Assertions discriminate: index length AND order both must
+    // survive — a non-serialised impl produces length 1.
+    const slowAdapter = createSlowAdapter();
     const slowStore = createReadingPositionStore({
       adapter: slowAdapter,
       now: () => now,
     });
 
-    // Dispatch all 10 writes WITHOUT awaiting between them — this is
-    // the race the queue is supposed to prevent.
-    const pending: Array<Promise<void>> = [];
-    for (let i = 0; i < 10; i++) {
-      pending.push(
-        slowStore.write(`https://example.com/article-${i}`, {
-          wordIndex: i + 1,
-          totalWords: 100,
-        }),
-      );
-    }
-    await Promise.all(pending);
+    const dispatched = [
+      slowStore.write('https://example.com/a', { wordIndex: 1, totalWords: 10 }),
+      slowStore.write('https://example.com/b', { wordIndex: 2, totalWords: 10 }),
+      slowStore.write('https://example.com/c', { wordIndex: 3, totalWords: 10 }),
+    ];
+    await Promise.all(dispatched);
 
-    // Index must carry every URL, in insertion order (the queue
-    // preserves dispatch order).
     const index = (await slowAdapter.get([POSITION_INDEX_KEY]))[POSITION_INDEX_KEY] as string[];
-    expect(index).toHaveLength(10);
-    for (let i = 0; i < 10; i++) {
-      expect(index[i]).toBe(keyOf(`https://example.com/article-${i}`));
-    }
+    expect(index).toEqual([
+      keyOf('https://example.com/a'),
+      keyOf('https://example.com/b'),
+      keyOf('https://example.com/c'),
+    ]);
 
-    // Every payload must be readable.
-    for (let i = 0; i < 10; i++) {
-      const got = await slowStore.read(`https://example.com/article-${i}`);
-      expect(got?.wordIndex).toBe(i + 1);
-    }
+    // Every payload must be readable — proves no payload was lost
+    // even though the index races on the shared key.
+    expect((await slowStore.read('https://example.com/a'))?.wordIndex).toBe(1);
+    expect((await slowStore.read('https://example.com/b'))?.wordIndex).toBe(2);
+    expect((await slowStore.read('https://example.com/c'))?.wordIndex).toBe(3);
+  });
+
+  test('concurrent writes for the SAME URL serialize: last dispatched write wins', async () => {
+    // Three writes against the SAME URL with the slow adapter.
+    // Without serialisation, the final stored payload is whichever
+    // `adapter.set(payload)` happens to land last — which under the
+    // setTimeout(0) scheduler is dispatch-order dependent but not
+    // dispatch-order GUARANTEED. With the queue, dispatch order is
+    // strictly preserved, so wordIndex=30 wins deterministically.
+    const slowAdapter = createSlowAdapter();
+    const slowStore = createReadingPositionStore({
+      adapter: slowAdapter,
+      now: () => now,
+    });
+    const url = 'https://example.com/same';
+
+    const dispatched = [
+      slowStore.write(url, { wordIndex: 10, totalWords: 100 }),
+      slowStore.write(url, { wordIndex: 20, totalWords: 100 }),
+      slowStore.write(url, { wordIndex: 30, totalWords: 100 }),
+    ];
+    await Promise.all(dispatched);
+
+    const got = await slowStore.read(url);
+    expect(got?.wordIndex).toBe(30);
+
+    const expectedKey = keyOf(url);
+    const index = (await slowAdapter.get([POSITION_INDEX_KEY]))[POSITION_INDEX_KEY] as string[];
+    expect(index.filter((k) => k === expectedKey)).toHaveLength(1);
+  });
+
+  test('a rejected write does NOT poison the queue: subsequent writes still land', async () => {
+    // Adapter where the FIRST set() rejects (mimicking a transient
+    // quota error). The store's queue chains `then(undefined, () => undefined)`
+    // so the rejection is swallowed AFTER the caller-facing promise
+    // rejects; the queue itself stays resumable.
+    const map = new Map<string, unknown>();
+    let setCalls = 0;
+    const flakeyAdapter: StorageAdapter = {
+      async get(keys) {
+        const out: Record<string, unknown> = {};
+        for (const k of keys) {
+          if (map.has(k)) out[k] = structuredClone(map.get(k));
+        }
+        return out;
+      },
+      async set(items) {
+        setCalls++;
+        if (setCalls === 1) throw new Error('quota');
+        for (const [k, v] of Object.entries(items)) {
+          map.set(k, structuredClone(v));
+        }
+      },
+      async remove(keys) {
+        for (const k of keys) map.delete(k);
+      },
+    };
+    const flakeyStore = createReadingPositionStore({
+      adapter: flakeyAdapter,
+      now: () => now,
+    });
+
+    // (a) The first write rejects with the adapter's error.
+    await expect(
+      flakeyStore.write('https://example.com/a', { wordIndex: 1, totalWords: 10 }),
+    ).rejects.toThrow('quota');
+
+    // (b) A subsequent write against the same store must resolve and
+    // land the payload. If the queue's rejection handling were dropped
+    // (e.g. the head `writeQueue.then(op, op)` changed to
+    // `writeQueue.then(op)` so the next dispatch's op never runs when
+    // the prior chain rejected), this second dispatch would reject
+    // with the prior error.
+    await expect(
+      flakeyStore.write('https://example.com/b', { wordIndex: 5, totalWords: 50 }),
+    ).resolves.toBeUndefined();
+    expect(await flakeyStore.read('https://example.com/b')).toEqual({
+      wordIndex: 5,
+      totalWords: 50,
+      lastReadAt: now,
+    });
+  });
+});
+
+describe('reading-position store — makeReadingPosition smart constructor (via parseStored)', () => {
+  // The smart constructor is module-private; we exercise it through
+  // `read()` (which routes raw adapter payloads through `parseStored`).
+  // Each test pre-seeds the adapter with a payload that exercises one
+  // invariant and asserts `read()` returns undefined.
+  test('valid construction: payload with 0 <= wordIndex < totalWords round-trips', async () => {
+    await store.write('https://example.com/ok', { wordIndex: 5, totalWords: 10 });
+    expect(await store.read('https://example.com/ok')).toEqual({
+      wordIndex: 5,
+      totalWords: 10,
+      lastReadAt: now,
+    });
+  });
+
+  test('rejects when wordIndex >= totalWords (cross-field invariant)', async () => {
+    const key = keyOf('https://example.com/bad');
+    // Pre-seed a payload where wordIndex equals totalWords — would be
+    // "past end of stream" and the engine cannot resume from it.
+    await adapter.set({
+      [key]: {
+        schemaVersion: POSITION_SCHEMA_VERSION,
+        wordIndex: 10,
+        totalWords: 10,
+        lastReadAt: now,
+      },
+      [POSITION_INDEX_KEY]: [key],
+    });
+    expect(await store.read('https://example.com/bad')).toBeUndefined();
+  });
+
+  test('rejects when wordIndex exceeds totalWords', async () => {
+    const key = keyOf('https://example.com/over');
+    await adapter.set({
+      [key]: {
+        schemaVersion: POSITION_SCHEMA_VERSION,
+        wordIndex: 50,
+        totalWords: 10,
+        lastReadAt: now,
+      },
+      [POSITION_INDEX_KEY]: [key],
+    });
+    expect(await store.read('https://example.com/over')).toBeUndefined();
+  });
+
+  test.each<[string, Record<string, unknown>]>([
+    ['negative wordIndex', { wordIndex: -1, totalWords: 10, lastReadAt: 1 }],
+    ['non-integer wordIndex', { wordIndex: 1.5, totalWords: 10, lastReadAt: 1 }],
+    ['totalWords = 0', { wordIndex: 0, totalWords: 0, lastReadAt: 1 }],
+    ['non-integer totalWords', { wordIndex: 1, totalWords: 3.2, lastReadAt: 1 }],
+    ['NaN wordIndex', { wordIndex: NaN, totalWords: 10, lastReadAt: 1 }],
+    ['Infinity totalWords', { wordIndex: 1, totalWords: Infinity, lastReadAt: 1 }],
+    ['negative lastReadAt', { wordIndex: 1, totalWords: 10, lastReadAt: -1 }],
+    ['Infinity lastReadAt', { wordIndex: 1, totalWords: 10, lastReadAt: Infinity }],
+  ])('rejects malformed numeric field: %s', async (_label, payload) => {
+    const key = keyOf('https://example.com/x');
+    await adapter.set({
+      [key]: { schemaVersion: POSITION_SCHEMA_VERSION, ...payload },
+      [POSITION_INDEX_KEY]: [key],
+    });
+    expect(await store.read('https://example.com/x')).toBeUndefined();
+  });
+
+  test('write() rejects when caller supplies wordIndex >= totalWords (smart-constructor guard)', async () => {
+    await expect(
+      store.write('https://example.com/bad', { wordIndex: 10, totalWords: 10 }),
+    ).rejects.toThrow();
+    await expect(
+      store.write('https://example.com/bad', { wordIndex: 50, totalWords: 10 }),
+    ).rejects.toThrow();
+  });
+});
+
+describe('reading-position store — clearAll() orphan-key contract', () => {
+  test('orphan position:* keys NOT referenced by the index are LEFT in place', async () => {
+    // Document the pragmatic boundary of `clearAll`: it removes only
+    // what the LRU index tracks. Orphans from a crashed write that
+    // updated the payload but not the index survive — sweeping them
+    // would require a full `get(null)` over chrome.storage.local on a
+    // user-facing hot path. Pinning this so a future "extend clearAll
+    // to also sweep orphans" change has to flip an explicit test.
+    const orphanKey = `${'position:'}https://orphan.example.com/`;
+    await adapter.set({ [orphanKey]: { schemaVersion: 1, wordIndex: 1, totalWords: 10 } });
+    // Plus a tracked entry to prove clearAll DID run.
+    await store.write('https://example.com/tracked', { wordIndex: 1, totalWords: 10 });
+
+    await store.clearAll();
+
+    const snap = adapter.snapshot();
+    // Tracked entry and index are gone.
+    expect(snap[keyOf('https://example.com/tracked')]).toBeUndefined();
+    expect(snap[POSITION_INDEX_KEY]).toBeUndefined();
+    // Orphan remains — documented behavior.
+    expect(snap[orphanKey]).toEqual({ schemaVersion: 1, wordIndex: 1, totalWords: 10 });
   });
 });
 

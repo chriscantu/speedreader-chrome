@@ -118,9 +118,19 @@ export interface ReadingPositionStore {
    */
   list(): Promise<Array<{ url: string; position: ReadingPosition }>>;
   /**
-   * Removes every persisted position and the LRU index itself. Exposed
-   * for #49 (popup "clear reading history" affordance). Non-position
-   * keys in the adapter are left untouched.
+   * Removes every position currently tracked in the LRU index, plus
+   * the index itself. Exposed for #49 (popup "clear reading history"
+   * affordance). Non-position keys in the adapter are left untouched.
+   *
+   * Orphaned `position:*` keys that are NOT referenced by the index
+   * (e.g. from a crashed write that updated the payload but not the
+   * index) are NOT cleaned by this call — they remain dormant in
+   * `chrome.storage.local` and are only recovered when their URL is
+   * next written. `chrome.storage.local` has no prefix-scan API; a
+   * full sweep would require `get(null)` which loads the entire
+   * extension storage (settings, session state, future feature
+   * payloads) into memory on a hot user-facing path. Tracked as a
+   * separate maintenance follow-up.
    */
   clearAll(): Promise<void>;
 }
@@ -164,6 +174,26 @@ export function createReadingPositionStore(
     await adapter.set({ [POSITION_INDEX_KEY]: next });
   }
 
+  /**
+   * Smart constructor for `ReadingPosition`. Centralises the cross-field
+   * invariant `0 <= wordIndex < totalWords` so the runtime guard isn't
+   * scattered across `parseStored` and `write`. Returns `undefined`
+   * when any field is missing, non-integer, out-of-range, or violates
+   * the cross-field bound. Module-private — callers reach this through
+   * `parseStored` or the `write` path.
+   */
+  function makeReadingPosition(
+    wordIndex: number,
+    totalWords: number,
+    lastReadAt: number,
+  ): ReadingPosition | undefined {
+    if (!Number.isInteger(wordIndex) || wordIndex < 0) return undefined;
+    if (!Number.isInteger(totalWords) || totalWords <= 0) return undefined;
+    if (wordIndex >= totalWords) return undefined;
+    if (!Number.isFinite(lastReadAt) || lastReadAt < 0) return undefined;
+    return { wordIndex, totalWords, lastReadAt };
+  }
+
   function parseStored(raw: unknown): ReadingPosition | undefined {
     if (raw === null || typeof raw !== 'object') return undefined;
     const r = raw as Partial<StoredPayload>;
@@ -171,20 +201,10 @@ export function createReadingPositionStore(
     // Forward-incompat — let a newer build's payload pass through
     // untouched rather than silently downgrade it.
     if (r.schemaVersion > POSITION_SCHEMA_VERSION) return undefined;
-    if (typeof r.wordIndex !== 'number' || !Number.isInteger(r.wordIndex) || r.wordIndex < 0) {
-      return undefined;
-    }
-    if (typeof r.totalWords !== 'number' || !Number.isInteger(r.totalWords) || r.totalWords <= 0) {
-      return undefined;
-    }
-    if (typeof r.lastReadAt !== 'number' || !Number.isFinite(r.lastReadAt)) {
-      return undefined;
-    }
-    return {
-      wordIndex: r.wordIndex,
-      totalWords: r.totalWords,
-      lastReadAt: r.lastReadAt,
-    };
+    if (typeof r.wordIndex !== 'number') return undefined;
+    if (typeof r.totalWords !== 'number') return undefined;
+    if (typeof r.lastReadAt !== 'number') return undefined;
+    return makeReadingPosition(r.wordIndex, r.totalWords, r.lastReadAt);
   }
 
   /**
@@ -210,12 +230,10 @@ export function createReadingPositionStore(
     write(url, position) {
       const key = positionKey(url);
       if (key === null) return Promise.resolve();
-      if (
-        !Number.isInteger(position.wordIndex) ||
-        position.wordIndex < 0 ||
-        !Number.isInteger(position.totalWords) ||
-        position.totalWords <= 0
-      ) {
+      // Validate via the smart constructor BEFORE enqueuing so a bad
+      // call rejects synchronously and the queue stays unblocked.
+      const validated = makeReadingPosition(position.wordIndex, position.totalWords, now());
+      if (validated === undefined) {
         return Promise.reject(
           new RangeError(`reading-position.write: invalid position ${JSON.stringify(position)}`),
         );
@@ -227,10 +245,13 @@ export function createReadingPositionStore(
         const existing = await adapter.get([key]);
         if (isForwardIncompat(existing[key])) return;
 
+        // Re-stamp `lastReadAt` at the moment the write actually
+        // executes (post-queue) so the LRU timestamp reflects when
+        // the record landed, not when the caller dispatched.
         const payload: StoredPayload = {
           schemaVersion: POSITION_SCHEMA_VERSION,
-          wordIndex: position.wordIndex,
-          totalWords: position.totalWords,
+          wordIndex: validated.wordIndex,
+          totalWords: validated.totalWords,
           lastReadAt: now(),
         };
 
