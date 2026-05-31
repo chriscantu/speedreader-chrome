@@ -138,6 +138,11 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
   // the user closes the overlay inside the 5 s window (otherwise the
   // setTimeout pins the removed shadow root + toast node until it fires).
   let resumeToastTimer: ReturnType<typeof setTimeout> | null = null;
+  // #47 ring-review FIX-6 / FIX-7 — scrub debounce timer. Hoisted so
+  // unmount can clear a pending timer; otherwise it would reach into a
+  // detached shadow when it fires and flip the scrub flag on a closure
+  // that no longer matters.
+  let scrubDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   // Lifted into the outer closure so `unmount()` can build the close
   // snapshot for `onClose` (#25). Reassigned on scope-swap so the
   // snapshot reflects the active stream at close time, not the mount
@@ -594,6 +599,31 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       chunkSize: opts.initialSettings.chunkSize,
     });
 
+    // Scrub-session state (FIX-6 a11y MED #1 + FIX-7 a11y MED #2).
+    //
+    // FIX-6 — live-region storm suppression. During rapid scrub (mouse
+    // drag, touch swipe, held Arrow key), the engine's paused-state
+    // seekTo emits a replacement word/chunk event per position; each
+    // emission would otherwise overwrite the polite `.aria-live` region,
+    // queueing trailing speech the AT user hears AFTER releasing. The
+    // flag below gates per-emission ariaLive writes. The slider's own
+    // aria-valuetext still updates per emission (the slider IS the ARIA
+    // surface during scrub), so position feedback is preserved.
+    //
+    // FIX-7 — one-shot polite announcement per scrub session ("Paused.
+    // Scrubbing reading position.") so AT users get explicit state-
+    // change confirmation. The `scrubAnnouncementFired` latch prevents
+    // re-firing inside one session; the debounce timer resets the latch
+    // alongside the flag.
+    //
+    // Debounce: 250ms after the most recent scrub event clears
+    // `scrubInProgress` AND resets `scrubAnnouncementFired` so the next
+    // discrete drag is a new session. Centralized cleanup runs from
+    // unmount() so a pending timer cannot reach into a detached shadow.
+    let scrubInProgress = false;
+    let scrubAnnouncementFired = false;
+    const SCRUB_DEBOUNCE_MS = 250;
+
     // Progress scrubber updater (#47). Reads engine.progress() + time
     // getters and writes value + labels + aria-valuetext. Centralized so
     // every emission branch (word / chunk / done) AND the
@@ -603,9 +633,23 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // Post-emit, engine.progress().index is the count of tokens consumed
     // (raw axis, mode-invariant per #51), so value = max(0, index - 1).
     // Pre-start (index === 0) ⇒ value = 0.
+    //
+    // FIX-1 (ring-review convergent HIGH — test-gap + extension-architect):
+    // Resync `scrubber.max` here every emission. Originally set ONCE at
+    // mount; after scope-swap (setWords full → selection or vice versa)
+    // the engine's progress().total changes but the attribute stayed
+    // stale, so drags clamped while aria-valuetext kept advancing past
+    // the visible thumb. Reading rsvp-engine.ts progress() (lines 853-877)
+    // confirms total === words.length in BOTH word and chunk modes, so
+    // setChunkSize alone does NOT need a resync — but putting the guard
+    // here makes the scrubber defensive against any future axis change
+    // for free (one conditional write per emission). Empty-stream guard
+    // (FIX-4 ring-review test-gap MED #3) — max never goes negative.
     const updateScrubber = (): void => {
       if (!engine) return;
       const p = engine.progress();
+      const nextMax = String(Math.max(0, p.total - 1));
+      if (scrubber.max !== nextMax) scrubber.max = nextMax;
       scrubber.value = String(Math.max(0, p.index - 1));
       const elapsedSec = Math.round(engine.timeElapsed() / 1000);
       const remainingSec = Math.round(engine.timeRemaining() / 1000);
@@ -692,7 +736,12 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     engine.subscribe((ev) => {
       if (ev.type === 'word') {
         renderWord(word, ev.word);
-        ariaLive.textContent = ev.word;
+        // FIX-6 — suppress per-emission aria-live writes while a scrub
+        // session is active. Rapid drag would otherwise queue trailing
+        // speech that arrives after release. The slider's aria-valuetext
+        // still updates via updateScrubber() so position feedback for AT
+        // is preserved.
+        if (!scrubInProgress) ariaLive.textContent = ev.word;
         // #48 — emit the post-emit 1-based progress count so the host can
         // persist it. Reading `engine.progress().index` AFTER the emit
         // matches the persistence semantics: closing after the last word
@@ -717,9 +766,11 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         // separate concern (tracked as a follow-up issue); for now we
         // render the chunk text verbatim into the word region. The
         // aria-live region announces the whole chunk so screen readers
-        // hear the same unit the user sees.
+        // hear the same unit the user sees. FIX-6 suppression applies
+        // here too — chunk-mode scrub would otherwise spam aria-live
+        // with replacement chunk text.
         renderWord(word, ev.text);
-        ariaLive.textContent = ev.text;
+        if (!scrubInProgress) ariaLive.textContent = ev.text;
         if (opts.onWordAdvance && engine) {
           const p = engine.progress();
           opts.onWordAdvance(p.index, p.total);
@@ -998,14 +1049,47 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // doesn't fight the per-tick scheduler. `input` fires for keyboard
     // (Arrow keys on the focused range) too, so the same handler covers
     // both surfaces.
+    // FIX-6 / FIX-7 — mark a scrub session in progress + fire the
+    // one-shot polite announcement on first event of the session. The
+    // announcement MUST be written BEFORE `scrubInProgress` flips true
+    // OR before any seekTo runs — otherwise the suppression flag would
+    // block our own announcement, OR the seekTo's replacement-event
+    // would race the announcement onto aria-live first. We write the
+    // announcement first, then flip the flag so subsequent emissions
+    // in this session are suppressed.
+    const beginScrubSession = (): void => {
+      if (!scrubAnnouncementFired) {
+        ariaLive.textContent = OVERLAY_TEXT.SCRUB_PAUSED_ANNOUNCEMENT;
+        scrubAnnouncementFired = true;
+      }
+      scrubInProgress = true;
+      // Reset the debounce window every event so a held Arrow / sustained
+      // drag stays in one session.
+      if (scrubDebounceTimer !== null) clearTimeout(scrubDebounceTimer);
+      scrubDebounceTimer = setTimeout(() => {
+        scrubDebounceTimer = null;
+        scrubInProgress = false;
+        scrubAnnouncementFired = false;
+      }, SCRUB_DEBOUNCE_MS);
+    };
     const scrubFromPause = (): void => {
       if (engine?.state === 'playing') {
         engine.pause();
         reflectEngineState();
       }
     };
-    scrubber.addEventListener('mousedown', scrubFromPause);
-    scrubber.addEventListener('touchstart', scrubFromPause, { passive: true });
+    scrubber.addEventListener('mousedown', () => {
+      beginScrubSession();
+      scrubFromPause();
+    });
+    scrubber.addEventListener(
+      'touchstart',
+      () => {
+        beginScrubSession();
+        scrubFromPause();
+      },
+      { passive: true },
+    );
     scrubber.addEventListener('input', () => {
       if (!engine) return;
       const raw = Number(scrubber.value);
@@ -1015,6 +1099,10 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       // updateScrubber path (no stale label update from a doomed seek).
       if (!Number.isFinite(raw)) return;
       const target = Math.trunc(raw);
+      // Begin session BEFORE pause so the announcement reaches aria-live
+      // first; the suppression flag is set after the textContent write
+      // so the engine's subsequent replacement event won't clobber it.
+      beginScrubSession();
       scrubFromPause();
       // snapToSentence:false — the user is dragging to a specific
       // position; sentence-snap on a mid-sentence drop would jump back
@@ -1082,6 +1170,13 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     if (resumeToastTimer !== null) {
       clearTimeout(resumeToastTimer);
       resumeToastTimer = null;
+    }
+    // #47 ring-review FIX-6 — clear pending scrub debounce so a late
+    // fire after unmount can't touch the detached shadow's aria-live or
+    // the now-null `scrubInProgress` closure state.
+    if (scrubDebounceTimer !== null) {
+      clearTimeout(scrubDebounceTimer);
+      scrubDebounceTimer = null;
     }
     uninstallTrap?.();
     uninstallTrap = null;

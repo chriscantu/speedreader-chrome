@@ -258,6 +258,266 @@ describe('createOverlay — scrubber interaction (#47)', () => {
   });
 });
 
+describe('createOverlay — scrubber axis resync (#47 ring-review FIX-1)', () => {
+  // Convergent HIGH (test-gap + extension-architect): scrubber.max was set
+  // once at mount and never resynced. After scope-swap (selection →
+  // fullWords), engine.progress().total changes but scrubber.max stayed
+  // stale — browser clamped drag values while aria-valuetext kept advancing.
+  // Fix: updateScrubber() now reads engine.progress().total each emission
+  // and updates scrubber.max if it drifted. Mutation guard: removing the
+  // resync block fails this test (max stays at 7 = selection.length - 1).
+  test('scope-swap to full article resyncs scrubber.max to fullWords.length - 1', () => {
+    const FULL = Array.from({ length: 30 }, (_, i) => `full${i}`);
+    const SELECTION = ['Hello.', 'How', 'are', 'you?', 'I', 'am', 'fine.', 'Bye!'];
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(
+      defaultOpts(holder, {
+        scope: 'selection',
+        selectionWords: SELECTION,
+        fullWords: FULL,
+        articleTitle: 'Doc',
+      }),
+    );
+    overlay.mount();
+    const s = getScrubber();
+    expect(s.max).toBe(String(SELECTION.length - 1));
+    // Trigger swap via the swap button (real interaction path).
+    const swap = getShadow().querySelector<HTMLButtonElement>(`.${OVERLAY_CLASS.SCOPE_SWAP_BTN}`);
+    if (!swap) throw new Error('expected scope-swap-btn');
+    swap.click();
+    // swapToFull calls engine.setWords(fullWords) then start() + pause(),
+    // which synchronously emits word[0] → subscribe handler runs
+    // updateScrubber() → reads engine.progress().total (now 30) → resyncs
+    // scrubber.max to "29".
+    expect(s.max).toBe(String(FULL.length - 1));
+    overlay.unmount();
+  });
+
+  test('setChunkSize via subscribeSettings keeps scrubber.max stable (raw-axis mode invariance per #51)', () => {
+    // The architect HIGH framing claimed setChunkSize would change the
+    // axis. Confirmed by reading rsvp-engine.ts progress() (lines 853-877):
+    // both word AND chunk mode report total === words.length. So
+    // setChunkSize MUST NOT change scrubber.max. This test pins the
+    // mode-invariance promise; a regression where the engine's progress
+    // axis flipped to chunks.length in chunk mode would surface as
+    // scrubber.max changing here.
+    const holder: Holder = { engine: null };
+    let notify: SettingsSubscriber = () => undefined;
+    const overlay = createOverlay(
+      defaultOpts(holder, {
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20, chunkSize: 1 },
+        subscribeSettings: (cb) => {
+          notify = cb;
+          return () => undefined;
+        },
+      }),
+    );
+    overlay.mount();
+    const maxBefore = getScrubber().max;
+    expect(maxBefore).toBe(String(STREAM.length - 1));
+    notify({ theme: 'system', wpm: 300, fontSize: 20, chunkSize: 2 });
+    expect(getScrubber().max).toBe(maxBefore);
+    overlay.unmount();
+  });
+});
+
+describe('createOverlay — scrubber done terminal state (#47 ring-review FIX-2)', () => {
+  // test-gap HIGH #2: a regression that skipped updateScrubber() from the
+  // `done` branch would leave the thumb mid-track and the remaining label
+  // non-zero. Mutation guard: deleting `updateScrubber()` from the done
+  // branch fails this test (value would stay at "0" and remaining at
+  // "-0:01").
+  test('engine.done leaves scrubber pinned at max with remaining = -0:00', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    expect(engineOf(holder).state).toBe('playing');
+    // Advance through every scheduled tick until the engine emits 'done'.
+    // STREAM has 8 words; first emits sync inside start(), remaining 7
+    // via setTimeout. vi.runAllTimers drains both ticks AND the final
+    // done emit (which is scheduled when tick() finds nextIndex >= total).
+    vi.runAllTimers();
+    expect(engineOf(holder).state).toBe('done');
+    const s = getScrubber();
+    expect(s.value).toBe(s.max);
+    expect(getRemainingLabel().textContent).toBe('-0:00');
+    // Elapsed = total * msPerWord = 8 * 200 = 1600ms → round → 2 → "0:02".
+    expect(getElapsedLabel().textContent).toBe('0:02');
+    overlay.unmount();
+  });
+});
+
+describe('createOverlay — scrubber keyboard-only input pause (#47 ring-review FIX-3)', () => {
+  // test-gap MED #2: the existing "input event pauses a playing engine"
+  // test creates an input event but doesn't pin that NO preceding
+  // mousedown fired. A regression that moved `scrubFromPause()` into a
+  // mousedown-only branch would leave keyboard-driven scrub un-paused
+  // (Arrow keys on the focused range fire `input` with no mousedown).
+  // This test is explicit: input WITHOUT mousedown still pauses.
+  test('input event with no preceding mousedown still pauses a playing engine (Arrow-key path)', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    expect(engineOf(holder).state).toBe('playing');
+    const s = getScrubber();
+    s.focus();
+    // Simulate the Arrow-key path: the browser fires `input` directly on
+    // a focused range when the user presses Arrow. No prior mousedown.
+    s.value = '2';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(engineOf(holder).state).toBe('paused');
+    overlay.unmount();
+  });
+});
+
+describe('createOverlay — scrubber empty-stream guard (#47 ring-review FIX-4)', () => {
+  // test-gap MED #3: empty word stream. Mutation guard: removing
+  // `Math.max(0, ...-1)` at mount would allow max="-1" through. Browser
+  // would clamp on render, but the attribute would lie. After FIX-1
+  // adds dynamic resync, the same guard belongs in updateScrubber()
+  // too; this test pins both surfaces.
+  test('empty stream renders scrubber with max="0" and does not crash on update', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder, { words: [] }));
+    overlay.mount();
+    const s = getScrubber();
+    expect(s.max).toBe('0');
+    expect(s.value).toBe('0');
+    // Engine on empty stream synchronously transitions to 'done' on start;
+    // the done branch calls updateScrubber(). Confirm no throw + max stays 0.
+    expect(engineOf(holder).state).toBe('done');
+    expect(s.max).toBe('0');
+    overlay.unmount();
+  });
+});
+
+describe('createOverlay — scrubber live-region storm suppression (#47 ring-review FIX-6)', () => {
+  // a11y MED #1: rapid scrub (mouse drag, touch swipe, Arrow held) emits
+  // a paused-state replacement event per position; each emission wrote to
+  // the polite aria-live region, queueing trailing speech AT users hear
+  // AFTER they released. Fix: scrubInProgress flag + 250ms debounce; while
+  // active, suppress per-emission ariaLive.textContent writes.
+  // aria-valuetext on the slider still updates (the slider IS the ARIA
+  // surface during scrub), so position feedback is preserved.
+  test('rapid scrub events do NOT spam aria-live with each replacement word', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    const live = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.ARIA_LIVE}`);
+    if (!live) throw new Error('missing aria-live');
+    const s = getScrubber();
+    s.focus();
+    // First scrub — establishes session + suppression announcement.
+    s.value = '2';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    // Record the aria-live value after FIRST scrub. Subsequent scrubs
+    // must NOT overwrite it with the replacement word's text.
+    const liveAfterFirst = live.textContent;
+    for (const v of ['3', '4', '5', '6']) {
+      s.value = v;
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    // The per-emission word texts ("you?", "I", "am", "fine.") MUST NOT
+    // have replaced the aria-live content during the scrub session.
+    expect(live.textContent).toBe(liveAfterFirst);
+    expect(STREAM).not.toContain(live.textContent);
+    overlay.unmount();
+  });
+
+  test('after debounce window elapses, next normal emission DOES update aria-live', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    const live = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.ARIA_LIVE}`);
+    if (!live) throw new Error('missing aria-live');
+    const s = getScrubber();
+    s.focus();
+    s.value = '2';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    // Advance fake timer past the 250ms debounce window so scrubInProgress
+    // clears.
+    vi.advanceTimersByTime(300);
+    // Now resume + emit a fresh word — aria-live should update again.
+    engineOf(holder).resume();
+    engineOf(holder).pause();
+    engineOf(holder).seekTo(5);
+    // Paused-state seekTo emits a replacement word; the subscribe handler
+    // runs ariaLive write because scrubInProgress is false again.
+    expect(live.textContent).toBe(STREAM[5]);
+    overlay.unmount();
+  });
+
+  test('without any scrub interaction, normal playback emissions still update aria-live (back-compat)', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    const live = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.ARIA_LIVE}`);
+    if (!live) throw new Error('missing aria-live');
+    // engine.start() emits word[0] sync; aria-live should hold STREAM[0].
+    expect(live.textContent).toBe(STREAM[0]);
+    overlay.unmount();
+  });
+});
+
+describe('createOverlay — scrubber pause-on-scrub announcement (#47 ring-review FIX-7)', () => {
+  // a11y MED #2: pause-on-scrub silently flipped the play/pause button
+  // label; ADHD readers needed explicit state-change confirmation. The
+  // FIX-6 suppression flag ensures the announcement reaches AT before
+  // the per-emission storm would clobber it.
+  test('first scrub of a session announces "Paused. Scrubbing reading position." exactly once', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    const live = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.ARIA_LIVE}`);
+    if (!live) throw new Error('missing aria-live');
+    const s = getScrubber();
+    s.focus();
+    s.value = '2';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(live.textContent).toBe(OVERLAY_TEXT.SCRUB_PAUSED_ANNOUNCEMENT);
+  });
+
+  test('multiple rapid scrubs do NOT re-fire the announcement within the same session', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    const live = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.ARIA_LIVE}`);
+    if (!live) throw new Error('missing aria-live');
+    const s = getScrubber();
+    s.focus();
+    s.value = '2';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(live.textContent).toBe(OVERLAY_TEXT.SCRUB_PAUSED_ANNOUNCEMENT);
+    // Wipe so we can observe if it re-fires.
+    live.textContent = '';
+    s.value = '3';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    s.value = '4';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    // FIX-6 suppression keeps the per-emission storm out; FIX-7 in-session
+    // flag keeps the announcement from re-firing on every input.
+    expect(live.textContent).toBe('');
+  });
+
+  test('after debounce + new scrub session, announcement fires again', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    const live = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.ARIA_LIVE}`);
+    if (!live) throw new Error('missing aria-live');
+    const s = getScrubber();
+    s.focus();
+    s.value = '2';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(live.textContent).toBe(OVERLAY_TEXT.SCRUB_PAUSED_ANNOUNCEMENT);
+    vi.advanceTimersByTime(300);
+    live.textContent = '';
+    s.value = '4';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(live.textContent).toBe(OVERLAY_TEXT.SCRUB_PAUSED_ANNOUNCEMENT);
+  });
+});
+
 describe('createOverlay — scrubber keyboard guard (#47)', () => {
   test('ArrowLeft with scrubber focused does NOT call engine.seekToSentence', () => {
     const holder: Holder = { engine: null };

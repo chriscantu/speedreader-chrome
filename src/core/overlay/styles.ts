@@ -268,7 +268,16 @@ export const OVERLAY_CSS = `
  * native range input. The slider reuses the WPM slider base rules above
  * (shared min-height/track/thumb); only width differs — the scrubber is
  * a full-width position control, where the WPM slider is a side control.
- * Labels use tabular-nums to prevent layout jitter as digits change. */
+ * Labels use tabular-nums to prevent layout jitter as digits change.
+ *
+ * FIX-5 (ring-review architect MED #2) — auto-hide guidance for #52:
+ * .scrubber-area's #52 polish (auto-hide on playing, reveal on hover /
+ * focus / tap) MUST use visibility:hidden OR opacity:0 +
+ * pointer-events:none — NEVER display:none. The latter collapses the
+ * margin-block-start slot below and reflows the word region every time
+ * the scrubber toggles, producing visible jitter that fights the RSVP
+ * cadence. Visibility / opacity keeps the layout slot reserved so the
+ * word region's vertical center stays stable. */
 .scrubber-area {
   display: flex;
   flex-direction: column;

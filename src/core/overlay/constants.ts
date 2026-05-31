@@ -139,6 +139,17 @@ export const OVERLAY_TEXT = Object.freeze({
   SCRUBBER_LABEL: 'Reading position',
 
   /**
+   * Polite announcement spoken once per scrub session (FIX-7 — a11y MED
+   * #2). The pause-on-scrub spec silently flips the play/pause button
+   * label; ADHD + screen-reader users need an explicit state-change
+   * confirmation. Fires on the FIRST scrub input of a session and is
+   * suppressed for the remainder of the session by the FIX-6 debounce
+   * (so rapid drags don't re-fire). A new session begins after the
+   * 250ms scrub-debounce window elapses.
+   */
+  SCRUB_PAUSED_ANNOUNCEMENT: 'Paused. Scrubbing reading position.',
+
+  /**
    * Format a non-negative duration (in seconds) as `m:ss`. Mirrors the
    * Safari upstream helper: rounds seconds, pads `ss` to width 2, joins
    * with a colon. Negative or non-finite inputs clamp to `0:00` so a
