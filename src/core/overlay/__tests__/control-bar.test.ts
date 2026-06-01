@@ -1,13 +1,16 @@
 /**
- * control-bar.test.ts — issue #21 (with #16 / #23 / #24 scope)
+ * control-bar.test.ts — issue #21 (with #16 / #23 / #24 / #213 scope)
  *
  * Persistent control-bar chrome:
  *  - prev-sentence button (⏮) — clicks call engine.seekToSentence('prev')
  *  - next-sentence button (⏭) — clicks call engine.seekToSentence('next')
- *  - WPM slider (<input type="range" min=100 max=600 step=10>) — input events
- *    update engine cadence, snap/clamp at bounds, fire onWpmChange
- *  - WPM readout — text node ("300 wpm") that syncs with the slider,
- *    keyboard ArrowUp/Down, and subscribeSettings emissions
+ *  - WPM stepper (#213) — `[−] [num] [wpm] [+]` pill. Each button click
+ *    commits a single WPM_STEP discrete change to the engine and fires
+ *    onWpmChange. The numeric span carries the live value and exposes
+ *    `role="spinbutton"` with aria-valuemin / aria-valuemax / aria-valuenow.
+ *    Buttons are `disabled` at WPM_MIN / WPM_MAX (and visually distinguishable).
+ *  - Keyboard ArrowUp/Down: still updates engine cadence (non-persisting)
+ *    via the global hotkey wired in mount().
  *
  * The close button, play/pause, font-size stepper and ArrowLeft/Right /
  * ArrowUp/Down keyboard shortcuts are covered by their own specs
@@ -64,15 +67,21 @@ function getNextBtn(): HTMLButtonElement {
   return btn;
 }
 
-function getSlider(): HTMLInputElement {
-  const el = getShadow().querySelector<HTMLInputElement>(`.${OVERLAY_CLASS.WPM_SLIDER}`);
-  if (!el) throw new Error('overlay shadow: missing wpm-slider');
+function getStepperDec(): HTMLButtonElement {
+  const el = getShadow().querySelector<HTMLButtonElement>(`.${OVERLAY_CLASS.WPM_STEPPER_DEC}`);
+  if (!el) throw new Error('overlay shadow: missing wpm-stepper-dec');
   return el;
 }
 
-function getReadout(): HTMLElement {
-  const el = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.WPM_READOUT}`);
-  if (!el) throw new Error('overlay shadow: missing wpm-readout');
+function getStepperInc(): HTMLButtonElement {
+  const el = getShadow().querySelector<HTMLButtonElement>(`.${OVERLAY_CLASS.WPM_STEPPER_INC}`);
+  if (!el) throw new Error('overlay shadow: missing wpm-stepper-inc');
+  return el;
+}
+
+function getStepperNum(): HTMLElement {
+  const el = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.WPM_STEPPER_NUM}`);
+  if (!el) throw new Error('overlay shadow: missing wpm-stepper-num');
   return el;
 }
 
@@ -134,7 +143,7 @@ describe('createOverlay — prev/next sentence buttons (#23)', () => {
   });
 });
 
-describe('createOverlay — WPM slider + readout (#24, #16)', () => {
+describe('createOverlay — WPM stepper (#213, supersedes #24 slider)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -143,110 +152,176 @@ describe('createOverlay — WPM slider + readout (#24, #16)', () => {
     document.querySelectorAll('[data-speedreader-overlay]').forEach((n) => n.remove());
   });
 
-  test('renders slider with bounds [100, 600] and step 10 (issue #16)', () => {
+  test('renders [−] [num] [wpm] [+] stepper shape with accessible labels', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(defaultOpts(holder));
     overlay.mount();
-    const slider = getSlider();
-    expect(slider.type).toBe('range');
-    expect(slider.min).toBe(String(WPM_MIN));
-    expect(slider.max).toBe(String(WPM_MAX));
-    expect(slider.step).toBe(String(WPM_STEP));
-    expect(slider.getAttribute('aria-label')).toMatch(/reading speed/i);
+    const dec = getStepperDec();
+    const inc = getStepperInc();
+    const num = getStepperNum();
+    expect(dec.tagName).toBe('BUTTON');
+    expect(dec.type).toBe('button');
+    expect(dec.getAttribute('aria-label')).toBe('Decrease reading speed');
+    expect(inc.tagName).toBe('BUTTON');
+    expect(inc.type).toBe('button');
+    expect(inc.getAttribute('aria-label')).toBe('Increase reading speed');
+    // Visible glyphs match the mockup.
+    expect(dec.textContent).toBe('−');
+    expect(inc.textContent).toBe('+');
+    // Number span is the spinbutton with bounds wired up.
+    expect(num.getAttribute('role')).toBe('spinbutton');
+    expect(num.getAttribute('aria-valuemin')).toBe(String(WPM_MIN));
+    expect(num.getAttribute('aria-valuemax')).toBe(String(WPM_MAX));
+    expect(num.getAttribute('aria-label')).toMatch(/reading speed/i);
     overlay.unmount();
   });
 
-  test('slider initial value reflects initialSettings.wpm', () => {
-    const holder: Holder = { engine: null };
-    const overlay = createOverlay(
-      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 450, fontSize: 20 } }),
-    );
-    overlay.mount();
-    expect(getSlider().value).toBe('450');
-    overlay.unmount();
-  });
-
-  test('readout shows current WPM value at mount', () => {
+  test('numeric span shows initial WPM and exposes aria-valuenow', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(
       defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 350, fontSize: 20 } }),
     );
     overlay.mount();
-    expect(getReadout().textContent).toMatch(/350/);
-    expect(getReadout().textContent).toMatch(/wpm/i);
+    const num = getStepperNum();
+    expect(num.textContent).toBe('350');
+    expect(num.getAttribute('aria-valuenow')).toBe('350');
     overlay.unmount();
   });
 
-  test('slider input event updates readout but does NOT touch engine (drag UI-only, ring #21)', () => {
-    // Per ring review #21: `input` fires ~60×/sec during drag. Each engine
-    // setWpm clears + reschedules the pending word, stalling the RSVP
-    // stream while the user drags. UI sync only on `input`; engine commit
-    // on `change`.
+  test('unit-label "wpm" renders next to the number (Hi-Fi parity)', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(defaultOpts(holder));
     overlay.mount();
-    const slider = getSlider();
-    const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
-
-    slider.value = '420';
-    slider.dispatchEvent(new Event('input', { bubbles: true }));
-
-    expect(setWpmSpy).not.toHaveBeenCalled();
-    expect(getReadout().textContent).toMatch(/420/);
-    expect(slider.value).toBe('420');
+    const lbl = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.WPM_STEPPER_LBL}`);
+    expect(lbl?.textContent).toBe('wpm');
+    expect(lbl?.getAttribute('aria-hidden')).toBe('true');
     overlay.unmount();
   });
 
-  test('slider change event commits to engine WPM and readout', () => {
-    const holder: Holder = { engine: null };
-    const overlay = createOverlay(defaultOpts(holder));
-    overlay.mount();
-    const slider = getSlider();
-    const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
-
-    slider.value = '420';
-    slider.dispatchEvent(new Event('change', { bubbles: true }));
-
-    expect(setWpmSpy).toHaveBeenCalledWith(420);
-    expect(getReadout().textContent).toMatch(/420/);
-    overlay.unmount();
-  });
-
-  test('slider change invokes onWpmChange for persistence', () => {
+  test('− click decrements by WPM_STEP, commits to engine and onWpmChange', () => {
     const holder: Holder = { engine: null };
     const onWpmChange = vi.fn<(n: number) => void>();
-    const overlay = createOverlay(defaultOpts(holder, { onWpmChange }));
+    const overlay = createOverlay(
+      defaultOpts(holder, {
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20 },
+        onWpmChange,
+      }),
+    );
     overlay.mount();
-    const slider = getSlider();
-    slider.value = '500';
-    // Mimic a real drag: input ticks during drag, change on release.
-    slider.dispatchEvent(new Event('input', { bubbles: true }));
-    expect(onWpmChange).not.toHaveBeenCalled();
-    slider.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(onWpmChange).toHaveBeenCalledWith(500);
+    const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
+
+    getStepperDec().click();
+
+    expect(setWpmSpy).toHaveBeenCalledTimes(1);
+    expect(setWpmSpy).toHaveBeenCalledWith(300 - WPM_STEP);
     expect(onWpmChange).toHaveBeenCalledTimes(1);
+    expect(onWpmChange).toHaveBeenCalledWith(300 - WPM_STEP);
+    expect(getStepperNum().textContent).toBe(String(300 - WPM_STEP));
+    expect(getStepperNum().getAttribute('aria-valuenow')).toBe(String(300 - WPM_STEP));
     overlay.unmount();
   });
 
-  test('keyboard ArrowUp updates slider value and readout (sync)', () => {
+  test('+ click increments by WPM_STEP, commits to engine and onWpmChange', () => {
+    const holder: Holder = { engine: null };
+    const onWpmChange = vi.fn<(n: number) => void>();
+    const overlay = createOverlay(
+      defaultOpts(holder, {
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20 },
+        onWpmChange,
+      }),
+    );
+    overlay.mount();
+    const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
+
+    getStepperInc().click();
+
+    expect(setWpmSpy).toHaveBeenCalledTimes(1);
+    expect(setWpmSpy).toHaveBeenCalledWith(300 + WPM_STEP);
+    expect(onWpmChange).toHaveBeenCalledTimes(1);
+    expect(onWpmChange).toHaveBeenCalledWith(300 + WPM_STEP);
+    expect(getStepperNum().textContent).toBe(String(300 + WPM_STEP));
+    overlay.unmount();
+  });
+
+  test('− is disabled at WPM_MIN (clamp + visible affordance)', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(
+      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: WPM_MIN, fontSize: 20 } }),
+    );
+    overlay.mount();
+    expect(getStepperDec().disabled).toBe(true);
+    expect(getStepperInc().disabled).toBe(false);
+    overlay.unmount();
+  });
+
+  test('+ is disabled at WPM_MAX (clamp + visible affordance)', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(
+      defaultOpts(holder, { initialSettings: { theme: 'system', wpm: WPM_MAX, fontSize: 20 } }),
+    );
+    overlay.mount();
+    expect(getStepperInc().disabled).toBe(true);
+    expect(getStepperDec().disabled).toBe(false);
+    overlay.unmount();
+  });
+
+  test('disabled-at-bounds transitions live as the stepper is walked to MIN/MAX', () => {
+    // Step − repeatedly from WPM_MIN + WPM_STEP — after one click the
+    // value reaches WPM_MIN and the − button must flip disabled.
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(
+      defaultOpts(holder, {
+        initialSettings: { theme: 'system', wpm: WPM_MIN + WPM_STEP, fontSize: 20 },
+      }),
+    );
+    overlay.mount();
+    expect(getStepperDec().disabled).toBe(false);
+    getStepperDec().click();
+    expect(getStepperNum().textContent).toBe(String(WPM_MIN));
+    expect(getStepperDec().disabled).toBe(true);
+    overlay.unmount();
+  });
+
+  test('− click at WPM_MIN does not fire onWpmChange (clamp short-circuit)', () => {
+    // applyWpm short-circuits when the clamped delta lands on currentWpm.
+    // The button is also disabled by syncWpmUi, but the contract should
+    // hold even for programmatic .click() calls that bypass disabled
+    // styling: no spurious engine.setWpm + no spurious persistence.
+    const holder: Holder = { engine: null };
+    const onWpmChange = vi.fn<(n: number) => void>();
+    const overlay = createOverlay(
+      defaultOpts(holder, {
+        initialSettings: { theme: 'system', wpm: WPM_MIN, fontSize: 20 },
+        onWpmChange,
+      }),
+    );
+    overlay.mount();
+    const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
+    getStepperDec().click();
+    expect(setWpmSpy).not.toHaveBeenCalled();
+    expect(onWpmChange).not.toHaveBeenCalled();
+    expect(getStepperNum().textContent).toBe(String(WPM_MIN));
+    overlay.unmount();
+  });
+
+  test('keyboard ArrowUp updates stepper readout (global hotkey, no regression)', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(
       defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 300, fontSize: 20 } }),
     );
     overlay.mount();
-    expect(getSlider().value).toBe('300');
-    expect(getReadout().textContent).toMatch(/300/);
+    expect(getStepperNum().textContent).toBe('300');
 
     document.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }),
     );
 
-    expect(getSlider().value).toBe(String(300 + WPM_STEP));
-    expect(getReadout().textContent).toMatch(new RegExp(String(300 + WPM_STEP)));
+    expect(getStepperNum().textContent).toBe(String(300 + WPM_STEP));
+    expect(getStepperNum().getAttribute('aria-valuenow')).toBe(String(300 + WPM_STEP));
     overlay.unmount();
   });
 
-  test('keyboard ArrowDown updates slider value and readout (sync)', () => {
+  test('keyboard ArrowDown updates stepper readout (global hotkey, no regression)', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(
       defaultOpts(holder, { initialSettings: { theme: 'system', wpm: 300, fontSize: 20 } }),
@@ -255,16 +330,13 @@ describe('createOverlay — WPM slider + readout (#24, #16)', () => {
     document.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
     );
-    expect(getSlider().value).toBe(String(300 - WPM_STEP));
-    expect(getReadout().textContent).toMatch(new RegExp(String(300 - WPM_STEP)));
+    expect(getStepperNum().textContent).toBe(String(300 - WPM_STEP));
     overlay.unmount();
   });
 
-  test('keyboard ArrowUp/Down do NOT persist (main contract — slider is the persistence surface)', () => {
-    // Issue #24 names the slider as the persistence surface. ArrowUp /
-    // ArrowDown adjust engine cadence for the session without rewriting
-    // the saved default. Ring review #21 caught a silent flip to
-    // persisting; this test guards the contract.
+  test('keyboard ArrowUp/Down do NOT persist (issue #24 contract still holds)', () => {
+    // The − / + stepper IS the persistence surface; ArrowUp/Down keeps
+    // the session-only contract that's been in place since #24.
     const holder: Holder = { engine: null };
     const onWpmChange = vi.fn<(n: number) => void>();
     const overlay = createOverlay(defaultOpts(holder, { onWpmChange }));
@@ -293,7 +365,7 @@ describe('createOverlay — WPM slider + readout (#24, #16)', () => {
     overlay.unmount();
   });
 
-  test('subscribeSettings emission with new wpm updates slider and readout', () => {
+  test('subscribeSettings emission with new wpm updates stepper readout', () => {
     const holder: Holder = { engine: null };
     let notify: SettingsSubscriber = () => undefined;
     const overlay = createOverlay(
@@ -306,96 +378,77 @@ describe('createOverlay — WPM slider + readout (#24, #16)', () => {
       }),
     );
     overlay.mount();
-    expect(getSlider().value).toBe('300');
+    expect(getStepperNum().textContent).toBe('300');
 
     const next: OverlaySettings = { theme: 'system', wpm: 480, fontSize: 20 };
     notify(next);
 
-    expect(getSlider().value).toBe('480');
-    expect(getReadout().textContent).toMatch(/480/);
+    expect(getStepperNum().textContent).toBe('480');
+    expect(getStepperNum().getAttribute('aria-valuenow')).toBe('480');
     overlay.unmount();
   });
 
-  test('slider clamps to WPM_MIN if out-of-range value is set externally', () => {
-    // The native <input type="range"> normally clamps on its own, but the
-    // engine.setWpm path must also tolerate the (theoretical) escape — and
-    // the on-change handler MUST always feed a clamped value to the engine.
-    const holder: Holder = { engine: null };
-    const overlay = createOverlay(defaultOpts(holder));
-    overlay.mount();
-    const slider = getSlider();
-    const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
-
-    slider.value = '50'; // below WPM_MIN — browser would clamp to '100'
-    slider.dispatchEvent(new Event('change', { bubbles: true }));
-
-    const calls = setWpmSpy.mock.calls;
-    const calledWith = calls[calls.length - 1]?.[0];
-    expect(calledWith).toBeGreaterThanOrEqual(WPM_MIN);
-    expect(calledWith).toBeLessThanOrEqual(WPM_MAX);
-    overlay.unmount();
-  });
-
-  test('mutation guard — onWpmChange wire from slider change is load-bearing', () => {
+  test('mutation guard — onWpmChange wire from + click is load-bearing', () => {
     // Without the wire, the assertion below would never be true; if a
-    // contributor reverts the `opts.onWpmChange?.(clamped)` call inside the
-    // slider change handler to a no-op, this test fails.
+    // contributor reverts the `opts.onWpmChange?.(clamped)` call inside
+    // applyWpm (or flips persist:true to persist:false in the click
+    // handler) this test fails.
     const holder: Holder = { engine: null };
     const onWpmChange = vi.fn<(n: number) => void>();
-    const overlay = createOverlay(defaultOpts(holder, { onWpmChange }));
+    const overlay = createOverlay(
+      defaultOpts(holder, {
+        initialSettings: { theme: 'system', wpm: 400, fontSize: 20 },
+        onWpmChange,
+      }),
+    );
     overlay.mount();
-    const slider = getSlider();
-    slider.value = '410';
-    slider.dispatchEvent(new Event('change', { bubbles: true }));
+    getStepperInc().click();
     expect(onWpmChange).toHaveBeenCalledTimes(1);
-    expect(onWpmChange).toHaveBeenCalledWith(410);
+    expect(onWpmChange).toHaveBeenCalledWith(400 + WPM_STEP);
     overlay.unmount();
   });
 
-  test('slider drag stress — many input ticks call engine.setWpm zero times (ring #21 BLOCKER)', () => {
-    // Simulates a drag: dozens of `input` events while the user holds the
-    // slider, then a single `change` on release. Engine commit MUST happen
-    // once, not per tick — otherwise each tick clearPending()+scheduleNext()
-    // stalls the RSVP stream.
+  test('multiple − / + clicks walk the stepper in WPM_STEP increments', () => {
     const holder: Holder = { engine: null };
     const onWpmChange = vi.fn<(n: number) => void>();
-    const overlay = createOverlay(defaultOpts(holder, { onWpmChange }));
+    const overlay = createOverlay(
+      defaultOpts(holder, {
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20 },
+        onWpmChange,
+      }),
+    );
     overlay.mount();
-    const slider = getSlider();
-    const setWpmSpy = vi.spyOn(engineOf(holder), 'setWpm');
-
-    for (let v = 310; v <= 500; v += 10) {
-      slider.value = String(v);
-      slider.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-    expect(setWpmSpy).not.toHaveBeenCalled();
-    expect(onWpmChange).not.toHaveBeenCalled();
-
-    slider.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(setWpmSpy).toHaveBeenCalledTimes(1);
-    expect(setWpmSpy).toHaveBeenCalledWith(500);
-    expect(onWpmChange).toHaveBeenCalledTimes(1);
-    expect(onWpmChange).toHaveBeenCalledWith(500);
+    getStepperInc().click();
+    getStepperInc().click();
+    getStepperInc().click();
+    expect(getStepperNum().textContent).toBe(String(300 + 3 * WPM_STEP));
+    expect(onWpmChange).toHaveBeenCalledTimes(3);
+    expect(onWpmChange).toHaveBeenLastCalledWith(300 + 3 * WPM_STEP);
+    getStepperDec().click();
+    expect(getStepperNum().textContent).toBe(String(300 + 2 * WPM_STEP));
+    expect(onWpmChange).toHaveBeenCalledTimes(4);
+    expect(onWpmChange).toHaveBeenLastCalledWith(300 + 2 * WPM_STEP);
     overlay.unmount();
   });
 });
 
-describe('createOverlay — control-bar tap targets (#21)', () => {
-  test('CSS sheet ensures prev/next/slider/font/play-pause meet 44px target-size at base', () => {
+describe('createOverlay — control-bar tap targets (#21, #213)', () => {
+  test('CSS sheet ensures prev/next/stepper-buttons/font/play-pause meet 44px target-size at base', () => {
     // jsdom does not evaluate CSS — assert structural minimums in the
     // stylesheet bytes (mirrors touch-controls.test.ts pattern).
     expect(OVERLAY_CSS).toMatch(/\.prev-sentence-btn[\s\S]*?min-(width|height):\s*44px/);
     expect(OVERLAY_CSS).toMatch(/\.next-sentence-btn[\s\S]*?min-(width|height):\s*44px/);
-    // Slider thumb / track wrapped in a hitbox ≥ 44px tall.
-    expect(OVERLAY_CSS).toMatch(/\.wpm-slider[\s\S]*?min-height:\s*44px/);
+    // WPM stepper buttons (#213) — `.wpm-display button` rule wraps both
+    // − and + with a 44px floor even though the painted circle is 22px.
+    expect(OVERLAY_CSS).toMatch(/\.wpm-display button[\s\S]*?min-height:\s*44px/);
   });
 
-  test('CSS sheet bumps prev/next/slider to ≥48px on touch-primary viewports', () => {
+  test('CSS sheet bumps prev/next/stepper-buttons to ≥48px on touch-primary viewports', () => {
     const blockMatch = OVERLAY_CSS.match(/@media\s*\(pointer:\s*coarse\)[^{]*\{([\s\S]*?)\n\}/);
     expect(blockMatch, 'coarse-pointer media block must exist').toBeTruthy();
     const blockBody = blockMatch?.[1] ?? '';
     expect(blockBody).toMatch(/\.prev-sentence-btn[\s\S]*?min-height:\s*48px/);
     expect(blockBody).toMatch(/\.next-sentence-btn[\s\S]*?min-height:\s*48px/);
-    expect(blockBody).toMatch(/\.wpm-slider[\s\S]*?min-height:\s*48px/);
+    expect(blockBody).toMatch(/\.wpm-display button[\s\S]*?min-height:\s*48px/);
   });
 });
