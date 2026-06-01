@@ -176,6 +176,17 @@ export interface OverlayOptions {
    */
   onWpmChange?: (next: number) => void;
   /**
+   * Called when the user picks a theme from the in-overlay Tweaks
+   * panel (#step-3). The overlay also calls `applyTheme()` locally so
+   * the user gets instant feedback; consumers are expected to persist
+   * the value (the chrome glue routes this to
+   * `chrome.storage.sync.saveSettings({ theme })`). Omitting the
+   * callback disables persistence — the overlay still flips the theme
+   * for the session. The `'system'` sentinel passes through unchanged
+   * so callers can store the user's auto-detect preference.
+   */
+  onThemeChange?: (next: ThemeId | 'system') => void;
+  /**
    * Resume toast (#48). When provided AND the mount actually resumes
    * (i.e. `initialIndex` is a positive in-range integer), the overlay
    * renders a non-blocking `role="status"` toast inside the shadow root
