@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy — SpeedReader for Chrome</title>
+    <meta
+      name="description"
+      content="Privacy policy for the SpeedReader Chrome extension: no data collection, no analytics, no network calls."
+    />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --fg: #111;
+        --bg: #fff;
+        --muted: #555;
+        --link: #0366d6;
+        --rule: #e1e4e8;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --fg: #e6edf3;
+          --bg: #0d1117;
+          --muted: #9aa4af;
+          --link: #58a6ff;
+          --rule: #30363d;
+        }
+      }
+      html,
+      body {
+        background: var(--bg);
+        color: var(--fg);
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial,
+          sans-serif;
+        line-height: 1.55;
+        max-width: 760px;
+        margin: 2rem auto;
+        padding: 0 1.25rem;
+      }
+      h1,
+      h2 {
+        line-height: 1.25;
+      }
+      h1 {
+        margin-bottom: 0.25rem;
+      }
+      h2 {
+        margin-top: 2rem;
+        border-bottom: 1px solid var(--rule);
+        padding-bottom: 0.25rem;
+      }
+      a {
+        color: var(--link);
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 0.95rem;
+        margin-bottom: 1.5rem;
+      }
+      code {
+        background: rgba(127, 127, 127, 0.15);
+        padding: 0.1em 0.35em;
+        border-radius: 4px;
+        font-size: 0.92em;
+      }
+      ul {
+        padding-left: 1.4rem;
+      }
+      li {
+        margin: 0.35rem 0;
+      }
+      footer {
+        margin-top: 3rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--rule);
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Privacy Policy</h1>
+    <p class="meta">
+      <strong>SpeedReader for Chrome</strong> &mdash; Effective date:
+      2026-05-29
+    </p>
+
+    <p>
+      SpeedReader is a free, open-source Chrome extension that delivers Rapid
+      Serial Visual Presentation (RSVP) reading for any web page you choose to
+      read with it. It is built for neurodivergent readers (ADHD, dyslexia,
+      processing differences) and adjacent audiences who benefit from
+      distraction-free focused reading.
+    </p>
+
+    <p>
+      This document describes &mdash; in plain terms and with no marketing
+      language &mdash; what data the extension touches, where that data lives,
+      and what it never does.
+    </p>
+
+    <h2>What we collect</h2>
+    <p><strong>Nothing.</strong></p>
+    <p>
+      SpeedReader does not collect, transmit, sell, share, or otherwise transfer
+      any personal information, browsing activity, page content, or analytics.
+    </p>
+    <p>There are no accounts. There is no login. There is no server.</p>
+
+    <h2>What stays on your device</h2>
+    <p>
+      The following data is stored locally on your device via the standard
+      Chrome
+      <a
+        href="https://developer.chrome.com/docs/extensions/reference/api/storage"
+        ><code>chrome.storage</code></a
+      >
+      API and never leaves it:
+    </p>
+    <ul>
+      <li>
+        <strong>User preferences</strong> &mdash; words per minute (WPM), font
+        face, font size, theme (light / dark / system), and other settings
+        exposed in the options page.
+      </li>
+      <li>
+        <strong>Reading session state</strong> &mdash; the current word position
+        when you pause or close the reader. This is held in memory or in
+        <code>chrome.storage</code> for your convenience and is not transmitted
+        anywhere.
+      </li>
+    </ul>
+    <p>
+      You can clear this data at any time from <code>chrome://extensions/</code>
+      &rarr; SpeedReader &rarr; &ldquo;Site settings&rdquo; / &ldquo;Remove
+      extension&rdquo;.
+    </p>
+
+    <h2>What we never do</h2>
+    <ul>
+      <li>
+        <strong>No analytics.</strong> No first-party or third-party analytics
+        SDKs are bundled or loaded.
+      </li>
+      <li>
+        <strong>No telemetry.</strong> No usage pings, no crash reports, no
+        &ldquo;anonymous&rdquo; metrics.
+      </li>
+      <li>
+        <strong>No network calls.</strong> The extension makes no outbound
+        HTTP, WebSocket, <code>fetch</code>, <code>XMLHttpRequest</code>, or
+        <code>sendBeacon</code> calls. The only network activity tied to the
+        extension is Chrome&rsquo;s own update check for new versions, which is
+        controlled by your browser, not by us.
+      </li>
+      <li>
+        <strong>No page content transmission.</strong> When you trigger
+        SpeedReader on a page, the extension reads the page&rsquo;s text locally
+        in the content script and feeds it into the on-device RSVP engine. That
+        text is never sent off the device.
+      </li>
+      <li>
+        <strong>No tracking across sites.</strong> SpeedReader has no concept of
+        &ldquo;the same user across sites&rdquo;. The extension does not know
+        what other pages you visit.
+      </li>
+      <li>
+        <strong>No sale, sharing, or transfer of data</strong> under any meaning
+        of those terms in GDPR, CCPA, or analogous regimes &mdash; because there
+        is no data to sell, share, or transfer.
+      </li>
+    </ul>
+
+    <h2>Permissions, in plain language</h2>
+    <p>
+      Each Chrome permission the extension requests is requested because it is
+      required for the reading experience. None grant any kind of remote
+      access. Per-permission justifications live in
+      <a
+        href="https://github.com/chriscantu/speedreader-chrome/blob/main/docs/permission-justifications.md"
+        ><code>docs/permission-justifications.md</code></a
+      >; the short form:
+    </p>
+    <ul>
+      <li>
+        <code>storage</code> &mdash; persist your settings (WPM, font, theme)
+        locally.
+      </li>
+      <li>
+        <code>activeTab</code> &mdash; read the text of the tab you actively
+        invoke the extension on, for the duration of that user gesture.
+        Replaces broad <code>&lt;all_urls&gt;</code> host permissions.
+      </li>
+      <li>
+        <code>scripting</code> &mdash; inject the content script into the
+        active tab on demand when you open the popup or press the keyboard
+        shortcut.
+      </li>
+      <li>
+        <code>contextMenus</code> &mdash; register the right-click
+        &ldquo;SpeedReader&rdquo; entry on text selections.
+      </li>
+    </ul>
+
+    <h2>Children&rsquo;s privacy</h2>
+    <p>
+      SpeedReader does not knowingly collect any information from children
+      under 13, because it does not collect information from anyone.
+    </p>
+
+    <h2>Open source</h2>
+    <p>
+      The full source code is published at
+      <a href="https://github.com/chriscantu/speedreader-chrome"
+        >github.com/chriscantu/speedreader-chrome</a
+      >. Anyone may inspect, audit, build, or fork it. If the source
+      code&rsquo;s behavior ever diverges from the claims in this document, the
+      source is the truth &mdash; please open an issue.
+    </p>
+
+    <h2>Changes to this policy</h2>
+    <p>
+      If a future release ever needs to change any of the claims above (for
+      example, an opt-in feature that touches a network), this document will be
+      updated in the same commit as the change, and the entry will be called
+      out in
+      <a
+        href="https://github.com/chriscantu/speedreader-chrome/blob/main/CHANGELOG.md"
+        ><code>CHANGELOG.md</code></a
+      >.
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+      Questions, concerns, or corrections: open an issue at
+      <a href="https://github.com/chriscantu/speedreader-chrome/issues"
+        >github.com/chriscantu/speedreader-chrome/issues</a
+      >.
+    </p>
+
+    <footer>
+      Canonical Markdown source:
+      <a
+        href="https://github.com/chriscantu/speedreader-chrome/blob/main/PRIVACY.md"
+        >PRIVACY.md</a
+      >
+      &middot; License:
+      <a
+        href="https://github.com/chriscantu/speedreader-chrome/blob/main/LICENSE"
+        >MIT</a
+      >.
+    </footer>
+  </body>
+</html>
