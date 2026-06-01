@@ -90,3 +90,6 @@ out/
 tests/e2e/profiling/results/*
 !tests/e2e/profiling/results/.gitkeep
 dist-e2e-ext/
+
+# Chrome Web Store release artifacts (built from dist/ via `zip`)
+speedreader-chrome-*.zip

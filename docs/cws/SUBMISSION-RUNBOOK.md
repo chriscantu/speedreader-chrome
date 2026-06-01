@@ -28,6 +28,49 @@ building. The CWS form is unforgiving about partial submissions.
 
 ---
 
+## 0. v0.2.0 handoff checklist (initial unlisted-testing submission)
+
+This block is a one-time checklist for the first submission cycle. Once
+v0.2.0 ships and a `1.0.0` public submission is queued, the items here
+graduate into the standard §1–§6 flow and this section can be deleted
+(or kept as the historical record).
+
+The agent has already produced:
+
+- [x] Version bumped: `package.json` + `src/chrome/manifest.ts` → `0.2.0`
+- [x] `CHANGELOG.md` `[Unreleased]` promoted to `[0.2.0] - 2026-05-31`
+- [x] Production zip built: `speedreader-chrome-0.2.0.zip` (≈198 KB, gitignored)
+- [x] Standalone `PRIVACY.html` at repo root for GitHub Pages hosting
+- [x] Release branch `release/v0.2.0` pushed; PR open
+
+Maintainer-owned items (agent cannot drive these):
+
+- [ ] **Enable GitHub Pages.** Repo → Settings → Pages → Source: `Deploy from a branch` → Branch: `main` / `/ (root)`. Save. Wait ~1–2 min for first build.
+  - Verify: `curl -I https://chriscantu.github.io/speedreader-chrome/PRIVACY.html` returns `200 OK`.
+  - This URL is what you paste into the CWS "Privacy policy" field.
+- [ ] **Capture screenshots** per [`docs/cws/SCREENSHOT-PLAYBOOK.md`](SCREENSHOT-PLAYBOOK.md). Five 1280×800 PNGs minimum. Drop them in a local capture folder; do NOT commit (they're listing assets, not source).
+- [ ] **Design 440×280 promo tile.** Brief in the screenshot playbook. Solid background, store icon centered, product name in Open Sans Bold. PNG, sRGB.
+- [ ] **Register Chrome Web Store developer account.** <https://chrome.google.com/webstore/devconsole>. One-time $5 USD. Enable 2FA on the Google account first.
+- [ ] **Upload `speedreader-chrome-0.2.0.zip`** in the dev console → "New item" → drag-drop the zip.
+- [ ] **Fill listing fields verbatim from `docs/cws/LISTING.md`** — name, summary, description, category (Accessibility), language (en-US), single-purpose statement, permission justifications (paste from `docs/permission-justifications.md`), privacy URL (the GH Pages URL above).
+- [ ] **Visibility: Unlisted.** Distribution → Visibility → "Unlisted". This is the staged-release gate — the listing is reviewable by Google but not surfaced in search.
+- [ ] **Submit for review.** Click "Submit for review". Approval typically 1–3 business days.
+- [ ] **On approval:** smoke-test the install on a fresh Chrome profile via the unlisted URL. Verify popup, overlay activation, options page, context-menu entry, theme apply. If all green, queue the `1.0.0` public submission (re-run §0 with version bumped + visibility flipped to Public).
+- [ ] **On rejection:** capture the reviewer message, route to [`§5 Reviewer-feedback template`](#5-reviewer-feedback-template) for canned response; address root cause in code; bump patch version (`0.2.1`), rebuild zip, re-submit.
+
+Release artifact build, repeatable:
+
+```bash
+git checkout main && git pull
+npm ci
+npm run lint
+npm test
+npm run build
+(cd dist && zip -r ../speedreader-chrome-$(node -p "require('../package.json').version").zip . -x "*.DS_Store")
+```
+
+---
+
 ## 1. Pre-flight checklist
 
 Run these checks from the repository root **before** starting the

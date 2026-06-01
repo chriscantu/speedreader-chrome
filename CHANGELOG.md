@@ -14,6 +14,23 @@ heading and a fresh `[Unreleased]` block is opened above it.
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.2.0] - 2026-05-31
+
+First Chrome Web Store submission build (unlisted testing track). Phase-1
+parity with the Safari reference plus Hi-Fi overlay polish landed in M2.
+
+### Added
+
 - `CHANGELOG.md` seeded with keep-a-changelog scaffolding (#42).
 - `PRIVACY.md` documenting Chrome Web Store privacy claims (no data
   egress, no analytics, no network, no account, no tracking) — required
@@ -48,4 +65,5 @@ heading and a fresh `[Unreleased]` block is opened above it.
 
 ### Security
 
-[Unreleased]: https://github.com/chriscantu/speedreader-chrome/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/chriscantu/speedreader-chrome/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/chriscantu/speedreader-chrome/compare/v0.1.0...v0.2.0
