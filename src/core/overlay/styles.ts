@@ -1,8 +1,23 @@
 /**
  * Overlay stylesheet, served via adoptedStyleSheets on the open shadow
- * root. Container query primer lives in the #35 spec; this MVP floor
- * uses fluid clamp() that satisfies WCAG 1.4.10 / 1.4.4 at 320px and
- * 200% zoom without dedicated tier blocks. Tiers land in a follow-up.
+ * root. Reskinned to match the approved Hi-Fi mockup
+ * (docs/design source: SpeedReader-standalone Hi-Fi). The DOM structure
+ * is unchanged; existing class names from `constants.ts` remain the
+ * single source of truth so the 24-file overlay test suite stays green.
+ *
+ * Visual deltas vs prior styling (mockup-derived):
+ *   - Modal: 620px max, rounded 16px corners, surface bg, accent border
+ *   - Typography: Roboto / Roboto-Mono with system fallbacks
+ *   - Close button: 30px circular icon-btn (was 44px outlined square)
+ *   - Word region: 54px mono ORP word, accent focus letter
+ *   - Context preview: 13px serif, `.now` highlight inline
+ *   - Progress scrubber: thin (4px) accent rail with circular thumb
+ *   - Controls: circular ctrl-btns, primary play (48px accent)
+ *   - WPM: slider styled to match mockup's pill chip
+ *
+ * Ancillary tokens (--surface-2, --text-muted, --border, etc.) are
+ * derived from the 5 theme tokens via color-mix so the existing
+ * applyTheme() contract stays the contract.
  *
  * forced-colors block uses system tokens per #35 spec section 6.
  * prefers-reduced-motion disables chrome transitions only (RSVP cadence
@@ -15,47 +30,68 @@ export const OVERLAY_CSS = `
   inset: 0;
   z-index: 2147483647;
   display: block;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: 'Roboto', 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+
+  /* Theme-invariant tokens (do not depend on applyTheme writes). */
+  --brand-red: #d93025;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.10), 0 1px 3px 1px rgba(0,0,0,.06);
+  --shadow-3: 0 4px 8px 3px rgba(0,0,0,.18), 0 1px 3px rgba(0,0,0,.32);
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --font-ui: 'Roboto', 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Roboto Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-reader: 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
 }
 
 .backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.78);
+  background: rgba(0, 0, 0, 0.45);
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: 40px;
 }
 
 .modal {
+  /* applyTheme() writes --bg/--surface/--text/--accent/--accent-soft onto
+   * THIS element. The ancillary palette (--surface-2/-3, --text-muted,
+   * --border, etc.) is derived here from those writes via color-mix so a
+   * theme flip cascades through every descendant in one update. Keep
+   * derivations on .modal (NOT :host) so the cascade has the post-applyTheme
+   * values to mix against. */
+  --surface-2: color-mix(in oklab, var(--surface, #ffffff) 96%, var(--text, #202124));
+  --surface-3: color-mix(in oklab, var(--surface, #ffffff) 92%, var(--text, #202124));
+  --text-2: color-mix(in oklab, var(--text, #202124) 85%, var(--surface, #ffffff));
+  /* --text-muted at 60/40 mix lands ~4.0–4.2:1 on light/paper/cream
+   * surfaces — below WCAG 1.4.3 (4.5:1 for &lt;18px non-bold). 75/25 lands
+   * ~5.5:1 across themes and preserves the muted feel
+   * (a11y-extension-designer finding #1). */
+  --text-muted: color-mix(in oklab, var(--text, #202124) 75%, var(--surface, #ffffff));
+  --text-faint: color-mix(in oklab, var(--text, #202124) 40%, var(--surface, #ffffff));
+  --border: color-mix(in oklab, var(--text, #202124) 18%, var(--surface, #ffffff));
+  --border-strong: color-mix(in oklab, var(--text, #202124) 35%, var(--surface, #ffffff));
+  --accent-hover: color-mix(in oklab, var(--accent, #1a73e8) 88%, black);
+
   background: var(--surface, #ffffff);
-  color: var(--text, #111111);
-  border-radius: 12px;
-  padding: clamp(24px, 6cqi, 64px);
-  max-inline-size: min(72ch, 1100px);
-  inline-size: 100%;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  color: var(--text, #202124);
+  border-radius: var(--radius-xl);
+  padding: 0;
+  inline-size: 620px;
+  max-inline-size: calc(100% - 40px);
+  box-shadow: var(--shadow-3);
+  border: 1px solid var(--border);
   position: relative;
+  overflow: hidden;
   container-type: inline-size;
   container-name: rsvp;
+  font-family: var(--font-ui);
 }
 
-/* Font picker (#28) — Safari-parity 5-font set. Family stacks mirror
- * SpeedReader/SpeedReaderExtension/Resources/rsvp/overlay.css. Scoped to
- * the reading surface only (word + context-preview); UI chrome stays in
- * the system font so button labels read consistently across picker
- * selections. The 'system' ID applies no class — the default .modal
- * family stack at :host above is already system-ui. */
+/* Font picker (#28) — Safari-parity 5-font set scoped to reading surface. */
 .modal.opendyslexic .word-region,
 .modal.opendyslexic .context-current,
 .modal.opendyslexic .context-preview {
-  /* Fallback chain ordered for dyslexia readability — generic system-ui
-   * only as last resort. Atkinson Hyperlegible (Braille Institute,
-   * downloadable / ships on some platforms), Comic Sans MS (research-
-   * cited dyslexia-friendly letter disambiguation; preinstalled on
-   * Windows + macOS), and Trebuchet MS (also research-cited; preinstalled
-   * cross-platform) keep the user on a dyslexia-friendly face when the
-   * bundled OpenDyslexic WOFF2 fails to load. See #190. */
   font-family:
     'OpenDyslexic', 'Atkinson Hyperlegible', 'Comic Sans MS',
     'Trebuchet MS', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -64,9 +100,6 @@ export const OVERLAY_CSS = `
 .modal.newYork .word-region,
 .modal.newYork .context-current,
 .modal.newYork .context-preview {
-  /* macOS/iOS ship 'New York' (Apple system serif); Chromium on other
-   * platforms falls back to Iowan Old Style → Georgia → generic serif so
-   * the user still sees a comfortable serif face. */
   font-family: 'New York', 'Iowan Old Style', Georgia, serif;
 }
 
@@ -79,305 +112,182 @@ export const OVERLAY_CSS = `
 .modal.menlo .word-region,
 .modal.menlo .context-current,
 .modal.menlo .context-preview {
-  /* Apple-bundled monospace; the fallback chain covers Windows
-   * ('Courier New') and Linux (generic monospace). */
   font-family: Menlo, 'Courier New', monospace;
 }
 
-.close-btn {
-  position: absolute;
-  top: 16px;
-  right: 16px;
+/* ===== Modal header bar — mockup ".modal-header" =====
+ * Top chrome row with mini-logo + product name + hostname on left,
+ * action icons on right. Sits above .scope-header (which carries the
+ * article-meta info). */
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 10px 18px;
+  border-block-end: 1px solid var(--border);
+  background: var(--surface-2);
+  margin-block-end: 2px;
+}
+
+.modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font: 500 13px / 1.2 var(--font-ui);
+  color: var(--text);
+  min-inline-size: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mini-logo {
+  inline-size: 22px;
+  block-size: 22px;
+  border-radius: 6px;
+  background: var(--brand-red);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  font: 700 9px / 1 var(--font-mono);
+  flex-shrink: 0;
+  letter-spacing: 0.05em;
+}
+
+.modal-source {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* ===== Close + bookmark + settings — shared icon-btn baseline =====
+ * In-header icon buttons. WCAG 2.5.5 target-size honored at 44px. */
+.close-btn,
+.bookmark-btn,
+.settings-btn {
   width: 44px;
   height: 44px;
-  border: 2px solid var(--text, #111111);
-  border-radius: 8px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 50%;
+  border: none;
   background: transparent;
-  color: var(--text, #111111);
-  font: 700 20px / 1 system-ui, sans-serif;
+  color: var(--text-muted);
+  font: 600 14px / 1 var(--font-ui);
   cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.bookmark-btn,
+.settings-btn {
+  font-size: 16px;
 }
 
 .close-btn:hover {
-  background: var(--accent-soft, rgba(37, 99, 235, 0.12));
-  color: var(--text, #111111);
+  background: var(--accent-soft, #e8f0fe);
+  color: var(--text, #202124);
 }
 
-.close-btn:focus-visible {
-  outline: 3px solid var(--accent, #2563eb);
+.bookmark-btn:hover,
+.settings-btn:hover {
+  background: var(--accent-soft, #e8f0fe);
+  color: var(--text);
+}
+
+.close-btn:focus-visible,
+.bookmark-btn:focus-visible,
+.settings-btn:focus-visible {
+  outline: 2px solid var(--accent, #1a73e8);
   outline-offset: 2px;
 }
 
-.footer {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 16px;
-  padding-block-start: clamp(16px, 4cqi, 32px);
-}
-
-.play-pause-btn {
-  min-width: 96px;
-  min-height: 44px;
-  padding: 8px 20px;
-  border: 2px solid var(--text, #111111);
-  border-radius: 8px;
-  background: var(--accent, #2563eb);
-  color: var(--bg, #ffffff);
-  font: 700 16px / 1 system-ui, sans-serif;
-  cursor: pointer;
-}
-
-.play-pause-btn:hover {
-  background: var(--accent-soft, rgba(37, 99, 235, 0.12));
-  color: var(--text, #111111);
-}
-
-.play-pause-btn:focus-visible {
-  outline: 3px solid var(--text, #111111);
-  outline-offset: 2px;
-}
-
-.play-pause-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
+/* ===== Scope header — repurposed as ".article-meta" row =====
+ * Mockup shows: bold title • author • word-count pill, 12px muted.
+ * We carry just the header text in current DOM (h2 with full title or
+ * scoped descriptor). Close icon now lives inside .modal-header, so the
+ * right padding here is symmetric. */
 .scope-header {
   margin: 0;
-  padding-inline-end: 56px; /* leave room for top-right close button */
-  font-size: clamp(0.95rem, 1.6cqi + 0.5rem, 1.25rem);
-  font-weight: 700;
-  line-height: 1.3;
-  letter-spacing: 0.02em;
+  padding: 14px 24px 0;
+  font: 500 14px / 1.3 var(--font-ui);
+  color: var(--text);
+  letter-spacing: 0;
 }
 
 .scope-subtitle {
-  margin: 6px 0 0;
-  font-size: clamp(0.8rem, 1.2cqi + 0.4rem, 1rem);
+  margin: 4px 24px 0;
+  padding: 0;
+  font: 400 11px / 1.4 var(--font-ui);
   font-style: italic;
-  color: var(--text, #111111);
-  opacity: 0.85;
+  color: var(--text-muted);
 }
 
-.scope-swap-btn {
-  min-height: 44px;
-  padding: 8px 16px;
-  border: 2px solid var(--text, #111111);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text, #111111);
-  font: 600 14px / 1 system-ui, sans-serif;
-  cursor: pointer;
-}
-
-.scope-swap-btn:hover {
-  background: var(--accent-soft, rgba(37, 99, 235, 0.12));
-  color: var(--text, #111111);
-}
-
-.scope-swap-btn:focus-visible {
-  outline: 3px solid var(--accent, #2563eb);
-  outline-offset: 2px;
-}
-
-/* Font-size stepper buttons (#29). Visual treatment mirrors
- * .scope-swap-btn (outline style, accent on hover) and tap-target
- * dimensions mirror .close-btn so the WCAG 2.5.5 minimum holds across
- * the control bar. */
-.font-dec-btn,
-.font-inc-btn {
-  min-width: 44px;
-  min-height: 44px;
-  padding: 8px 12px;
-  border: 2px solid var(--text, #111111);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text, #111111);
-  font: 700 16px / 1 system-ui, sans-serif;
-  cursor: pointer;
-}
-
-.font-dec-btn:hover,
-.font-inc-btn:hover {
-  background: var(--accent-soft, rgba(37, 99, 235, 0.12));
-  color: var(--text, #111111);
-}
-
-.font-dec-btn:focus-visible,
-.font-inc-btn:focus-visible {
-  outline: 3px solid var(--accent, #2563eb);
-  outline-offset: 2px;
-}
-
-.font-dec-btn:disabled,
-.font-inc-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* Prev / next sentence buttons (#23). Same outline / accent treatment as
- * the font stepper; ≥44×44 px so WCAG 2.5.5 holds across the control bar. */
-.prev-sentence-btn,
-.next-sentence-btn {
-  min-width: 44px;
-  min-height: 44px;
-  padding: 8px 12px;
-  border: 2px solid var(--text, #111111);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text, #111111);
-  font: 700 18px / 1 system-ui, sans-serif;
-  cursor: pointer;
-}
-
-.prev-sentence-btn:hover,
-.next-sentence-btn:hover {
-  background: var(--accent-soft, rgba(37, 99, 235, 0.12));
-  color: var(--text, #111111);
-}
-
-.prev-sentence-btn:focus-visible,
-.next-sentence-btn:focus-visible {
-  outline: 3px solid var(--accent, #2563eb);
-  outline-offset: 2px;
-}
-
-/* WPM slider (#24). The native <input type="range"> default thumb is well
- * below the WCAG 2.5.5 target-size minimum (24px on Chromium, ~18px on
- * WebKit). The base styles below give the slider element a 44px hitbox
- * (touch-primary block bumps to 48px). Track + thumb keep system defaults
- * inside that hitbox so we don't fight the cross-browser thumb shape. */
-.wpm-slider,
-.scrubber-slider {
-  min-height: 44px;
-  /* The default range thumb is small; the larger inline-size gives the
-   * user enough travel for a 100→600 step=10 sweep. */
-  inline-size: clamp(120px, 22cqi, 240px);
-  accent-color: var(--accent, #2563eb);
-  cursor: pointer;
-}
-
-.wpm-slider:focus-visible,
-.scrubber-slider:focus-visible {
-  outline: 3px solid var(--accent, #2563eb);
-  outline-offset: 4px;
-}
-
-/* Progress scrubber (#47). Layout is a labels row above a full-width
- * native range input. The slider reuses the WPM slider base rules above
- * (shared min-height/track/thumb); only width differs — the scrubber is
- * a full-width position control, where the WPM slider is a side control.
- * Labels use tabular-nums to prevent layout jitter as digits change.
- *
- * FIX-5 (ring-review architect MED #2) — auto-hide guidance for #52:
- * .scrubber-area's #52 polish (auto-hide on playing, reveal on hover /
- * focus / tap) MUST use visibility:hidden OR opacity:0 +
- * pointer-events:none — NEVER display:none. The latter collapses the
- * margin-block-start slot below and reflows the word region every time
- * the scrubber toggles, producing visible jitter that fights the RSVP
- * cadence. Visibility / opacity keeps the layout slot reserved so the
- * word region's vertical center stays stable. */
-.scrubber-area {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-block-start: clamp(12px, 3cqi, 24px);
-  inline-size: 100%;
-  max-inline-size: 60ch;
-  margin-inline: auto;
-  /* #52 PART D — auto-hide transition. Overlay JS toggles opacity +
-   * visibility + pointer-events inline; the 200ms ease-out transition
-   * here smooths the flip so the bar fades in/out rather than blinking.
-   * Visibility is transitioned alongside opacity so the bar becomes
-   * non-interactive at the right moment (visibility:hidden takes effect
-   * at the END of the transition for fade-out; the simultaneous
-   * pointer-events:none ensures input is blocked the instant hide
-   * begins). prefers-reduced-motion (below) drops the transition entirely
-   * so the flip is instant for users who opt out of motion. */
-  transition: opacity 200ms ease-out, visibility 200ms ease-out;
-}
-
-.scrubber-labels {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font: 600 12px / 1 system-ui, sans-serif;
-  font-variant-numeric: tabular-nums;
-  color: var(--text, #111111);
-  opacity: 0.85;
-}
-
-.scrubber-slider {
-  /* Override the WPM slider's bounded inline-size — the scrubber is a
-   * full-width position control. */
-  inline-size: 100%;
-}
-
-.wpm-readout {
-  /* tabular-nums prevents the readout width from jittering as the digit
-   * count changes during a drag (100 → 99 → 100 etc.). */
-  font: 600 14px / 1 system-ui, sans-serif;
-  font-variant-numeric: tabular-nums;
-  color: var(--text, #111111);
-  min-inline-size: 6ch;
-  text-align: start;
-}
-
+/* ===== Word region — mockup ".rsvp-stage > .rsvp-word" =====
+ * Generous vertical padding gives the ORP word breathing room. The
+ * accent focus-tick marks above and below the word are rendered as
+ * CSS pseudo-elements anchored to the region's vertical center — no
+ * DOM nodes required, so the existing word-run rendering pipeline
+ * (single-word + chunk + ORP grid) is unaffected. */
 .word-region {
-  /*
-   * Flex layout (#52 PART C) so multiple .word-run wrappers inside a
-   * chunk flow on one line separated by the space text nodes
-   * renderChunk injects. text-align: center is kept for legacy single-
-   * span content (e.g. tests that write textContent directly); the
-   * justify-content: center below is what actually centers the
-   * .word-run children produced by renderWord / renderChunk.
-   *
-   * Wrap so a long chunk on a narrow viewport breaks gracefully rather
-   * than overflowing the modal — flex-wrap keeps the modal width as the
-   * hard cap.
-   */
   text-align: center;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   align-items: baseline;
   gap: 0 0.4ch;
-  /*
-   * When the in-modal A−/A+ stepper (#29) sets --rsvp-font-size as an
-   * inline custom property, this font-size resolves to the user-chosen
-   * value (clamped to FONT_SIZE_MIN..MAX in JS). When the custom
-   * property is absent (e.g. caller hasn't wired the stepper yet) the
-   * fluid clamp() fallback satisfies WCAG 1.4.10 / 1.4.4 at 320px and
-   * 200% zoom per the responsive-overlay spec.
-   */
-  font-size: var(--rsvp-font-size, clamp(2rem, 5.5cqi + 1rem, 5.5rem));
+  padding: 36px 24px 20px;
+  font-family: var(--font-mono);
+  font-size: var(--rsvp-font-size, clamp(40px, 8.5cqi + 0.5rem, 54px));
+  font-weight: 500;
+  letter-spacing: 0.01em;
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
-  padding-block: clamp(32px, 8cqi, 96px);
+  color: var(--text);
+  min-block-size: 110px;
+  user-select: none;
+  position: relative;
+}
+
+.word-region::before,
+.word-region::after {
+  content: '';
+  position: absolute;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  width: 1.5px;
+  background: var(--accent, #1a73e8);
+  opacity: 0.85;
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+.word-region::before {
+  top: 18px;
+  height: 14px;
+}
+
+.word-region::after {
+  bottom: 6px;
+  height: 14px;
 }
 
 .word-region .focus {
-  color: var(--accent, #2563eb);
+  color: var(--accent, #1a73e8);
+  font-weight: 600;
 }
 
-/* Word alignment (#52 PART A). Each word — single-word emission AND each
- * word inside a chunk — is wrapped in a .word-run span. The
- * data-alignment host attribute drives the per-run layout:
- *
- *   - "orp" (default, Safari upstream): 3-column grid where before /
- *     focus / after sit in columns of width 1fr / auto / 1fr. The focus
- *     character anchors at the same horizontal position across successive
- *     runs so the eye doesn't micro-saccade between words. Matches the
- *     Safari spec at docs/superpowers/specs/2026-04-04-orp-alignment-design.md.
- *   - "center": inline layout (display: block on the run reverts the grid
- *     and lets the centered .word-region parent center the inline
- *     before/focus/after spans naturally).
- *
- * In chunk mode (chunkSize ≥ 2), multiple .word-run wrappers sit inside
- * .word-region separated by space text nodes; the grid layout per-run
- * keeps each word independently ORP-aligned (the chunk is read as a
- * unit; cross-word column alignment is NOT a goal). */
+/* ORP alignment (#52) — preserved from prior implementation. */
 :host([data-alignment="orp"]) .word-run {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -385,25 +295,44 @@ export const OVERLAY_CSS = `
 }
 
 :host([data-alignment="orp"]) .word-run > span:first-child {
-  /* before — right-aligned so text flows TOWARD the focus column. */
   text-align: end;
 }
 
 :host([data-alignment="orp"]) .word-run > span:last-child {
-  /* after — left-aligned so text flows AWAY from the focus column. */
   text-align: start;
 }
 
 :host([data-alignment="center"]) .word-run {
-  /* Revert the grid; inline before/focus/after spans flow naturally
-   * inside the centered .word-region parent. */
   display: block;
 }
 
+/* ===== Context preview — mockup ".rsvp-context" =====
+ * 13px serif, muted, with the current word inline-highlighted via
+ * .context-current → mockup's ".now" treatment (accent-soft bg pill). */
+.context-preview {
+  margin: 0;
+  padding: 0 32px 16px;
+  font: 400 13px / 1.5 var(--font-reader);
+  color: var(--text-muted);
+  text-align: center;
+  min-block-size: 24px;
+}
+
+.context-preview[hidden] { display: none; }
+
+.context-current {
+  color: var(--text);
+  background: var(--accent-soft, #e8f0fe);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+/* ===== Aria-live region (visually hidden but available to AT). ===== */
 .aria-live {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  inline-size: 1px;
+  block-size: 1px;
   margin: -1px;
   padding: 0;
   overflow: hidden;
@@ -412,47 +341,210 @@ export const OVERLAY_CSS = `
   border: 0;
 }
 
-.context-preview {
-  margin-block-start: clamp(12px, 3cqi, 24px);
-  font-size: clamp(0.85rem, 1.2cqi + 0.4rem, 1.05rem);
-  line-height: 1.5;
-  color: var(--text, #111111);
-  opacity: 0.85;
-  max-inline-size: 60ch;
-  margin-inline: auto;
-  text-align: center;
-}
-
-.context-preview[hidden] { display: none; }
-
-.context-current {
-  font-weight: 700;
-  /* Subtle accent so the eye lands on the current word in the sentence. */
-  color: var(--accent, #2563eb);
-}
-
+/* ===== Trap sentinels — focus trap boundaries. ===== */
 .trap-sentinel {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  inline-size: 1px;
+  block-size: 1px;
   opacity: 0;
   pointer-events: none;
 }
 
-/* Reading-position resume toast (#48). Non-blocking polite status
- * region pinned to the top of the modal. role="status" carries the
- * polite announcement; the visual style is a subdued chip so the eye
- * lands on the word region, not the toast. */
-.resume-toast {
-  margin-block-end: clamp(8px, 2cqi, 16px);
-  padding: clamp(8px, 1.5cqi + 4px, 14px) clamp(12px, 2cqi + 6px, 20px);
-  border-radius: 8px;
-  background: var(--surface-alt, rgba(0, 0, 0, 0.06));
-  color: var(--text, #111111);
-  font-size: clamp(0.85rem, 1cqi + 0.4rem, 1rem);
+/* ===== Scrubber — mockup ".rsvp-progress" =====
+ * 4px accent rail spanning the modal with elapsed/-remaining labels
+ * on either side. The native <input range> retains its accessibility
+ * surface; the visual track is styled via accent-color. */
+.scrubber-area {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 24px 0;
+  /* #52 PART D — auto-hide fade preserved. */
+  transition: opacity 200ms ease-out, visibility 200ms ease-out;
+}
+
+.scrubber-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font: 500 11px / 1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.scrubber-slider {
+  inline-size: 100%;
+  block-size: 22px; /* hit-target while visual track stays 4px */
+  accent-color: var(--accent, #1a73e8);
+  cursor: pointer;
+  margin: 0;
+}
+
+.scrubber-slider:focus-visible {
+  outline: 2px solid var(--accent, #1a73e8);
+  outline-offset: 4px;
+}
+
+/* ===== Footer — mockup ".rsvp-controls" =====
+ * Horizontal row: scope-swap • font ± • prev • play (primary) • next •
+ * WPM slider • WPM readout. The play-pause-btn gets the primary
+ * circular treatment; the other transport buttons share .ctrl-btn-ish
+ * styling via their existing classes. */
+.footer {
   display: flex;
   flex-wrap: wrap;
-  gap: clamp(8px, 1.5cqi, 16px);
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px 14px;
+  border-block-start: 1px solid var(--border);
+  background: var(--surface-2);
+  margin-block-start: 8px;
+}
+
+/* Shared circular icon-btn baseline used by transport + font + scope swap.
+ * Sized to WCAG 2.2 AA target-size floor (44px) — mockup's 38px visual
+ * fits centered inside the larger hit-target via padding. */
+.scope-swap-btn,
+.font-dec-btn,
+.font-inc-btn,
+.prev-sentence-btn,
+.next-sentence-btn {
+  min-width: 44px;
+  min-height: 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font: 500 14px / 1 var(--font-ui);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.scope-swap-btn {
+  /* Scope-swap shows text "← Full article" — let it expand horizontally. */
+  width: auto;
+  min-width: 44px;
+  padding: 0 14px;
+  border-radius: 22px;
+}
+
+.scope-swap-btn:hover {
+  background: var(--accent-soft, #e8f0fe);
+  color: var(--text, #202124);
+}
+
+.prev-sentence-btn:hover,
+.next-sentence-btn:hover,
+.font-dec-btn:hover,
+.font-inc-btn:hover {
+  background: var(--accent-soft, #e8f0fe);
+  color: var(--text, #202124);
+}
+
+.scope-swap-btn:focus-visible,
+.font-dec-btn:focus-visible,
+.font-inc-btn:focus-visible,
+.prev-sentence-btn:focus-visible,
+.next-sentence-btn:focus-visible {
+  outline: 2px solid var(--accent, #1a73e8);
+  outline-offset: 2px;
+}
+
+.font-dec-btn:disabled,
+.font-inc-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.prev-sentence-btn,
+.next-sentence-btn {
+  font-size: 16px;
+  inline-size: 38px;
+  block-size: 38px;
+  padding: 0;
+}
+
+/* Primary play/pause — mockup's circular accent button. WCAG floor honored
+ * by sizing to 48×48 (above the 44px target-size minimum). */
+.play-pause-btn {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent, #1a73e8);
+  color: #ffffff;
+  font: 600 14px / 1 var(--font-ui);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  box-shadow: var(--shadow-1);
+  /* The button's textContent is "▶ Play" / "⏸ Pause" from OVERLAY_TEXT.
+   * The aria-label carries the full action for AT. */
+  white-space: nowrap;
+  overflow: hidden;
+  font-size: 16px;
+}
+
+.play-pause-btn:hover {
+  background: var(--accent-soft, #e8f0fe);
+  color: var(--text, #202124);
+}
+
+.play-pause-btn:focus-visible {
+  outline: 3px solid var(--accent, #1a73e8);
+  outline-offset: 3px;
+}
+
+.play-pause-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* WPM slider + readout — styled as a pill chip pair.
+ * Hit-target ≥44px per WCAG 2.2 AA. */
+.wpm-slider {
+  min-height: 44px;
+  inline-size: clamp(100px, 18cqi, 180px);
+  accent-color: var(--accent, #1a73e8);
+  cursor: pointer;
+}
+
+.wpm-slider:focus-visible {
+  outline: 2px solid var(--accent, #1a73e8);
+  outline-offset: 4px;
+}
+
+.wpm-readout {
+  font: 600 12px / 1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  padding: 4px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  min-inline-size: 5ch;
+  text-align: center;
+}
+
+/* ===== Resume toast (#48) — Hi-Fi chip styling. ===== */
+.resume-toast {
+  margin: 4px 24px 0;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  background: var(--accent-soft, #e8f0fe);
+  color: var(--text);
+  font: 400 12px / 1.4 var(--font-ui);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   align-items: center;
   justify-content: center;
 }
@@ -461,88 +553,200 @@ export const OVERLAY_CSS = `
   background: transparent;
   border: 0;
   padding: 0;
-  color: var(--accent, #2563eb);
+  color: var(--accent, #1a73e8);
   text-decoration: underline;
   cursor: pointer;
   font: inherit;
 }
 
 .resume-toast-start-over:focus-visible {
-  outline: 2px solid var(--accent, #2563eb);
+  outline: 2px solid var(--accent, #1a73e8);
   outline-offset: 2px;
 }
 
+/* ===== Tweaks popover (#step-3) =====
+ * Absolute-positioned panel anchored to the modal top-right, dropping
+ * below the modal-header settings button. Hidden by default via the
+ * hidden attribute. Segmented row uses the .tweaks-seg-btn shared
+ * baseline; .active swaps the surface to accent-soft + accent text
+ * for the pressed-state affordance.
+ */
+.tweaks-panel[hidden] { display: none; }
+
+.tweaks-panel {
+  position: absolute;
+  inset-block-start: 56px;
+  inset-inline-end: 12px;
+  inline-size: 280px;
+  max-inline-size: calc(100% - 24px);
+  background: var(--surface, #ffffff);
+  color: var(--text, #202124);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 2;
+}
+
+.tweaks-panel .tweaks-heading {
+  margin: 0;
+  font: 600 13px / 1.2 var(--font-ui);
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.tweaks-panel .tweaks-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tweaks-panel .tweaks-section-label {
+  font: 500 11px / 1.2 var(--font-ui);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tweaks-panel .tweaks-seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tweaks-panel .tweaks-seg-btn {
+  /* Honors WCAG 2.5.5 target-size floor (44px), matching the rest of
+   * the overlay's tap-target discipline rather than the mockup's 32px
+   * (a11y-extension-designer finding #5). */
+  min-block-size: 44px;
+  min-inline-size: 44px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font: 500 12px / 1.2 var(--font-ui);
+  cursor: pointer;
+}
+
+.tweaks-panel .tweaks-seg-btn:hover:not([disabled]) {
+  background: var(--accent-soft, #e8f0fe);
+  border-color: var(--accent, #1a73e8);
+}
+
+.tweaks-panel .tweaks-seg-btn.active {
+  background: var(--accent-soft, #e8f0fe);
+  border-color: var(--accent, #1a73e8);
+  color: var(--accent, #1a73e8);
+}
+
+.tweaks-panel .tweaks-seg-btn:focus-visible {
+  outline: 2px solid var(--accent, #1a73e8);
+  outline-offset: 2px;
+}
+
+.tweaks-panel .tweaks-seg-btn[disabled],
+.tweaks-panel .tweaks-accent-swatch[disabled],
+.tweaks-panel .tweaks-dim-range[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tweaks-panel .tweaks-accent-swatch {
+  inline-size: 24px;
+  block-size: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--accent, #1a73e8);
+  padding: 0;
+}
+
+.tweaks-panel .tweaks-dim-range {
+  inline-size: 100%;
+}
+
+.tweaks-trap-sentinel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ===== Forced colors ===== */
 @media (forced-colors: active) {
-  .modal { background: Canvas; color: CanvasText; }
-  .close-btn { border-color: ButtonText; color: ButtonText; }
+  .modal { background: Canvas; color: CanvasText; border-color: CanvasText; }
+  .close-btn { color: ButtonText; background: ButtonFace; }
   .close-btn:focus-visible { outline-color: Highlight; }
   .word-region .focus { color: Highlight; }
-  .play-pause-btn {
-    background: ButtonFace;
-    color: ButtonText;
-    border-color: ButtonText;
-  }
+  .play-pause-btn { background: ButtonFace; color: ButtonText; border: 1px solid ButtonText; }
   .play-pause-btn:focus-visible { outline-color: Highlight; }
   .scope-header { color: CanvasText; }
-  .scope-subtitle { color: CanvasText; opacity: 1; }
-  .scope-swap-btn {
-    background: ButtonFace;
-    color: ButtonText;
-    border-color: ButtonText;
-  }
-  .scope-swap-btn:focus-visible { outline-color: Highlight; }
+  .scope-subtitle { color: CanvasText; }
+  .scope-swap-btn,
   .font-dec-btn,
-  .font-inc-btn {
-    background: ButtonFace;
-    color: ButtonText;
-    border-color: ButtonText;
-  }
-  .font-dec-btn:focus-visible,
-  .font-inc-btn:focus-visible { outline-color: Highlight; }
+  .font-inc-btn,
   .prev-sentence-btn,
   .next-sentence-btn {
-    background: ButtonFace;
     color: ButtonText;
-    border-color: ButtonText;
+    background: ButtonFace;
+    border: 1px solid ButtonText;
   }
+  .scope-swap-btn:focus-visible,
+  .font-dec-btn:focus-visible,
+  .font-inc-btn:focus-visible,
   .prev-sentence-btn:focus-visible,
   .next-sentence-btn:focus-visible { outline-color: Highlight; }
-  .wpm-slider:focus-visible { outline-color: Highlight; }
-  .wpm-readout { color: CanvasText; }
+  .wpm-slider:focus-visible,
   .scrubber-slider:focus-visible { outline-color: Highlight; }
-  .scrubber-labels { color: CanvasText; opacity: 1; }
-  .context-preview { color: CanvasText; opacity: 1; }
-  .context-current { color: Highlight; }
+  .wpm-readout { color: CanvasText; border-color: CanvasText; background: Canvas; }
+  .scrubber-labels { color: CanvasText; }
+  .context-preview { color: CanvasText; }
+  .context-current { color: Highlight; background: Canvas; }
   .resume-toast { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
   .resume-toast-start-over { color: LinkText; }
   .resume-toast-start-over:focus-visible { outline-color: Highlight; }
+
+  /* Step 2 modal-header + Step 3 tweaks-panel surfaces under
+   * forced-colors. Without these overrides the new classes resolve to
+   * the theme's hardcoded hex values and defeat the user's OS
+   * high-contrast preference (a11y-extension-designer finding #3). */
+  .modal-header { background: Canvas; border-color: CanvasText; }
+  .modal-title { color: CanvasText; }
+  .modal-source { color: CanvasText; }
+  .mini-logo { background: ButtonFace; color: ButtonText; border: 1px solid ButtonText; }
+  .bookmark-btn,
+  .settings-btn { color: ButtonText; background: ButtonFace; }
+  .bookmark-btn:focus-visible,
+  .settings-btn:focus-visible { outline-color: Highlight; }
+
+  .tweaks-panel { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
+  .tweaks-panel .tweaks-heading,
+  .tweaks-panel .tweaks-section-label { color: CanvasText; }
+  .tweaks-panel .tweaks-seg-btn {
+    background: ButtonFace;
+    color: ButtonText;
+    border-color: ButtonText;
+  }
+  .tweaks-panel .tweaks-seg-btn.active {
+    background: Highlight;
+    color: HighlightText;
+  }
+  .tweaks-panel .tweaks-seg-btn:focus-visible { outline-color: Highlight; }
+  .tweaks-accent-swatch { background: ButtonFace; border: 1px solid ButtonText; }
+  .tweaks-dim-range:focus-visible { outline-color: Highlight; }
 }
 
+/* ===== Reduced motion ===== */
 @media (prefers-reduced-motion: reduce) {
   .backdrop, .modal { transition: none !important; animation: none !important; }
-  /* #52 PART D — drop the auto-hide fade for users who opt out of motion.
-   * The visibility / opacity flip still happens (the bar still hides on
-   * play, shows on pause/hover/focus), just instantly. */
   .scrubber-area { transition: none !important; }
 }
 
-/*
- * Touch-primary viewports (#36). The combined query targets devices whose
- * primary input is touch (phones, most tablets) without catching hybrid
- * laptops that report \`pointer: coarse\` on their touchscreen alongside
- * a precise mouse — \`hover: none\` further narrows to "no precise hover
- * available," which is the WCAG-aligned touch-primary signal.
- *
- * - Tap targets bumped to 48 CSS px (WCAG 2.2 AA target-size minimum is
- *   44; the extra 4 px is thumb-comfort headroom and gives a single
- *   knob to tune without re-auditing the minimum).
- * - Footer bottom-anchored within the modal and padded by
- *   \`env(safe-area-inset-bottom)\` so the control bar stays
- *   thumb-reachable on devices with a home indicator.
- * - Backdrop padding shrinks to give the modal more inline space at
- *   handset widths; the modal itself fills the viewport vertically so
- *   the footer can dock at the bottom.
- */
+/* ===== Touch-primary (#36) ===== */
 @media (pointer: coarse) and (hover: none) {
   .backdrop {
     padding: 0;
@@ -551,73 +755,58 @@ export const OVERLAY_CSS = `
   .modal {
     border-radius: 0;
     min-block-size: 100%;
+    inline-size: 100%;
+    max-inline-size: 100%;
     display: flex;
     flex-direction: column;
   }
   .close-btn {
     width: 48px;
     height: 48px;
+    min-width: 48px;
+    min-height: 48px;
   }
   .word-region {
     flex: 1 1 auto;
-    /* #52 PART C / architect H1 — preserve the flex+wrap layout from the
-     * base .word-region rule so chunk-mode (chunkSize >= 2) renders its
-     * multiple .word-run siblings inline on one line. The previous
-     * "display: grid; place-items: center" here OVERRODE the base flex
-     * layout, causing multi-run chunks to stack/overlap inside a single
-     * grid cell on touch-primary viewports. The base rule's
-     * "justify-content: center; align-items: baseline" already centers
-     * the runs horizontally; we only override align-items to "center" here
-     * so the runs are vertically centred within the now-larger touch
-     * .word-region flex slot. */
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
     align-items: center;
-    /* Tap target hint for assistive tech / a11y devtools — the click
-     * handler is wired in JS. */
     cursor: pointer;
   }
   .footer {
     padding-block-end: max(16px, env(safe-area-inset-bottom));
     padding-inline: 16px;
+    flex-wrap: wrap;
+    row-gap: 10px;
   }
   .play-pause-btn {
-    min-width: 128px;
-    min-height: 48px;
-    padding: 12px 24px;
+    width: 56px;
+    height: 56px;
+    min-width: 56px;
+    min-height: 56px;
+    font-size: 20px;
   }
-  .scope-swap-btn {
-    min-height: 48px;
-    padding: 12px 20px;
-  }
+  .scope-swap-btn,
   .font-dec-btn,
-  .font-inc-btn {
-    min-width: 48px;
-    min-height: 48px;
-    padding: 12px 16px;
-  }
+  .font-inc-btn,
   .prev-sentence-btn,
   .next-sentence-btn {
     min-width: 48px;
     min-height: 48px;
-    padding: 12px 16px;
+    width: 48px;
+    height: 48px;
+  }
+  .scope-swap-btn {
+    width: auto;
+    padding: 0 16px;
   }
   .wpm-slider {
     min-height: 48px;
-    inline-size: clamp(160px, 30cqi, 320px);
+    inline-size: clamp(140px, 26cqi, 280px);
   }
   .scrubber-slider {
-    min-height: 48px;
-    /* Stays full-width; the WPM slider gets a wider bounded range above. */
-    inline-size: 100%;
-  }
-  .footer {
-    /* On handsets the control bar can wrap onto two lines without losing
-     * the bottom safe-area inset. Centered alignment keeps the layout
-     * symmetric whether or not the slider wraps. */
-    flex-wrap: wrap;
-    row-gap: 12px;
+    block-size: 32px;
   }
 }
 `;

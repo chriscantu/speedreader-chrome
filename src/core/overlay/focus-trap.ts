@@ -12,11 +12,30 @@
 const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not(.trap-sentinel)';
 
+/**
+ * Walk up to the container checking for a `hidden` ancestor. We can't use a
+ * `:not([hidden] *)` CSS selector here because the `hidden` attribute on a
+ * tweaks panel toggles imperatively at runtime — the matcher must re-evaluate
+ * on every Tab-wrap, not on a static-selector snapshot. Walking ancestors is
+ * O(depth) per focusable but the focusable list is tiny (≤ ~12 entries in
+ * the worst case) and Tab events are user-driven, so the cost is invisible.
+ */
+function isInHiddenSubtree(el: HTMLElement, container: HTMLElement): boolean {
+  let cur: HTMLElement | null = el;
+  while (cur && cur !== container) {
+    if (cur.hidden) return true;
+    cur = cur.parentElement;
+  }
+  return false;
+}
+
 export function installFocusTrap(container: HTMLElement): () => void {
   const doc = container.ownerDocument;
   const priorActive = doc.activeElement as HTMLElement | null;
   const focusables = (): HTMLElement[] =>
-    Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+    Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+      (el) => !isInHiddenSubtree(el, container),
+    );
   const sentinels = container.querySelectorAll<HTMLElement>('.trap-sentinel');
   if (sentinels.length !== 2) {
     throw new Error('installFocusTrap: container must contain exactly two .trap-sentinel elements');

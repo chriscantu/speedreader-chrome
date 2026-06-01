@@ -58,6 +58,34 @@ export const OVERLAY_CLASS = Object.freeze({
    * degrades gracefully rather than rendering invisible text).
    */
   OPENDYSLEXIC: 'opendyslexic',
+  /**
+   * Mockup-fidelity top chrome — modal-header bar with mini-logo + name +
+   * hostname on the left and icon-button actions group on the right.
+   * Hosts the close button (which used to be absolute-positioned top-right)
+   * plus stub bookmark + settings buttons.
+   */
+  MODAL_HEADER: 'modal-header',
+  MODAL_TITLE: 'modal-title',
+  MINI_LOGO: 'mini-logo',
+  MODAL_SOURCE: 'modal-source',
+  MODAL_ACTIONS: 'modal-actions',
+  BOOKMARK_BTN: 'bookmark-btn',
+  SETTINGS_BTN: 'settings-btn',
+  /**
+   * Tweaks popover panel (#step-3) — anchored to the modal header's
+   * settings button, hidden by default, opened by clicking the ⚙
+   * affordance. Hosts theme picker now; focus-style / accent / dim
+   * stubs render disabled and wire up in later steps.
+   */
+  TWEAKS_PANEL: 'tweaks-panel',
+  TWEAKS_HEADING: 'tweaks-heading',
+  TWEAKS_SECTION: 'tweaks-section',
+  TWEAKS_SECTION_LABEL: 'tweaks-section-label',
+  TWEAKS_SEG: 'tweaks-seg',
+  TWEAKS_SEG_BTN: 'tweaks-seg-btn',
+  TWEAKS_SEG_BTN_ACTIVE: 'active',
+  TWEAKS_ACCENT_SWATCH: 'tweaks-accent-swatch',
+  TWEAKS_DIM_RANGE: 'tweaks-dim-range',
 });
 
 /** DOM ids referenced by ARIA relationships (e.g., aria-labelledby). */
@@ -94,9 +122,10 @@ export const OVERLAY_TEXT = Object.freeze({
   CLOSE_GLYPH: 'X',
   CLOSE_LABEL: 'Close reader',
 
-  /** Play/pause button labels + glyphs. */
-  PLAY_GLYPH: '▶ Play',
-  PAUSE_GLYPH: '⏸ Pause',
+  /** Play/pause button labels + glyphs. Mockup uses glyph-only inside the
+   * circular primary button; aria-label carries the full action for AT. */
+  PLAY_GLYPH: '▶',
+  PAUSE_GLYPH: '⏸',
   PLAY_LABEL: 'Play reading',
   PAUSE_LABEL: 'Pause reading',
 
@@ -186,5 +215,45 @@ export const OVERLAY_TEXT = Object.freeze({
    */
   scrubberValueText(elapsedSec: number, remainingSec: number): string {
     return `${OVERLAY_TEXT.formatTime(elapsedSec)} elapsed, ${OVERLAY_TEXT.formatTime(remainingSec)} remaining`;
+  },
+
+  /** Mockup top chrome — brand mini-logo letters + product name. */
+  MINI_LOGO_TEXT: 'SR',
+  PRODUCT_NAME: 'SpeedReader',
+  /** Joiner between product name and hostname: " · gutenberg.org". */
+  SOURCE_SEPARATOR: ' · ',
+
+  /** Stub action buttons — handlers wired in subsequent commits. */
+  BOOKMARK_GLYPH: '☆',
+  BOOKMARK_LABEL: 'Bookmark this article',
+  SETTINGS_GLYPH: '⚙',
+  SETTINGS_LABEL: 'Reader settings',
+
+  /** Tweaks popover (#step-3). */
+  TWEAKS_HEADING: 'Tweaks',
+  TWEAKS_THEME_LABEL: 'Theme',
+  TWEAKS_FOCUS_STYLE_LABEL: 'Focus style',
+  TWEAKS_ACCENT_LABEL: 'Accent',
+  TWEAKS_DIM_LABEL: 'Modal dim',
+  TWEAKS_SYSTEM_LABEL: 'System',
+  TWEAKS_FOCUS_LINE_LABEL: 'Line',
+  TWEAKS_FOCUS_BOLD_LABEL: 'Bold',
+  /**
+   * Theme picker accessible-name template. Visible button text is the
+   * theme id capitalized; AT users hear the explicit "Light theme" form
+   * so the button purpose is unambiguous outside the section grouping.
+   */
+  themeButtonLabel(name: string): string {
+    return `${name} theme`;
+  },
+
+  /**
+   * Polite live-region announcement after a theme switch (WCAG 4.1.3).
+   * The visible button state flip alone leaves AT users without
+   * confirmation that the theme actually applied across the chrome.
+   */
+  themeAnnouncement(id: string): string {
+    const pretty = id === 'system' ? 'System' : id.charAt(0).toUpperCase() + id.slice(1);
+    return `Theme: ${pretty}`;
   },
 });

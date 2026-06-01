@@ -1,4 +1,4 @@
-import { applyTheme } from '../theme';
+import { applyTheme, THEME_IDS } from '../theme';
 import type { ThemeId } from '../theme';
 import { OVERLAY_CSS } from './styles';
 import { OVERLAY_ATTR, OVERLAY_CLASS, OVERLAY_ID, OVERLAY_TEXT } from './constants';
@@ -108,6 +108,23 @@ const HOST_ATTR = OVERLAY_ATTR.HOST;
  * are accepted — anything else throws. The single legitimate caller is
  * `chrome.runtime.getURL()` for the bundled WAR font path.
  */
+/**
+ * Strip bidi-control + C0/C1 controls from a hostname and cap visible
+ * length. Inputs flow from `document.location.hostname` — attacker-
+ * reachable through any page the content script attaches to. Bidi
+ * marks (RTL override, isolates) flip surrounding announcement order
+ * and enable visual brand spoofing; C0/C1 controls disrupt screen
+ * reader output. Cap at 60 chars so a long hostname does not dominate
+ * the modal chrome (a11y + security review finding #7).
+ */
+export function sanitizeHostname(hostname: string): string {
+  // C0 (0000-001F), DEL+C1 (007F-009F), bidi LRM/RLM (200E-200F),
+  // embedding/override (202A-202E), isolates (2066-2069).
+  // eslint-disable-next-line no-control-regex
+  const UNSAFE = /[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+  return hostname.replace(UNSAFE, '').slice(0, 60);
+}
+
 function buildOpenDyslexicFontFace(url: string): string {
   if (!/^chrome-extension:\/\/[a-zA-Z0-9_-]+\/[^"<>\s]+$/.test(url)) {
     throw new Error(`buildOpenDyslexicFontFace: untrusted URL ${url}`);
@@ -128,6 +145,10 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
   let unsubscribeSettings: (() => void) | null = null;
   let uninstallTrap: (() => void) | null = null;
   let onKeydown: ((e: KeyboardEvent) => void) | null = null;
+  // #step-3 — symmetric teardown for the shadow-root pointerdown listener
+  // installed for the panel's click-outside ergonomics. Every other shadow
+  // listener add/remove pairs explicitly; this matches that pattern.
+  let uninstallTweaksPointerDown: (() => void) | null = null;
   // #26 — live OS theme listener teardown. Attached during mount when
   // matchMedia is available; the same closure is invoked by
   // `subscribeSettings` to swap behaviour when the user toggles the
@@ -172,6 +193,9 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     scrubber: HTMLInputElement;
     scrubberElapsed: HTMLElement;
     scrubberRemaining: HTMLElement;
+    settingsBtn: HTMLButtonElement;
+    tweaksPanel: HTMLElement;
+    themeButtons: HTMLButtonElement[];
   } {
     const doc = opts.doc;
 
@@ -232,11 +256,186 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     topSentinel.className = OVERLAY_CLASS.TRAP_SENTINEL;
     topSentinel.tabIndex = 0;
 
+    // Modal header bar (mockup ".modal-header"). Houses the mini-logo + name
+    // + hostname on the left and the actions group (bookmark, settings, close)
+    // on the right. Hostname is derived from doc.location at mount; if
+    // unavailable, the source span is omitted entirely so the header reads
+    // "SpeedReader" alone.
+    const modalHeader = doc.createElement('div');
+    modalHeader.className = OVERLAY_CLASS.MODAL_HEADER;
+
+    const modalTitle = doc.createElement('div');
+    modalTitle.className = OVERLAY_CLASS.MODAL_TITLE;
+
+    const miniLogo = doc.createElement('div');
+    miniLogo.className = OVERLAY_CLASS.MINI_LOGO;
+    miniLogo.textContent = OVERLAY_TEXT.MINI_LOGO_TEXT;
+    miniLogo.setAttribute('aria-hidden', 'true');
+
+    const titleText = doc.createElement('span');
+    titleText.textContent = OVERLAY_TEXT.PRODUCT_NAME;
+
+    modalTitle.append(miniLogo, titleText);
+
+    // Hostname suffix — read from doc.location, sanitized for AT-safe
+    // announcement and rendered with a length cap. Bidi-control marks
+    // (RTL override, isolates) would flip the surrounding announcement
+    // order and enable brand spoofing; C0/C1 controls disrupt screen
+    // reader output. Strip both, then cap visible length so a very long
+    // hostname doesn't dominate the chrome bar (a11y + security review
+    // finding #7). Falsy / about:blank / data: URIs skip the separator
+    // entirely so the header degrades cleanly.
+    const hostname = doc.location?.hostname ?? '';
+    const safeHost = sanitizeHostname(hostname);
+    if (safeHost) {
+      const sourceSpan = doc.createElement('span');
+      sourceSpan.className = OVERLAY_CLASS.MODAL_SOURCE;
+      sourceSpan.textContent = `${OVERLAY_TEXT.SOURCE_SEPARATOR}${safeHost}`;
+      modalTitle.appendChild(sourceSpan);
+    }
+
+    const modalActions = doc.createElement('div');
+    modalActions.className = OVERLAY_CLASS.MODAL_ACTIONS;
+
+    // Bookmark + settings stubs — render now so the visual chrome matches
+    // the Hi-Fi mockup. Click handlers wired in follow-up commits (bookmark
+    // → reading-history, settings → tweaks panel). For Step 2 they are
+    // no-op buttons with proper aria-labels so AT users still discover them.
+    const bookmarkBtn = doc.createElement('button');
+    bookmarkBtn.className = OVERLAY_CLASS.BOOKMARK_BTN;
+    bookmarkBtn.type = 'button';
+    bookmarkBtn.textContent = OVERLAY_TEXT.BOOKMARK_GLYPH;
+    bookmarkBtn.setAttribute('aria-label', OVERLAY_TEXT.BOOKMARK_LABEL);
+
+    const settingsBtn = doc.createElement('button');
+    settingsBtn.className = OVERLAY_CLASS.SETTINGS_BTN;
+    settingsBtn.type = 'button';
+    settingsBtn.textContent = OVERLAY_TEXT.SETTINGS_GLYPH;
+    settingsBtn.setAttribute('aria-label', OVERLAY_TEXT.SETTINGS_LABEL);
+
     const closeBtn = doc.createElement('button');
     closeBtn.className = OVERLAY_CLASS.CLOSE_BTN;
     closeBtn.type = 'button';
     closeBtn.setAttribute('aria-label', OVERLAY_TEXT.CLOSE_LABEL);
     closeBtn.textContent = OVERLAY_TEXT.CLOSE_GLYPH;
+
+    modalActions.append(bookmarkBtn, settingsBtn, closeBtn);
+    modalHeader.append(modalTitle, modalActions);
+
+    // Tweaks popover (#step-3) — Disclosure pattern (ARIA-APG). Settings
+    // button toggles `aria-expanded` + `aria-controls`; the panel itself
+    // carries no role/aria-label. Tab traversal flows through the panel
+    // as part of the modal's existing focus trap (outer-trap's hidden-
+    // subtree filter skips the panel when collapsed). This replaces an
+    // earlier `role="dialog"` + inner-trap implementation; the dialog
+    // role implied modality the panel does not provide, and the inner
+    // trap was escapable via Shift+Tab from the ⚙ button (a11y-extension-
+    // designer findings #2/#6).
+    const tweaksPanel = doc.createElement('div');
+    tweaksPanel.className = OVERLAY_CLASS.TWEAKS_PANEL;
+    tweaksPanel.id = 'sr-tweaks-panel';
+    tweaksPanel.setAttribute('aria-labelledby', 'sr-tweaks-heading');
+    tweaksPanel.hidden = true;
+
+    settingsBtn.setAttribute('aria-expanded', 'false');
+    settingsBtn.setAttribute('aria-controls', tweaksPanel.id);
+
+    const tweaksHeading = doc.createElement('h3');
+    tweaksHeading.className = OVERLAY_CLASS.TWEAKS_HEADING;
+    tweaksHeading.id = 'sr-tweaks-heading';
+    tweaksHeading.textContent = OVERLAY_TEXT.TWEAKS_HEADING;
+
+    // Theme section — segmented row of buttons (one per ThemeId + a
+    // System sentinel). The Active state is communicated via .active
+    // class + aria-pressed="true"; clicking invokes onThemeChange and
+    // flips the class synchronously so the user sees instant feedback
+    // even when the host hasn't wired the callback.
+    const themeSection = doc.createElement('div');
+    themeSection.className = OVERLAY_CLASS.TWEAKS_SECTION;
+
+    const themeLabel = doc.createElement('div');
+    themeLabel.className = OVERLAY_CLASS.TWEAKS_SECTION_LABEL;
+    themeLabel.textContent = OVERLAY_TEXT.TWEAKS_THEME_LABEL;
+    themeLabel.id = 'sr-tweaks-theme-label';
+
+    const themeSeg = doc.createElement('div');
+    themeSeg.className = OVERLAY_CLASS.TWEAKS_SEG;
+    themeSeg.setAttribute('role', 'group');
+    themeSeg.setAttribute('aria-labelledby', themeLabel.id);
+
+    const themeButtons: HTMLButtonElement[] = [];
+    const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+    const themeChoices: ReadonlyArray<{ id: ThemeId | 'system'; label: string }> = [
+      ...THEME_IDS.map((id) => ({ id, label: capitalize(id) })),
+      { id: 'system' as const, label: OVERLAY_TEXT.TWEAKS_SYSTEM_LABEL },
+    ];
+    for (const choice of themeChoices) {
+      const btn = doc.createElement('button');
+      btn.type = 'button';
+      btn.className = OVERLAY_CLASS.TWEAKS_SEG_BTN;
+      btn.textContent = choice.label;
+      btn.dataset.themeId = choice.id;
+      btn.setAttribute('aria-label', OVERLAY_TEXT.themeButtonLabel(choice.label));
+      btn.setAttribute('aria-pressed', 'false');
+      themeSeg.appendChild(btn);
+      themeButtons.push(btn);
+    }
+    themeSection.append(themeLabel, themeSeg);
+
+    // Stub sections (Focus style / Accent / Modal dim) — render disabled
+    // so the panel layout matches the mockup. Wired in later steps.
+    const focusSection = doc.createElement('div');
+    focusSection.className = OVERLAY_CLASS.TWEAKS_SECTION;
+    const focusLabel = doc.createElement('div');
+    focusLabel.className = OVERLAY_CLASS.TWEAKS_SECTION_LABEL;
+    focusLabel.textContent = OVERLAY_TEXT.TWEAKS_FOCUS_STYLE_LABEL;
+    focusLabel.id = 'sr-tweaks-focus-label';
+    const focusSeg = doc.createElement('div');
+    focusSeg.className = OVERLAY_CLASS.TWEAKS_SEG;
+    focusSeg.setAttribute('role', 'group');
+    focusSeg.setAttribute('aria-labelledby', focusLabel.id);
+    for (const stubLabel of [
+      OVERLAY_TEXT.TWEAKS_FOCUS_LINE_LABEL,
+      OVERLAY_TEXT.TWEAKS_FOCUS_BOLD_LABEL,
+    ]) {
+      const stubBtn = doc.createElement('button');
+      stubBtn.type = 'button';
+      stubBtn.className = OVERLAY_CLASS.TWEAKS_SEG_BTN;
+      stubBtn.textContent = stubLabel;
+      stubBtn.disabled = true;
+      focusSeg.appendChild(stubBtn);
+    }
+    focusSection.append(focusLabel, focusSeg);
+
+    const accentSection = doc.createElement('div');
+    accentSection.className = OVERLAY_CLASS.TWEAKS_SECTION;
+    const accentLabel = doc.createElement('div');
+    accentLabel.className = OVERLAY_CLASS.TWEAKS_SECTION_LABEL;
+    accentLabel.textContent = OVERLAY_TEXT.TWEAKS_ACCENT_LABEL;
+    const accentSwatch = doc.createElement('button');
+    accentSwatch.type = 'button';
+    accentSwatch.className = OVERLAY_CLASS.TWEAKS_ACCENT_SWATCH;
+    accentSwatch.setAttribute('aria-label', OVERLAY_TEXT.TWEAKS_ACCENT_LABEL);
+    accentSwatch.disabled = true;
+    accentSection.append(accentLabel, accentSwatch);
+
+    const dimSection = doc.createElement('div');
+    dimSection.className = OVERLAY_CLASS.TWEAKS_SECTION;
+    const dimLabel = doc.createElement('div');
+    dimLabel.className = OVERLAY_CLASS.TWEAKS_SECTION_LABEL;
+    dimLabel.textContent = OVERLAY_TEXT.TWEAKS_DIM_LABEL;
+    dimLabel.id = 'sr-tweaks-dim-label';
+    const dimRange = doc.createElement('input');
+    dimRange.type = 'range';
+    dimRange.min = '0';
+    dimRange.max = '100';
+    dimRange.value = '50';
+    dimRange.className = OVERLAY_CLASS.TWEAKS_DIM_RANGE;
+    dimRange.disabled = true;
+    dimRange.setAttribute('aria-labelledby', dimLabel.id);
+    dimSection.append(dimLabel, dimRange);
+
+    tweaksPanel.append(tweaksHeading, themeSection, focusSection, accentSection, dimSection);
 
     const word = doc.createElement('div');
     word.className = OVERLAY_CLASS.WORD_REGION;
@@ -379,9 +578,14 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     bottomSentinel.className = OVERLAY_CLASS.TRAP_SENTINEL;
     bottomSentinel.tabIndex = 0;
 
-    const children: Node[] = [topSentinel, closeBtn, header];
+    // Mockup append order: top-sentinel → modal-header (logo + actions
+    // including close-btn) → scope-header (article-meta) → optional
+    // subtitle → word → preview → aria-live → scrubber → footer →
+    // bottom-sentinel. close-btn is now nested inside modalHeader.actions
+    // so it is NOT a direct modal child.
+    const children: Node[] = [topSentinel, modalHeader, header];
     if (subtitle) children.push(subtitle);
-    children.push(word, preview, ariaLive, scrubberArea, footer, bottomSentinel);
+    children.push(word, preview, ariaLive, scrubberArea, footer, tweaksPanel, bottomSentinel);
     modal.append(...children);
     backdrop.appendChild(modal);
     shadow.appendChild(backdrop);
@@ -404,6 +608,9 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       scrubber,
       scrubberElapsed,
       scrubberRemaining,
+      settingsBtn,
+      tweaksPanel,
+      themeButtons,
     };
   }
 
@@ -459,6 +666,9 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       scrubber,
       scrubberElapsed,
       scrubberRemaining,
+      settingsBtn,
+      tweaksPanel,
+      themeButtons,
     } = buildShadowTree(shadow, scopeView);
     const resolvedTheme = resolveTheme(opts.initialSettings.theme, view);
     applyTheme(resolvedTheme, modal);
@@ -500,6 +710,18 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       uninstallSystemThemeListener = null;
     };
     if (currentTheme === 'system') installSystemThemeListener();
+
+    // #step-3 — flip the .active class + aria-pressed on the Tweaks
+    // theme buttons. Declared up here so the subscribeSettings echo path
+    // below can call it without a temporal-dead-zone hazard if a host
+    // implementation fires the listener synchronously.
+    const syncThemeButtons = (active: ThemeId | 'system'): void => {
+      for (const btn of themeButtons) {
+        const isActive = btn.dataset.themeId === active;
+        btn.classList.toggle(OVERLAY_CLASS.TWEAKS_SEG_BTN_ACTIVE, isActive);
+        btn.setAttribute('aria-pressed', String(isActive));
+      }
+    };
 
     // Local WPM is the source of truth for engine cadence while mounted.
     // Persisted settings updates push in via `subscribeSettings`; the
@@ -570,11 +792,20 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     applyFont(currentFont);
 
     unsubscribeSettings = opts.subscribeSettings((s) => {
-      const resolved = resolveTheme(s.theme, view);
-      applyTheme(resolved, modal);
-      currentTheme = s.theme;
-      if (s.theme === 'system') installSystemThemeListener();
-      else removeSystemThemeListener();
+      // Theme-side work runs only on a real change. The existing
+      // wpm/fontSize/font/chunkSize/alignment branches below all guard
+      // on `next !== current` to avoid CSS invalidation under hot-cadence
+      // settings echoes (WPM slider drag); theme matches that pattern
+      // (perf-adversary finding #2). applyTheme is idempotent so this is
+      // a perf guard, not a correctness fix.
+      if (s.theme !== currentTheme) {
+        const resolved = resolveTheme(s.theme, view);
+        applyTheme(resolved, modal);
+        currentTheme = s.theme;
+        if (s.theme === 'system') installSystemThemeListener();
+        else removeSystemThemeListener();
+        syncThemeButtons(s.theme);
+      }
       if (s.wpm !== currentWpm) {
         currentWpm = s.wpm;
         engine?.setWpm(s.wpm);
@@ -1057,6 +1288,96 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
 
     swapBtn?.addEventListener('click', swapToFull);
 
+    // ===== Tweaks popover (#step-3) =====
+    // Click wiring lands here. syncThemeButtons is defined as a function
+    // declaration above the subscribeSettings block so the echo path can
+    // call it without a TDZ hazard.
+    syncThemeButtons(opts.initialSettings.theme);
+    // Defense-in-depth: dataset is attacker-reachable on an open shadow
+    // root, so validate against the allowlist before flowing into
+    // applyTheme / persistence callback (security-adversary finding #5).
+    const ALLOWED_THEME_IDS = new Set<string>([...THEME_IDS, 'system']);
+    for (const btn of themeButtons) {
+      btn.addEventListener('click', () => {
+        const raw = btn.dataset.themeId;
+        if (!raw || !ALLOWED_THEME_IDS.has(raw)) return;
+        const id = raw as ThemeId | 'system';
+        syncThemeButtons(id);
+        currentTheme = id;
+        // Apply locally for instant feedback. The subscribeSettings echo
+        // (if any) will run applyTheme again with the same resolved value;
+        // applyTheme is idempotent so a duplicate write is harmless.
+        applyTheme(resolveTheme(id, view), modal);
+        if (id === 'system') installSystemThemeListener();
+        else removeSystemThemeListener();
+        opts.onThemeChange?.(id);
+        // WCAG 4.1.3 Status Messages — confirm the theme switch via the
+        // polite live region. AT users hear "Theme: Sepia" so they know
+        // their click had a non-trivial side effect beyond the button
+        // state flip (a11y-extension-designer finding #4). Clear-then-set
+        // forces re-announcement when the same theme is clicked twice.
+        ariaLive.textContent = '';
+        ariaLive.textContent = OVERLAY_TEXT.themeAnnouncement(id);
+      });
+    }
+
+    const isTweaksOpen = (): boolean => !tweaksPanel.hidden;
+    // Disclosure pattern (ARIA-APG) — no inner focus trap. The outer modal
+    // trap's `isInHiddenSubtree` filter excludes the panel's controls
+    // while hidden; when open, Tab flows naturally through panel buttons
+    // alongside the rest of the modal's focusables. The settings button +
+    // panel form a labeled relationship via aria-controls + aria-expanded.
+    const openTweaks = (): void => {
+      if (!tweaksPanel.hidden) return;
+      tweaksPanel.hidden = false;
+      settingsBtn.setAttribute('aria-expanded', 'true');
+      // Move focus into the panel so kbd users land on the first theme
+      // button on open (matches mouse-user expectation of "I clicked
+      // settings, the next thing I do happens in the panel"). The first
+      // theme button is the first focusable inside the panel.
+      const firstFocusable = tweaksPanel.querySelector<HTMLElement>(
+        'button:not([disabled]), input:not([disabled])',
+      );
+      firstFocusable?.focus();
+    };
+    const closeTweaks = (returnFocus: boolean): void => {
+      if (tweaksPanel.hidden) return;
+      tweaksPanel.hidden = true;
+      settingsBtn.setAttribute('aria-expanded', 'false');
+      if (returnFocus) settingsBtn.focus();
+    };
+    settingsBtn.addEventListener('click', (e) => {
+      // Stop propagation so the click doesn't trip the click-outside
+      // listener below in the same event tick.
+      e.stopPropagation();
+      if (isTweaksOpen()) closeTweaks(true);
+      else openTweaks();
+    });
+
+    // Click-outside — any pointerdown inside the modal or backdrop that
+    // is NOT inside the panel AND not on the settings button closes the
+    // panel. Bound on the shadow root so we catch events before they
+    // reach the document; we use `pointerdown` (covers mouse, touch, pen)
+    // so touch-primary users can also dismiss — synthesized mousedown is
+    // suppressed on some gesture paths in iOS Safari + recent Chromium
+    // (security-adversary finding #4).
+    const onShadowPointerDown = (e: Event): void => {
+      if (!isTweaksOpen()) return;
+      const target = e.target;
+      if (!(target instanceof Node)) return;
+      if (tweaksPanel.contains(target)) return;
+      if (settingsBtn.contains(target)) return;
+      closeTweaks(true);
+    };
+    shadow.addEventListener('pointerdown', onShadowPointerDown, true);
+    // Captured into the outer closure for symmetric teardown in unmount()
+    // — every other shadow listener pairs add+remove explicitly so a
+    // mount/unmount cycle does not accumulate handlers
+    // (perf-adversary finding #4 + security-adversary finding #3).
+    uninstallTweaksPointerDown = () => {
+      shadow.removeEventListener('pointerdown', onShadowPointerDown, true);
+    };
+
     uninstallTrap = installFocusTrap(modal);
     // installFocusTrap auto-focuses the first DOM-order focusable (the
     // close button at top-right). Override to land on play/pause per
@@ -1267,6 +1588,13 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
       if (e.key === 'Escape') {
         e.preventDefault();
+        // #step-3 — when the Tweaks popover is open, Escape closes ONLY
+        // the panel and returns focus to the settings button. Existing
+        // overlay-close behaviour applies when the panel is closed.
+        if (isTweaksOpen()) {
+          closeTweaks(true);
+          return;
+        }
         close();
         return;
       }
@@ -1323,6 +1651,11 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       clearTimeout(scrubDebounceTimer);
       scrubDebounceTimer = null;
     }
+    // #step-3 — drop the shadow pointerdown listener before the outer
+    // trap so the click-outside handler can't fire against a detached
+    // shadow during teardown.
+    uninstallTweaksPointerDown?.();
+    uninstallTweaksPointerDown = null;
     uninstallTrap?.();
     uninstallTrap = null;
     if (onKeydown) opts.doc.removeEventListener('keydown', onKeydown, true);
