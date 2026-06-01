@@ -38,8 +38,17 @@ export const OVERLAY_CLASS = Object.freeze({
   FONT_INC_BTN: 'font-inc-btn',
   PREV_SENTENCE_BTN: 'prev-sentence-btn',
   NEXT_SENTENCE_BTN: 'next-sentence-btn',
-  WPM_SLIDER: 'wpm-slider',
-  WPM_READOUT: 'wpm-readout',
+  /**
+   * WPM stepper (#213) — `[−] [num] [wpm] [+]` per the Hi-Fi mockup. The
+   * outer `.wpm-display` is a pill chip containing two buttons (decrement
+   * / increment), a numeric span, and a unit-label span. Replaces the
+   * prior `<input type="range">` slider + standalone readout.
+   */
+  WPM_STEPPER: 'wpm-display',
+  WPM_STEPPER_DEC: 'wpm-stepper-dec',
+  WPM_STEPPER_INC: 'wpm-stepper-inc',
+  WPM_STEPPER_NUM: 'wpm-stepper-num',
+  WPM_STEPPER_LBL: 'wpm-stepper-lbl',
   CONTEXT_PREVIEW: 'context-preview',
   CONTEXT_CURRENT: 'context-current',
   /** Reading-position resume toast (#48). */
@@ -145,13 +154,40 @@ export const OVERLAY_TEXT = Object.freeze({
   PREV_SENTENCE_LABEL: 'Previous sentence',
   NEXT_SENTENCE_LABEL: 'Next sentence',
 
-  /** WPM slider accessible label (#24). */
-  WPM_SLIDER_LABEL: 'Reading speed (words per minute)',
+  /**
+   * Dynamic `aria-label` for the WPM display span (#214 a11y BLOCK 2).
+   *
+   * Replaced the original static `WPM_SPINBUTTON_LABEL` + `role="spinbutton"`
+   * shape. ARIA APG requires spinbutton elements to be focusable + handle
+   * ArrowUp/Down/Home/End; the span had none of that, so AT users heard
+   * "spin button, 300" and got silence when arrowing. The span is now a
+   * pure display element whose `aria-label` is rewritten on every commit
+   * to carry the live value; the ± buttons own the increment affordance.
+   */
+  wpmDisplayLabel(wpm: number): string {
+    return `Reading speed, ${wpm} words per minute`;
+  },
 
-  /** WPM readout template — visible "300 wpm" text next to the slider. */
-  wpmReadout(wpm: number): string {
+  /**
+   * Polite-live-region announcement fired on each user-initiated WPM
+   * commit (stepper ± click, NOT keyboard hotkey) — #214 a11y BLOCK 1.
+   * Terse on purpose: repeated announcements need to be cheap to hear,
+   * and the unit "wpm" matches the visible chip label.
+   */
+  wpmAnnouncement(wpm: number): string {
     return `${wpm} wpm`;
   },
+
+  /** WPM stepper button accessible labels (#213). */
+  WPM_DEC_LABEL: 'Decrease reading speed',
+  WPM_INC_LABEL: 'Increase reading speed',
+
+  /** WPM stepper button visible glyphs (#213). Match the Hi-Fi mockup. */
+  WPM_DEC_GLYPH: '−',
+  WPM_INC_GLYPH: '+',
+
+  /** WPM stepper unit-label text — visible "wpm" next to the number. */
+  WPM_UNIT_LABEL: 'wpm',
 
   /** Empty-selection fallback subtitle + polite live-region announcement. */
   EMPTY_SELECTION_FALLBACK: 'No selection detected. Reading full article instead.',

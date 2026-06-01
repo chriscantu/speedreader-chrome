@@ -508,30 +508,75 @@ export const OVERLAY_CSS = `
   cursor: not-allowed;
 }
 
-/* WPM slider + readout — styled as a pill chip pair.
- * Hit-target ≥44px per WCAG 2.2 AA. */
-.wpm-slider {
-  min-height: 44px;
-  inline-size: clamp(100px, 18cqi, 180px);
-  accent-color: var(--accent, #1a73e8);
-  cursor: pointer;
-}
-
-.wpm-slider:focus-visible {
-  outline: 2px solid var(--accent, #1a73e8);
-  outline-offset: 4px;
-}
-
-.wpm-readout {
-  font: 600 12px / 1 var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
+/* WPM stepper (#213) — [−] [num] [wpm] [+] pill chip. Replaces the
+ * prior .wpm-slider + .wpm-readout pair with a button trio + label
+ * inside a single rounded surface, per the Hi-Fi mockup. Hit-target
+ * ≥44px per WCAG 2.2 AA: buttons have min-height 44px even though the
+ * visible glyph circle is 22px (matches the mockup), via padding inside
+ * the larger touch box. */
+.wpm-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 4px 10px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 999px;
-  min-inline-size: 5ch;
+}
+
+.wpm-display .wpm-stepper-num {
+  font: 600 12px / 1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  min-inline-size: 3ch;
   text-align: center;
+}
+
+.wpm-display .wpm-stepper-lbl {
+  font: 500 11px / 1 var(--font-ui);
+  color: var(--text-muted, var(--text));
+}
+
+.wpm-display button {
+  /* WCAG 2.2 AA target-size: 44×44 hit-area on the button element even
+   * though the painted circle is 22×22 (mockup visual). The button's
+   * background paints behind the centered glyph; the larger min-height
+   * keeps touch targets honest without inflating the visual chrome. */
+  min-width: 44px;
+  min-height: 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font: 500 14px / 1 var(--font-ui);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.wpm-display button:hover:not([aria-disabled='true']) {
+  background: var(--accent-soft, #e8f0fe);
+  color: var(--text, #202124);
+}
+
+.wpm-display button:focus-visible {
+  outline: 2px solid var(--accent, #1a73e8);
+  outline-offset: 2px;
+}
+
+/* #214 a11y HOLD 1 + HOLD 2 — [aria-disabled="true"] (not native
+ * :disabled) so the button stays in the tab chain, and --text-muted
+ * (not opacity: 0.4) so the disabled glyph clears WCAG 1.4.11 3:1
+ * non-text contrast against --surface. --text-muted is the existing
+ * 75/25 token already documented at ~5.5:1 against light/paper/cream
+ * surfaces; cursor: not-allowed carries the additional state
+ * affordance (WCAG 1.4.1 — meaning not conveyed by contrast alone). */
+.wpm-display button[aria-disabled='true'] {
+  color: var(--text-muted);
+  cursor: not-allowed;
 }
 
 /* ===== Resume toast (#48) — Hi-Fi chip styling. ===== */
@@ -700,9 +745,13 @@ export const OVERLAY_CSS = `
   .font-inc-btn:focus-visible,
   .prev-sentence-btn:focus-visible,
   .next-sentence-btn:focus-visible { outline-color: Highlight; }
-  .wpm-slider:focus-visible,
   .scrubber-slider:focus-visible { outline-color: Highlight; }
-  .wpm-readout { color: CanvasText; border-color: CanvasText; background: Canvas; }
+  /* #213 — replaced .wpm-slider + .wpm-readout with the stepper. */
+  .wpm-display { color: CanvasText; border-color: CanvasText; background: Canvas; }
+  .wpm-display button { background: ButtonFace; color: ButtonText; border: 1px solid ButtonText; }
+  .wpm-display button:focus-visible { outline-color: Highlight; }
+  .wpm-display .wpm-stepper-num { color: CanvasText; }
+  .wpm-display .wpm-stepper-lbl { color: CanvasText; }
   .scrubber-labels { color: CanvasText; }
   .context-preview { color: CanvasText; }
   .context-current { color: Highlight; background: Canvas; }
@@ -801,9 +850,14 @@ export const OVERLAY_CSS = `
     width: auto;
     padding: 0 16px;
   }
-  .wpm-slider {
+  /* #213 — stepper buttons bump to ≥48px on touch-primary; the
+   * surrounding .wpm-display chip wraps with row-gap from the .footer
+   * rule above so the pill stays single-row when space allows. */
+  .wpm-display button {
+    min-width: 48px;
     min-height: 48px;
-    inline-size: clamp(140px, 26cqi, 280px);
+    width: 48px;
+    height: 48px;
   }
   .scrubber-slider {
     block-size: 32px;

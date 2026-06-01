@@ -186,8 +186,9 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     fontIncBtn: HTMLButtonElement;
     prevSentenceBtn: HTMLButtonElement;
     nextSentenceBtn: HTMLButtonElement;
-    wpmSlider: HTMLInputElement;
-    wpmReadout: HTMLElement;
+    wpmStepperDec: HTMLButtonElement;
+    wpmStepperInc: HTMLButtonElement;
+    wpmStepperNum: HTMLElement;
     ariaLive: HTMLElement;
     preview: HTMLElement;
     scrubber: HTMLInputElement;
@@ -508,34 +509,84 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     nextSentenceBtn.setAttribute('aria-label', OVERLAY_TEXT.NEXT_SENTENCE_LABEL);
     footer.appendChild(nextSentenceBtn);
 
-    // WPM slider (#24) + readout. Bounds are [WPM_MIN, WPM_MAX] = [100, 600]
-    // (#16). Slider value is set in mount() from currentWpm so the initial
-    // position reflects initialSettings.wpm even when callers pass non-default
-    // values.
-    const wpmSlider = doc.createElement('input');
-    wpmSlider.className = OVERLAY_CLASS.WPM_SLIDER;
-    wpmSlider.type = 'range';
-    wpmSlider.min = String(WPM_MIN);
-    wpmSlider.max = String(WPM_MAX);
-    wpmSlider.step = String(WPM_STEP);
-    wpmSlider.setAttribute('aria-label', OVERLAY_TEXT.WPM_SLIDER_LABEL);
-    footer.appendChild(wpmSlider);
+    // WPM stepper (#213) — `[−] [num] [wpm] [+]` per the Hi-Fi mockup.
+    // Replaces the prior `<input type="range">` slider + standalone readout
+    // with a pill chip whose two end-buttons step by WPM_STEP and whose
+    // numeric span carries the live value. Bounds are [WPM_MIN, WPM_MAX] =
+    // [100, 600] (#16); step = WPM_STEP = 10 (`src/core/settings/bounds.ts`).
+    //
+    // A11y shape (revised for PR #214 a11y review — 2 BLOCKs + 2 HOLDs):
+    //   - Each button gets a verb-form `aria-label` ("Decrease/Increase
+    //     reading speed") and a visible glyph; default <button> semantics
+    //     mean Enter/Space activate without extra wiring.
+    //   - The numeric span is a PURE DISPLAY element (no `role`,
+    //     no aria-value*). Original shape used `role="spinbutton"` +
+    //     aria-valuenow, but ARIA APG requires spinbutton elements to
+    //     be focusable + handle ArrowUp/Down/Home/End. The span had none
+    //     of that, so AT users heard "spin button, 300" and got silence
+    //     when arrowing (WCAG 4.1.2 BLOCK). Instead, the span carries a
+    //     dynamic `aria-label` rewritten on each commit
+    //     (`OVERLAY_TEXT.wpmDisplayLabel(n)`); the buttons own the
+    //     increment affordance.
+    //   - On every user-initiated commit (− / + click), the new value
+    //     is also announced via the polite `.aria-live` region so AT
+    //     users hear feedback even without focus on the display element
+    //     (WCAG 4.1.3 Status Messages BLOCK — updating aria-valuenow on
+    //     a non-focused sibling does NOT reliably trigger NVDA/JAWS/
+    //     VoiceOver announcements). Keyboard ArrowUp/Down (persist:false)
+    //     intentionally does NOT announce — that path is live engine
+    //     cadence and per-tick announcements would be deafening.
+    //   - The unit-label ("wpm") span is aria-hidden — the display
+    //     element's aria-label already conveys "words per minute".
+    //   - Buttons use `aria-disabled="true"` at MIN / MAX rather than
+    //     native `disabled` (HOLD — native disabled removes the element
+    //     from the tab chain, hiding the affordance from keyboard users).
+    //     Click handlers short-circuit on `aria-disabled === 'true'` so
+    //     programmatic clicks still no-op. styles.ts uses
+    //     `[aria-disabled="true"]` selectors with `--text-muted` color
+    //     (clears WCAG 1.4.11 3:1 against `--surface`) + cursor:
+    //     not-allowed for the visual affordance.
+    const wpmStepper = doc.createElement('div');
+    wpmStepper.className = OVERLAY_CLASS.WPM_STEPPER;
 
-    const wpmReadout = doc.createElement('span');
-    wpmReadout.className = OVERLAY_CLASS.WPM_READOUT;
-    // The slider already exposes its value via aria-label + role; the readout
-    // is a visual companion. aria-hidden avoids duplicate announcements.
-    wpmReadout.setAttribute('aria-hidden', 'true');
-    footer.appendChild(wpmReadout);
+    const wpmStepperDec = doc.createElement('button');
+    wpmStepperDec.className = OVERLAY_CLASS.WPM_STEPPER_DEC;
+    wpmStepperDec.type = 'button';
+    wpmStepperDec.textContent = OVERLAY_TEXT.WPM_DEC_GLYPH;
+    wpmStepperDec.setAttribute('aria-label', OVERLAY_TEXT.WPM_DEC_LABEL);
+
+    const wpmStepperNum = doc.createElement('span');
+    wpmStepperNum.className = OVERLAY_CLASS.WPM_STEPPER_NUM;
+    // PR #214 a11y BLOCK 2 — `role="spinbutton"` + `aria-value*` removed.
+    // The display element's `aria-label` is set in mount() via
+    // syncWpmUi(currentWpm) and rewritten on every commit so AT users
+    // hear the current value when focus reaches the element.
+
+    const wpmStepperLbl = doc.createElement('span');
+    wpmStepperLbl.className = OVERLAY_CLASS.WPM_STEPPER_LBL;
+    wpmStepperLbl.textContent = OVERLAY_TEXT.WPM_UNIT_LABEL;
+    // The spinbutton's aria-label already conveys "words per minute"; the
+    // visible unit is decorative for sighted users.
+    wpmStepperLbl.setAttribute('aria-hidden', 'true');
+
+    const wpmStepperInc = doc.createElement('button');
+    wpmStepperInc.className = OVERLAY_CLASS.WPM_STEPPER_INC;
+    wpmStepperInc.type = 'button';
+    wpmStepperInc.textContent = OVERLAY_TEXT.WPM_INC_GLYPH;
+    wpmStepperInc.setAttribute('aria-label', OVERLAY_TEXT.WPM_INC_LABEL);
+
+    wpmStepper.append(wpmStepperDec, wpmStepperNum, wpmStepperLbl, wpmStepperInc);
+    footer.appendChild(wpmStepper);
 
     // Progress scrubber (#47). Mounted ABOVE the footer so visual order
     // reads: word → preview → scrubber → controls (matches Safari spec).
     // Q1 decision: above the existing control bar — the footer IS the
     // control bar in current Chrome architecture, so this is the natural
     // slot. Q2: visible from mount with pre-start labels (Safari spec
-    // implies always-visible). Q3: new .scrubber-slider class sharing
-    // base track/thumb rules with .wpm-slider via a selector list in
-    // styles.ts. Q4: aria-valuetext updates per-emission (matches
+    // implies always-visible). Q3: dedicated `.scrubber-slider` rule
+    // block in styles.ts (used to share a selector list with the now-
+    // removed `.wpm-slider`; #213 swapped that to a stepper and split
+    // the lists). Q4: aria-valuetext updates per-emission (matches
     // user-perceived granularity).
     const scrubberArea = doc.createElement('div');
     scrubberArea.className = OVERLAY_CLASS.SCRUBBER_AREA;
@@ -601,8 +652,9 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       fontIncBtn,
       prevSentenceBtn,
       nextSentenceBtn,
-      wpmSlider,
-      wpmReadout,
+      wpmStepperDec,
+      wpmStepperInc,
+      wpmStepperNum,
       ariaLive,
       preview,
       scrubber,
@@ -659,8 +711,9 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       fontIncBtn,
       prevSentenceBtn,
       nextSentenceBtn,
-      wpmSlider,
-      wpmReadout,
+      wpmStepperDec,
+      wpmStepperInc,
+      wpmStepperNum,
       ariaLive,
       preview,
       scrubber,
@@ -737,12 +790,22 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // when alignment actually changed. Default `'orp'` matches schema.
     let currentAlignment: 'orp' | 'center' = opts.initialSettings.alignment ?? 'orp';
 
-    // Single point of truth for keeping the slider + readout in sync with
+    // Single point of truth for keeping the stepper UI in sync with
     // `currentWpm`. Called from mount-time init, the ArrowUp/Down keyboard
-    // handler, slider input, and subscribeSettings emissions.
+    // handler, the −/+ button click handlers, and subscribeSettings
+    // emissions. Updates the visible number, the display element's
+    // dynamic `aria-label` (#214 a11y BLOCK 2 — replaces the broken
+    // role="spinbutton"/aria-valuenow shape), and the aria-disabled
+    // bounds state on the two buttons (#214 a11y HOLD 1 — was native
+    // `disabled`, which removes the buttons from the tab chain).
     const syncWpmUi = (n: number): void => {
-      wpmSlider.value = String(n);
-      wpmReadout.textContent = OVERLAY_TEXT.wpmReadout(n);
+      wpmStepperNum.textContent = String(n);
+      wpmStepperNum.setAttribute('aria-label', OVERLAY_TEXT.wpmDisplayLabel(n));
+      // `aria-disabled` (not native disabled) — keyboard users tabbing
+      // at MIN/MAX still land on the button so the affordance is
+      // discoverable; click handlers short-circuit when this is 'true'.
+      wpmStepperDec.setAttribute('aria-disabled', n <= WPM_MIN ? 'true' : 'false');
+      wpmStepperInc.setAttribute('aria-disabled', n >= WPM_MAX ? 'true' : 'false');
     };
     syncWpmUi(currentWpm);
 
@@ -1423,7 +1486,17 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       currentWpm = clamped;
       engine.setWpm(clamped);
       syncWpmUi(clamped);
-      if (opts2.persist) opts.onWpmChange?.(clamped);
+      if (opts2.persist) {
+        opts.onWpmChange?.(clamped);
+        // #214 a11y BLOCK 1 — fire a polite live-region announcement
+        // on user-initiated commits (stepper ± click) so AT users hear
+        // the new value even when focus is not on the display element.
+        // ArrowUp/Down (persist:false) intentionally skips this — per-
+        // tick announcements during live cadence probing would be
+        // deafening. The .aria-live region is polite + aria-atomic, so
+        // consecutive writes replace prior text cleanly.
+        ariaLive.textContent = OVERLAY_TEXT.wpmAnnouncement(clamped);
+      }
     };
     // ArrowUp / ArrowDown — adjust engine cadence without persisting. Issue
     // #24 names the slider as the persistence surface; the keyboard
@@ -1443,37 +1516,26 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       engine?.seekToSentence('next');
     });
 
-    // WPM slider (#24). Split `input` vs `change`:
-    //   - `input` fires ~60×/sec during drag — UI-only update (slider
-    //     value, readout text, currentWpm cache). Calling engine.setWpm
-    //     on every tick would `clearPending()` + `scheduleNext()` per
-    //     tick, resetting the active word's remaining-time and stalling
-    //     the RSVP stream while the user drags (ring review #21).
-    //   - `change` fires on drag release / keyboard commit — push the
-    //     final value through applyWpm so engine cadence + persistence
-    //     happen once per discrete drag, not per tick.
-    wpmSlider.addEventListener('input', () => {
-      const raw = Number(wpmSlider.value);
-      const clamped = clampWpm(raw);
-      currentWpm = clamped;
-      wpmSlider.value = String(clamped);
-      wpmReadout.textContent = OVERLAY_TEXT.wpmReadout(clamped);
+    // WPM stepper (#213) — `[−] [num] [wpm] [+]`. Each click is a single
+    // discrete commit, so unlike the prior slider there is no drag-vs-
+    // release distinction to manage. Route both buttons through applyWpm
+    // with persist:true so engine cadence updates AND onWpmChange fires
+    // once per click.
+    //
+    // #214 a11y HOLD 1 — explicit `aria-disabled` short-circuit. We
+    // moved off native `disabled` (which removes the element from the
+    // tab chain); aria-disabled keeps the button focusable, so we MUST
+    // gate the click ourselves. applyWpm already short-circuits when
+    // clamping lands on currentWpm, but the explicit handler-level
+    // check is clearer for the reader and survives a refactor of
+    // applyWpm's short-circuit logic. Belt-and-suspenders by design.
+    wpmStepperDec.addEventListener('click', () => {
+      if (wpmStepperDec.getAttribute('aria-disabled') === 'true') return;
+      applyWpm(currentWpm - WPM_STEP, { persist: true });
     });
-    wpmSlider.addEventListener('change', () => {
-      const raw = Number(wpmSlider.value);
-      const clamped = clampWpm(raw);
-      // Bypass applyWpm's currentWpm short-circuit: `input` has already
-      // moved currentWpm to the dragged value, so applyWpm would no-op
-      // and skip engine.setWpm + persistence. Call them directly here.
-      if (!engine) return;
-      engine.setWpm(clamped);
-      // Keep the UI source of truth aligned with the committed value
-      // (defensive — input handler already syncs).
-      if (currentWpm !== clamped) {
-        currentWpm = clamped;
-        syncWpmUi(clamped);
-      }
-      opts.onWpmChange?.(clamped);
+    wpmStepperInc.addEventListener('click', () => {
+      if (wpmStepperInc.getAttribute('aria-disabled') === 'true') return;
+      applyWpm(currentWpm + WPM_STEP, { persist: true });
     });
     // Progress scrubber interaction (#47). Spec: pause-on-scrub, stay
     // paused. mousedown/touchstart prime the engine into paused state
