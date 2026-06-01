@@ -76,7 +76,21 @@ test.describe('Touch-primary smoke (#36 / PR #149)', () => {
     const buttonSizes = await host.evaluate((el) => {
       const root = (el as HTMLElement).shadowRoot;
       if (!root) throw new Error('no shadowRoot');
-      const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>('button'));
+      // Skip buttons inside a [hidden] ancestor (e.g. the tweaks popover
+      // panel before the user clicks ⚙). getBoundingClientRect returns 0×0
+      // on hidden subtrees — they're not user-reachable tap targets until
+      // the panel is opened, so the 44 px floor doesn't apply yet.
+      const isInHiddenSubtree = (n: HTMLElement, container: HTMLElement): boolean => {
+        let cur: HTMLElement | null = n;
+        while (cur && cur !== container) {
+          if (cur.hidden) return true;
+          cur = cur.parentElement;
+        }
+        return false;
+      };
+      const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>('button')).filter(
+        (b) => !isInHiddenSubtree(b, el as HTMLElement),
+      );
       return buttons.map((b) => {
         const r = b.getBoundingClientRect();
         return { ariaLabel: b.getAttribute('aria-label') ?? '', w: r.width, h: r.height };
