@@ -155,12 +155,28 @@ export const OVERLAY_TEXT = Object.freeze({
   NEXT_SENTENCE_LABEL: 'Next sentence',
 
   /**
-   * WPM stepper accessible label (#213 — was #24 slider label).
+   * Dynamic `aria-label` for the WPM display span (#214 a11y BLOCK 2).
    *
-   * Used as the `aria-label` on the numeric `role="spinbutton"` so screen
-   * readers announce the control purpose alongside the live value.
+   * Replaced the original static `WPM_SPINBUTTON_LABEL` + `role="spinbutton"`
+   * shape. ARIA APG requires spinbutton elements to be focusable + handle
+   * ArrowUp/Down/Home/End; the span had none of that, so AT users heard
+   * "spin button, 300" and got silence when arrowing. The span is now a
+   * pure display element whose `aria-label` is rewritten on every commit
+   * to carry the live value; the ± buttons own the increment affordance.
    */
-  WPM_SPINBUTTON_LABEL: 'Reading speed (words per minute)',
+  wpmDisplayLabel(wpm: number): string {
+    return `Reading speed, ${wpm} words per minute`;
+  },
+
+  /**
+   * Polite-live-region announcement fired on each user-initiated WPM
+   * commit (stepper ± click, NOT keyboard hotkey) — #214 a11y BLOCK 1.
+   * Terse on purpose: repeated announcements need to be cheap to hear,
+   * and the unit "wpm" matches the visible chip label.
+   */
+  wpmAnnouncement(wpm: number): string {
+    return `${wpm} wpm`;
+  },
 
   /** WPM stepper button accessible labels (#213). */
   WPM_DEC_LABEL: 'Decrease reading speed',

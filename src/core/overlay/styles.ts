@@ -557,7 +557,7 @@ export const OVERLAY_CSS = `
   place-items: center;
 }
 
-.wpm-display button:hover:not(:disabled) {
+.wpm-display button:hover:not([aria-disabled='true']) {
   background: var(--accent-soft, #e8f0fe);
   color: var(--text, #202124);
 }
@@ -567,8 +567,15 @@ export const OVERLAY_CSS = `
   outline-offset: 2px;
 }
 
-.wpm-display button:disabled {
-  opacity: 0.4;
+/* #214 a11y HOLD 1 + HOLD 2 — [aria-disabled="true"] (not native
+ * :disabled) so the button stays in the tab chain, and --text-muted
+ * (not opacity: 0.4) so the disabled glyph clears WCAG 1.4.11 3:1
+ * non-text contrast against --surface. --text-muted is the existing
+ * 75/25 token already documented at ~5.5:1 against light/paper/cream
+ * surfaces; cursor: not-allowed carries the additional state
+ * affordance (WCAG 1.4.1 — meaning not conveyed by contrast alone). */
+.wpm-display button[aria-disabled='true'] {
+  color: var(--text-muted);
   cursor: not-allowed;
 }
 
