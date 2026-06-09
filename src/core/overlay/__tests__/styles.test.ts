@@ -57,3 +57,17 @@ describe('OVERLAY_CSS theme-slot consumers (issue #150)', () => {
     }
   });
 });
+
+describe('OVERLAY_CSS resume-toast is out of flow (issue #218)', () => {
+  // The resume toast (#48) is inserted in flow directly above the word
+  // region and removed on its 5 s auto-dismiss / Start Over. While it was
+  // in flow, removal collapsed its ~37 px band and shifted the word region
+  // up mid-read — a layout jump the project's neurodivergent audience is
+  // sensitive to. Pinning the toast out of flow makes appearance AND
+  // dismissal reflow-free. jsdom has no layout engine, so this guards the
+  // structural invariant in the CSS source; visual CLS confirmation lives
+  // in a Playwright pass (noted on #218).
+  test('.resume-toast is taken out of flow (position: absolute|fixed)', () => {
+    expect(OVERLAY_CSS).toMatch(/\.resume-toast\s*\{[^}]*position:\s*(absolute|fixed)/);
+  });
+});
