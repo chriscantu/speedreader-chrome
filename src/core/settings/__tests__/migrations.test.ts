@@ -609,6 +609,19 @@ describe('migrate — V6 -> V7 scrubberAutoHide field (#211)', () => {
     expect(result.scrubberAutoHide).toBe(false);
   });
 
+  // Asymmetry pin: a V6 hand-edit with a non-boolean is FLOORED to `true`
+  // by the migrator stamp (tested above), but a *current-version* (V7) blob
+  // with a non-boolean skips the migrator loop entirely (v=7 not < 7),
+  // fails `SettingsSchemaV7.safeParse`, and resets the WHOLE payload to
+  // defaults (not just the field). Pin that the reset lands on the
+  // back-compat default, documenting the whole-payload behavior.
+  it('V7-already-present payload with non-boolean scrubberAutoHide resets to full defaults', () => {
+    const corrupt = { ...DEFAULT_SETTINGS, scrubberAutoHide: 'nope' };
+    const result = migrate(corrupt);
+    expect(result).toEqual(DEFAULT_SETTINGS);
+    expect(result.scrubberAutoHide).toBe(true);
+  });
+
   it('V0 payload chains all the way to V7 with scrubberAutoHide: true', () => {
     const v0 = { wpm: 300, theme: 'light' as const };
     const result = migrate(v0);

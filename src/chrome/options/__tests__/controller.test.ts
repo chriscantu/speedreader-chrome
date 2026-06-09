@@ -37,6 +37,7 @@ const HTML = `
     <option value="2"></option>
     <option value="3"></option>
   </select>
+  <input type="checkbox" id="${FIELD_IDS.scrubberAutoHide}" />
   <div id="saved"></div>
   <div id="save-error"></div>
 `;
@@ -440,6 +441,42 @@ describe('options controller', () => {
         expect.arrayContaining(['wpm']),
       );
       err.mockRestore();
+    });
+  });
+
+  // #211 — scrubberAutoHide opt-out. The options page is the feature's
+  // primary write surface; pin the populate + save round-trip so a
+  // regression that drops the FIELD_IDS/FIELD_READERS/populate wiring
+  // (leaving the user's opt-out unable to persist) lands as a test failure.
+  describe('scrubberAutoHide toggle (#211)', () => {
+    it('populates scrubberAutoHide checkbox from loaded settings (false reflects)', async () => {
+      const stub = makeStub({ ...DEFAULT_SETTINGS, scrubberAutoHide: false });
+      await bindOptionsForm(document, window, stub);
+      expect(
+        (document.getElementById(FIELD_IDS.scrubberAutoHide) as HTMLInputElement).checked,
+      ).toBe(false);
+    });
+
+    it('populates scrubberAutoHide checkbox as checked for the default (true)', async () => {
+      const stub = makeStub({ ...DEFAULT_SETTINGS, scrubberAutoHide: true });
+      await bindOptionsForm(document, window, stub);
+      expect(
+        (document.getElementById(FIELD_IDS.scrubberAutoHide) as HTMLInputElement).checked,
+      ).toBe(true);
+    });
+
+    it('saves scrubberAutoHide on change like every other field (opt-out persists)', async () => {
+      // Mutation guard: dropping `scrubberAutoHide: readCheckbox` from
+      // FIELD_READERS (or the FIELD_IDS entry) means unchecking the box
+      // never calls save — the user's opt-out silently never persists.
+      // This assertion is the only thing pinning that write path.
+      const stub = makeStub({ ...DEFAULT_SETTINGS, scrubberAutoHide: true });
+      await bindOptionsForm(document, window, stub);
+      const toggle = document.getElementById(FIELD_IDS.scrubberAutoHide) as HTMLInputElement;
+      toggle.checked = false;
+      fire(toggle, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).toHaveBeenCalledWith({ scrubberAutoHide: false });
     });
   });
 

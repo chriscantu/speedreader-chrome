@@ -235,9 +235,7 @@ test.describe('Overlay polish bundle (#52)', () => {
     expect(results.violations).toEqual([]);
   });
 
-  test('axe-core is clean in playing-state with hidden scrubber (A11y MED #5)', async ({
-    page,
-  }) => {
+  test('axe-core is clean in playing-state with hidden scrubber (A11y MED #5)', async ({ page }) => {
     // During playback the scrubber-area is visibility:hidden — it MUST
     // not surface in the AT rotor (visibility:hidden removes from
     // accessible tree). Axe should be clean: the hidden region's labels
