@@ -1,32 +1,31 @@
 /**
- * alignment-wire.test.ts — issue #52 PART A (test-gap HIGH #1)
+ * scrubber-autohide-wire.test.ts — issue #211 (CS-glue boundary)
  *
  * End-to-end wire from `chrome.storage.sync.get` → loadSettings →
- * createOverlay (`initialSettings.alignment` slot) → subscribeSettings
- * push → host `data-alignment` attribute. The unit tests in
- * `core/overlay/__tests__/alignment-wire.test.ts` pin the overlay's
- * local behaviour; this file pins the chrome-glue boundary so a
- * regression that drops `alignment: settings.alignment` from the CS
- * payload or the subscribe wiring lands as a test failure rather
+ * createOverlay (`initialSettings.scrubberAutoHide` slot) →
+ * subscribeSettings push → overlay scrubber visibility. The unit tests in
+ * `core/overlay/__tests__/scrubber-autohide.test.ts` pin the overlay's
+ * local gate behaviour; this file pins the chrome-glue boundary so a
+ * regression that drops `scrubberAutoHide: settings.scrubberAutoHide` from
+ * the CS payload or the subscribe wiring lands as a test failure rather
  * than a silent default at the boundary.
  *
- * This is the same defect class as the original "alignment dead since V3"
- * bug — the schema slot existed but no boundary code read it. The unit
- * tests can't detect that the CS doesn't forward — only this boundary
- * test can.
+ * Same defect class as the "alignment dead since V3" bug: the schema slot
+ * exists but no boundary code reads it. The unit tests can't detect that
+ * the CS doesn't forward — only this boundary test can.
  *
  * Mutation guards:
- *   - Dropping `alignment: settings.alignment` from the initial-mount
- *     payload fails the first test (host attribute would default to
- *     'orp' regardless of stored value).
- *   - Dropping `alignment: s.alignment` from the subscribe payload
- *     fails the second test (the live push from orp → center would
- *     have no effect at the host attribute).
+ *   - Dropping `scrubberAutoHide: settings.scrubberAutoHide` from the
+ *     initial-mount payload fails the first test (the overlay would default
+ *     the gate to true and hide the bar despite stored `false`).
+ *   - Dropping `scrubberAutoHide: s.scrubberAutoHide` from the subscribe
+ *     payload fails the live-push test (the opt-out flip would have no
+ *     effect on the bar).
  */
 import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest';
 import { DEFAULT_SETTINGS } from '../../../core/settings/defaults';
 import type { SettingsV7 } from '../../../core/settings/schema';
-import { OVERLAY_ATTR } from '../../../core/overlay/constants';
+import { OVERLAY_CLASS } from '../../../core/overlay/constants';
 
 const SETTINGS_KEY = 'speedreader.settings';
 const EXT_ID = 'test-ext';
@@ -61,7 +60,6 @@ interface ChromeMock {
 }
 
 function installChromeMock(stored: SettingsV7): {
-  mock: ChromeMock;
   getListener: () => Listener;
   emitStorageChange: (next: SettingsV7) => void;
 } {
@@ -92,7 +90,6 @@ function installChromeMock(stored: SettingsV7): {
   };
   (globalThis as unknown as { chrome: ChromeMock }).chrome = mock;
   return {
-    mock,
     getListener: () => {
       if (!capturedListener) throw new Error('content script never registered listener');
       return capturedListener;
@@ -105,12 +102,14 @@ function installChromeMock(stored: SettingsV7): {
   };
 }
 
-function getHost(): HTMLElement {
+function isScrubberHidden(): boolean {
   const host = document.body.querySelector('[data-speedreader-overlay]');
-  if (!(host instanceof HTMLElement)) {
-    throw new Error('overlay host missing');
+  if (!(host instanceof HTMLElement) || !host.shadowRoot) {
+    throw new Error('overlay host missing or no shadow root');
   }
-  return host;
+  const area = host.shadowRoot.querySelector<HTMLElement>(`.${OVERLAY_CLASS.SCRUBBER_AREA}`);
+  if (!area) throw new Error('overlay shadow: missing scrubber-area');
+  return area.dataset.hidden === 'true';
 }
 
 async function mountOverlay(getListener: () => Listener): Promise<void> {
@@ -125,7 +124,7 @@ async function mountOverlay(getListener: () => Listener): Promise<void> {
   await Promise.resolve();
 }
 
-describe('content script — alignment wire boundary (#52 PART A)', () => {
+describe('content script — scrubberAutoHide wire boundary (#211)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -138,47 +137,44 @@ describe('content script — alignment wire boundary (#52 PART A)', () => {
     vi.resetModules();
   });
 
-  test('initialSettings.alignment reflects stored value — host data-alignment="center" on mount', async () => {
-    // The overlay forwards initialSettings.alignment to the host
-    // data-alignment attribute. With stored alignment='center', a
-    // regression that hardcodes alignment:'orp' (or drops the field) at
-    // the mount-site payload would leave the host on the default 'orp'
-    // and fail this test.
+  test('stored scrubberAutoHide=false → scrubber stays visible on mount (anchor opt-out wired)', async () => {
+    // Engine plays on mount. With auto-hide opted out, the bar must NOT
+    // hide. A regression that drops scrubberAutoHide from the mount payload
+    // defaults the gate to true and hides the bar — failing this test.
     const { getListener } = installChromeMock({
       ...DEFAULT_SETTINGS,
-      alignment: 'center',
+      scrubberAutoHide: false,
     });
     await mountOverlay(getListener);
-    expect(getHost().getAttribute(OVERLAY_ATTR.ALIGNMENT)).toBe('center');
+    expect(isScrubberHidden()).toBe(false);
   });
 
-  test('initialSettings.alignment="orp" wires through (default value also passes the boundary)', async () => {
+  test('stored scrubberAutoHide=true → scrubber hides on mount (default behavior also passes the boundary)', async () => {
     const { getListener } = installChromeMock({
       ...DEFAULT_SETTINGS,
-      alignment: 'orp',
+      scrubberAutoHide: true,
     });
     await mountOverlay(getListener);
-    expect(getHost().getAttribute(OVERLAY_ATTR.ALIGNMENT)).toBe('orp');
+    expect(isScrubberHidden()).toBe(true);
   });
 
-  test('subscribeSettings push delivers alignment change — live update flips host attribute', async () => {
-    // Start at alignment='orp'. Then push alignment='center'; the overlay's
-    // subscribe handler MUST receive the new value and flip the host
-    // data-alignment attribute. A regression that drops
-    // `alignment: s.alignment` from the subscribe payload would leave the
-    // attribute on 'orp' and fail this test.
+  test('subscribeSettings push delivers scrubberAutoHide change — live flip reveals the bar', async () => {
+    // Start auto-hide on (bar hidden during playback). Push the opt-out; the
+    // overlay subscribe handler MUST receive it and reveal the bar. Dropping
+    // `scrubberAutoHide: s.scrubberAutoHide` from the subscribe payload
+    // leaves the bar hidden and fails this test.
     const { getListener, emitStorageChange } = installChromeMock({
       ...DEFAULT_SETTINGS,
-      alignment: 'orp',
+      scrubberAutoHide: true,
     });
     await mountOverlay(getListener);
-    expect(getHost().getAttribute(OVERLAY_ATTR.ALIGNMENT)).toBe('orp');
+    expect(isScrubberHidden()).toBe(true);
 
-    emitStorageChange({ ...DEFAULT_SETTINGS, alignment: 'center' });
+    emitStorageChange({ ...DEFAULT_SETTINGS, scrubberAutoHide: false });
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(getHost().getAttribute(OVERLAY_ATTR.ALIGNMENT)).toBe('center');
+    expect(isScrubberHidden()).toBe(false);
   });
 });

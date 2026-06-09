@@ -282,6 +282,10 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             // via subscribeSettings below so a user can toggle modes
             // mid-session.
             alignment: settings.alignment,
+            // #211 — scrubber auto-hide opt-out. Live-updated via
+            // subscribeSettings below so a user can toggle the position
+            // anchor mid-session without a remount.
+            scrubberAutoHide: settings.scrubberAutoHide,
           },
           subscribeSettings: (listener) =>
             subscribeSettings((s) =>
@@ -293,6 +297,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
                 font: resolveFontId(s),
                 chunkSize: s.chunkSize,
                 alignment: s.alignment,
+                scrubberAutoHide: s.scrubberAutoHide,
               }),
             ),
           // OpenDyslexic font URL (#27, #10). `core/` cannot call

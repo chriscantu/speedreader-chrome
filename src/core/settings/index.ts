@@ -1,4 +1,5 @@
 export {
+  SettingsSchemaV7,
   SettingsSchemaV6,
   SettingsSchemaV5,
   SettingsSchemaV4,
@@ -6,6 +7,7 @@ export {
   SettingsSchemaV2,
   CURRENT_VERSION,
   VALID_ALIGNMENTS,
+  type SettingsV7,
   type SettingsV6,
   type SettingsV5,
   type SettingsV4,

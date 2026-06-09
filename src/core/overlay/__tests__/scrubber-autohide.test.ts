@@ -20,7 +20,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createOverlay } from '../overlay';
-import type { OverlayOptions } from '../types';
+import type { OverlayOptions, SettingsSubscriber } from '../types';
 import { createRsvpEngine, type RsvpEngine, type RsvpEngineOptions } from '../../rsvp-engine';
 import { OVERLAY_CLASS } from '../constants';
 
@@ -330,6 +330,77 @@ describe('createOverlay — scrubber visibility state machine (#52 PART D)', () 
     playPauseBtn.click(); // pause
     playPauseBtn.click(); // resume
     expect(engineOf(holder).state).toBe('playing');
+    expect(isHidden(area)).toBe(true);
+    overlay.unmount();
+  });
+
+  // #211 — scrubberAutoHide opt-out. ADHD readers keep the bar visible
+  // during playback as a position anchor. The gate is `settings.scrubberAutoHide`
+  // ANDed into `shouldHide`; undefined is treated as `true` (back-compat).
+  test('scrubberAutoHide:false → scrubber stays VISIBLE while playing (ADHD anchor)', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(
+      defaultOpts(holder, {
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20, scrubberAutoHide: false },
+      }),
+    );
+    overlay.mount();
+    expect(engineOf(holder).state).toBe('playing');
+    // Mutation guard: with the gate present, shouldHide is false even though
+    // engine is playing + no hover + no focus. Dropping `settings.scrubberAutoHide &&`
+    // from shouldHide would hide the bar here and fail this assertion.
+    expect(isHidden(getArea())).toBe(false);
+    overlay.unmount();
+  });
+
+  test('scrubberAutoHide:true (explicit) → scrubber hides while playing (default behavior)', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(
+      defaultOpts(holder, {
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20, scrubberAutoHide: true },
+      }),
+    );
+    overlay.mount();
+    expect(engineOf(holder).state).toBe('playing');
+    expect(isHidden(getArea())).toBe(true);
+    overlay.unmount();
+  });
+
+  test('scrubberAutoHide undefined → treated as true (back-compat: hides while playing)', () => {
+    // defaultOpts omits scrubberAutoHide. The overlay must default the gate
+    // to true so pre-#211 callers retain the auto-hide behavior.
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    expect(isHidden(getArea())).toBe(true);
+    overlay.unmount();
+  });
+
+  test('live subscribeSettings flip scrubberAutoHide true→false reveals the bar mid-playback', () => {
+    const holder: Holder = { engine: null };
+    // Holder ref (not a bare `let`) so TS control-flow doesn't narrow the
+    // closure-assigned listener back to `null` at the call sites below.
+    const pushRef: { current: SettingsSubscriber | null } = { current: null };
+    const overlay = createOverlay(
+      defaultOpts(holder, {
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20, scrubberAutoHide: true },
+        subscribeSettings: (listener) => {
+          pushRef.current = listener;
+          return () => undefined;
+        },
+      }),
+    );
+    overlay.mount();
+    const area = getArea();
+    expect(engineOf(holder).state).toBe('playing');
+    expect(isHidden(area)).toBe(true);
+    if (!pushRef.current) throw new Error('subscribeSettings never registered a listener');
+    const push = pushRef.current;
+    // User opts out mid-session. The bar must reveal without a remount.
+    push({ theme: 'system', wpm: 300, fontSize: 20, scrubberAutoHide: false });
+    expect(isHidden(area)).toBe(false);
+    // And flipping back re-enables auto-hide (engine still playing, no hover).
+    push({ theme: 'system', wpm: 300, fontSize: 20, scrubberAutoHide: true });
     expect(isHidden(area)).toBe(true);
     overlay.unmount();
   });

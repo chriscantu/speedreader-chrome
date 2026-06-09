@@ -274,6 +274,49 @@ test.describe('Overlay polish bundle (#52)', () => {
     expect(results.violations).toEqual([]);
   });
 
+  test('#211 — scrubberAutoHide:false keeps the scrubber VISIBLE during playback (ADHD anchor)', async ({
+    page,
+  }) => {
+    // Acceptance #211: with the opt-out, the position bar stays visible
+    // while the engine is playing so ADHD readers retain a position anchor.
+    // Mirrors the hidden-state scan above but flips the gate to false and
+    // asserts the scrubber-area is NOT in its hidden state on mount.
+    await page.goto('about:blank');
+    await page.addScriptTag({ path: BUNDLE_PATH });
+    await page.evaluate((words) => {
+      type OverlayMod = {
+        createOverlay: (o: Record<string, unknown>) => { mount(): void };
+      };
+      type RsvpMod = { createRsvpEngine: (o: Record<string, unknown>) => unknown };
+      const overlayMod = (window as unknown as { __speedreader_overlay__: OverlayMod })
+        .__speedreader_overlay__;
+      const rsvpMod = (window as unknown as { __speedreader_rsvp__: RsvpMod }).__speedreader_rsvp__;
+      const overlay = overlayMod.createOverlay({
+        doc: document,
+        words,
+        initialSettings: {
+          theme: 'light',
+          wpm: 300,
+          fontSize: 20,
+          alignment: 'orp',
+          scrubberAutoHide: false,
+        },
+        subscribeSettings: () => () => undefined,
+        engineFactory: rsvpMod.createRsvpEngine,
+      });
+      overlay.mount();
+    }, ARTICLE_WORDS);
+    const state = await page.evaluate(() => {
+      const host = document.querySelector('[data-speedreader-overlay]');
+      const area = host?.shadowRoot?.querySelector('.scrubber-area') as HTMLElement | null;
+      return { hidden: area?.dataset.hidden ?? null, opacity: area?.style.opacity ?? null };
+    });
+    // Engine plays on mount, but the opt-out keeps the bar visible: dataset
+    // flag is NOT 'true' and opacity is not forced to '0'.
+    expect(state.hidden).not.toBe('true');
+    expect(state.opacity).not.toBe('0');
+  });
+
   test('touch-primary viewport — chunk-mode .word-run siblings render inline, do NOT overlap (architect H1 SHIP BLOCKER)', async ({
     browser,
   }) => {

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { bindOptionsForm, FIELD_IDS, type SettingsApi } from '../controller';
 import { DEFAULT_SETTINGS } from '../../../core/settings/defaults';
-import type { SettingsV6 } from '../../../core/settings/schema';
+import type { SettingsV7 } from '../../../core/settings/schema';
 
 const HTML = `
   <div id="load-error-banner"></div>
@@ -37,6 +37,7 @@ const HTML = `
     <option value="2"></option>
     <option value="3"></option>
   </select>
+  <input type="checkbox" id="${FIELD_IDS.scrubberAutoHide}" />
   <div id="saved"></div>
   <div id="save-error"></div>
 `;
@@ -46,15 +47,15 @@ interface Stub extends SettingsApi {
   saveMock: ReturnType<typeof vi.fn>;
   flushMock: ReturnType<typeof vi.fn>;
   subscribeMock: ReturnType<typeof vi.fn>;
-  emit(s: SettingsV6): void;
+  emit(s: SettingsV7): void;
 }
 
-function makeStub(initial: SettingsV6 = DEFAULT_SETTINGS): Stub {
-  let listener: ((s: SettingsV6) => void) | null = null;
+function makeStub(initial: SettingsV7 = DEFAULT_SETTINGS): Stub {
+  let listener: ((s: SettingsV7) => void) | null = null;
   const loadMock = vi.fn(async () => initial);
   const saveMock = vi.fn(async () => undefined);
   const flushMock = vi.fn(async () => undefined);
-  const subscribeMock = vi.fn((cb: (s: SettingsV6) => void) => {
+  const subscribeMock = vi.fn((cb: (s: SettingsV7) => void) => {
     listener = cb;
     return () => {
       listener = null;
@@ -443,8 +444,44 @@ describe('options controller', () => {
     });
   });
 
+  // #211 — scrubberAutoHide opt-out. The options page is the feature's
+  // primary write surface; pin the populate + save round-trip so a
+  // regression that drops the FIELD_IDS/FIELD_READERS/populate wiring
+  // (leaving the user's opt-out unable to persist) lands as a test failure.
+  describe('scrubberAutoHide toggle (#211)', () => {
+    it('populates scrubberAutoHide checkbox from loaded settings (false reflects)', async () => {
+      const stub = makeStub({ ...DEFAULT_SETTINGS, scrubberAutoHide: false });
+      await bindOptionsForm(document, window, stub);
+      expect(
+        (document.getElementById(FIELD_IDS.scrubberAutoHide) as HTMLInputElement).checked,
+      ).toBe(false);
+    });
+
+    it('populates scrubberAutoHide checkbox as checked for the default (true)', async () => {
+      const stub = makeStub({ ...DEFAULT_SETTINGS, scrubberAutoHide: true });
+      await bindOptionsForm(document, window, stub);
+      expect(
+        (document.getElementById(FIELD_IDS.scrubberAutoHide) as HTMLInputElement).checked,
+      ).toBe(true);
+    });
+
+    it('saves scrubberAutoHide on change like every other field (opt-out persists)', async () => {
+      // Mutation guard: dropping `scrubberAutoHide: readCheckbox` from
+      // FIELD_READERS (or the FIELD_IDS entry) means unchecking the box
+      // never calls save — the user's opt-out silently never persists.
+      // This assertion is the only thing pinning that write path.
+      const stub = makeStub({ ...DEFAULT_SETTINGS, scrubberAutoHide: true });
+      await bindOptionsForm(document, window, stub);
+      const toggle = document.getElementById(FIELD_IDS.scrubberAutoHide) as HTMLInputElement;
+      toggle.checked = false;
+      fire(toggle, 'change');
+      await Promise.resolve();
+      expect(stub.saveMock).toHaveBeenCalledWith({ scrubberAutoHide: false });
+    });
+  });
+
   // #49 — historyEnabled toggle + onHistoryDisabled side-effect hook.
-  // The controller's settings data model is pure SettingsV6; the hook
+  // The controller's settings data model is pure SettingsV7; the hook
   // is the bridge to the position-store wipe action wired in index.ts.
   describe('history toggle (#49)', () => {
     it('populates historyEnabled checkbox from loaded settings', async () => {

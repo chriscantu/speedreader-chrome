@@ -290,6 +290,19 @@
             across the end of a sentence.
           </span>
         </div>
+
+        <!-- #211 — scrubber auto-hide opt-out. Checked by default (the bar
+             fades during playback to keep the eye on the word region).
+             ADHD readers who use the position bar as a visual anchor to
+             fight time-blindness uncheck this to keep it visible. -->
+        <div class="field inline">
+          <input type="checkbox" id="scrubberAutoHide" aria-describedby="scrubberAutoHide-hint" />
+          <label for="scrubberAutoHide">Hide the position bar during playback</label>
+        </div>
+        <p class="hint" id="scrubberAutoHide-hint">
+          Uncheck to keep the position bar visible while reading — useful as a
+          steady anchor if an auto-hiding bar is distracting.
+        </p>
       </fieldset>
 
       <!-- Pacing -->

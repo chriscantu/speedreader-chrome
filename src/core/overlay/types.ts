@@ -73,6 +73,19 @@ export interface OverlaySettings {
    * selectors. Live updates land via `subscribeSettings`.
    */
   alignment?: 'orp' | 'center';
+  /**
+   * Playback scrubber auto-hide (#211). When `true` (default), the scrubber
+   * area fades out during active playback (no hover / focus / mid-scrub) so
+   * the eye stays on the word region. When `false`, the scrubber stays
+   * visible during playback as a position anchor — an ADHD affordance to
+   * fight time-blindness while reading.
+   *
+   * Optional so existing callers and tests that pre-date this field continue
+   * to type-check — overlay treats `undefined` as `true` (back-compat with
+   * the auto-hide behavior shipped in #52/#210). Live-updated via
+   * `subscribeSettings`.
+   */
+  scrubberAutoHide?: boolean;
 }
 
 export type SettingsSubscriber = (s: OverlaySettings) => void;
