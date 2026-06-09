@@ -1,12 +1,13 @@
-import { SettingsSchemaV6, CURRENT_VERSION, type SettingsV6 } from './schema';
+import { SettingsSchemaV7, CURRENT_VERSION, type SettingsV7 } from './schema';
 import { DEFAULT_SETTINGS } from './defaults';
 
 type Migrator = (raw: Record<string, unknown>) => Record<string, unknown>;
 
 /**
  * Sequential migrators keyed by source version. Forward-only chain:
- * `0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> ...`. To add a 6->7 migration in
- * the future, drop in `6: m6to7` and bump `CURRENT_VERSION` in `schema.ts`.
+ * `0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> ...`. To add a 7->8 migration
+ * in the future, drop in `7: m7to8` and bump `CURRENT_VERSION` in
+ * `schema.ts`.
  *
  * Spread order is load-bearing: `...raw` first, then literals. New
  * payloads get the literal `alignment: 'orp'` stamp; V4-already-present
@@ -40,6 +41,11 @@ type Migrator = (raw: Record<string, unknown>) => Record<string, unknown>;
  * truthy/invalid `chunkSize` value snaps back to `1` — even though the
  * V6 schema gate would reject the bogus value, the migrator's stamp
  * is the privacy-equivalent floor (back-compat by default).
+ *
+ * 6 -> 7 (#211) adds `scrubberAutoHide: true`. Existing users keep the
+ * auto-hide behavior shipped in #52/#210; users opt out via the options
+ * page. Stamped AFTER `...raw` so a hand-edited V6 blob carrying a
+ * non-boolean `scrubberAutoHide` snaps back to the back-compat default.
  */
 function clampLastUsedWpm(raw: unknown): number {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return 250;
@@ -60,6 +66,7 @@ const MIGRATIONS: Record<number, Migrator> = {
   }),
   4: (raw) => ({ ...raw, historyEnabled: false, version: 5 }),
   5: (raw) => ({ ...raw, chunkSize: 1, version: 6 }),
+  6: (raw) => ({ ...raw, scrubberAutoHide: true, version: 7 }),
 };
 
 /**
@@ -83,7 +90,7 @@ const MIGRATIONS: Record<number, Migrator> = {
  * `'migrates v3 blob with missing field by filling defaults (explicit repair
  * behavior)'` in `__tests__/migrations.test.ts`.
  */
-export function migrate(rawValue: unknown): SettingsV6 {
+export function migrate(rawValue: unknown): SettingsV7 {
   if (rawValue == null || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
     return { ...DEFAULT_SETTINGS };
   }
@@ -99,7 +106,7 @@ export function migrate(rawValue: unknown): SettingsV6 {
   }
 
   const merged = { ...DEFAULT_SETTINGS, ...value, version: CURRENT_VERSION };
-  const parsed = SettingsSchemaV6.safeParse(merged);
+  const parsed = SettingsSchemaV7.safeParse(merged);
   if (!parsed.success) {
     console.warn(
       '[speedreader] settings failed validation, falling back to defaults',

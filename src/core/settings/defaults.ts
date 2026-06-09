@@ -1,7 +1,7 @@
-import type { SettingsV6 } from './schema';
+import type { SettingsV7 } from './schema';
 
-export const DEFAULT_SETTINGS: SettingsV6 = {
-  version: 6,
+export const DEFAULT_SETTINGS: SettingsV7 = {
+  version: 7,
   wpm: 250,
   theme: 'system',
   font: 'system-ui',
@@ -18,4 +18,8 @@ export const DEFAULT_SETTINGS: SettingsV6 = {
   // #51 — single-word display is today's behavior and the safe default.
   // Users opt into 2 or 3 via the options page.
   chunkSize: 1,
+  // #211 — auto-hide on by default (matches post-#210 behavior). ADHD
+  // readers who use the scrubber as a position anchor opt out via the
+  // options page.
+  scrubberAutoHide: true,
 };

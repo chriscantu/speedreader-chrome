@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { bindOptionsForm, FIELD_IDS, type SettingsApi } from '../controller';
 import { DEFAULT_SETTINGS } from '../../../core/settings/defaults';
-import type { SettingsV6 } from '../../../core/settings/schema';
+import type { SettingsV7 } from '../../../core/settings/schema';
 import manifest from '../../manifest';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -118,6 +118,7 @@ describe('options index.html structure', () => {
       startFromWordOne: 'Always start from word one',
       historyEnabled: 'Remember recently read articles',
       chunkSize: 'Words per display',
+      scrubberAutoHide: 'Hide the position bar during playback',
     };
 
     it.each(Object.entries(FIELD_IDS))(
@@ -215,7 +216,7 @@ describe('options index.html structure', () => {
    * assertion below go red.
    */
   describe('controller binds against real index.html', () => {
-    function makeStubApi(initial: SettingsV6 = DEFAULT_SETTINGS): SettingsApi & {
+    function makeStubApi(initial: SettingsV7 = DEFAULT_SETTINGS): SettingsApi & {
       loadMock: ReturnType<typeof vi.fn>;
       saveMock: ReturnType<typeof vi.fn>;
       flushMock: ReturnType<typeof vi.fn>;

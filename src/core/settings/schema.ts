@@ -2,6 +2,13 @@ import { z } from 'zod';
 import { FONT_SIZE_MAX, FONT_SIZE_MIN, WPM_MAX, WPM_MIN, WPM_STEP } from './bounds';
 
 /**
+ * V7 adds `scrubberAutoHide` (issue #211) — opt-out for the playback
+ * scrubber auto-hide shipped in #52/#210. Default `true` (auto-hide on,
+ * matching post-#210 behavior). ADHD readers who use the position bar as
+ * a visual anchor set it `false` to keep the bar visible during playback.
+ * The 6 -> 7 migrator stamps `scrubberAutoHide: true` for every existing
+ * payload; users opt out via the options page.
+ *
  * V6 adds `chunkSize` (issue #51) — multi-word RSVP display. Default
  * `1` (single-word, today's behavior). The 5 -> 6 migrator stamps
  * `chunkSize: 1` for every existing payload; users opt into 2 or 3
@@ -46,6 +53,31 @@ const WPM_SCHEMA = z.number().int().min(WPM_MIN).max(WPM_MAX).multipleOf(WPM_STE
  */
 const CHUNK_SIZE_SCHEMA = z.union([z.literal(1), z.literal(2), z.literal(3)]);
 
+export const SettingsSchemaV7 = z.object({
+  version: z.literal(7),
+  wpm: WPM_SCHEMA,
+  theme: z.enum(['system', 'light', 'dark', 'sepia', 'paper', 'cream', 'nord']),
+  font: z.string(),
+  fontSize: z.number().int().min(FONT_SIZE_MIN).max(FONT_SIZE_MAX),
+  openDyslexic: z.boolean(),
+  punctuationPacing: z.boolean(),
+  alignment: z.enum(['orp', 'center']),
+  contextLine: z.boolean(),
+  startFromWordOne: z.boolean(),
+  lastUsedWpm: WPM_SCHEMA,
+  historyEnabled: z.boolean(),
+  chunkSize: CHUNK_SIZE_SCHEMA,
+  scrubberAutoHide: z.boolean(),
+});
+
+export type SettingsV7 = z.infer<typeof SettingsSchemaV7>;
+
+export const CURRENT_VERSION = 7 as const;
+
+/**
+ * V6 preserved for the V6 -> V7 migrator (#211) per the schema retention
+ * policy adopted at V2 (issue #101 AC: "keep prior schema exported").
+ */
 export const SettingsSchemaV6 = z.object({
   version: z.literal(6),
   wpm: WPM_SCHEMA,
@@ -63,8 +95,6 @@ export const SettingsSchemaV6 = z.object({
 });
 
 export type SettingsV6 = z.infer<typeof SettingsSchemaV6>;
-
-export const CURRENT_VERSION = 6 as const;
 
 /**
  * V5 preserved for the V5 -> V6 migrator (#51) per the schema retention

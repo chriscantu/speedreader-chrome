@@ -789,6 +789,11 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // short-circuit no-op echoes and only re-write the host attribute
     // when alignment actually changed. Default `'orp'` matches schema.
     let currentAlignment: 'orp' | 'center' = opts.initialSettings.alignment ?? 'orp';
+    // #211 — local cache for the scrubber auto-hide opt-out. Default `true`
+    // (undefined treated as on) matches the post-#210 behavior; the
+    // subscribeSettings handler flips it and recomputes so a user toggling
+    // the option reveals/hides the bar mid-session without a remount.
+    let currentScrubberAutoHide: boolean = opts.initialSettings.scrubberAutoHide ?? true;
 
     // Single point of truth for keeping the stepper UI in sync with
     // `currentWpm`. Called from mount-time init, the ArrowUp/Down keyboard
@@ -902,6 +907,14 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         currentAlignment = nextAlignment;
         host?.setAttribute(OVERLAY_ATTR.ALIGNMENT, nextAlignment);
       }
+      // #211 — live scrubber auto-hide opt-out. Recompute visibility so a
+      // user toggling the option reveals/hides the bar mid-session. Guarded
+      // on a real change so a no-op echo doesn't churn the recompute.
+      const nextScrubberAutoHide: boolean = s.scrubberAutoHide ?? true;
+      if (nextScrubberAutoHide !== currentScrubberAutoHide) {
+        currentScrubberAutoHide = nextScrubberAutoHide;
+        recomputeScrubberVisibility();
+      }
     });
 
     const engineWords = scopeView ? scopeView.activeWords : opts.words;
@@ -1004,7 +1017,14 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     const recomputeScrubberVisibility = (): void => {
       if (!scrubberArea) return;
       const playing = engine?.state === 'playing';
-      const shouldHide = playing && !scrubberHovered && !scrubberFocused && !scrubInProgress;
+      // #211 — auto-hide is gated on the opt-out. When the user disables it,
+      // the bar stays visible during playback as a position anchor.
+      const shouldHide =
+        currentScrubberAutoHide &&
+        playing &&
+        !scrubberHovered &&
+        !scrubberFocused &&
+        !scrubInProgress;
       const wasHidden = scrubberArea.dataset.hidden === 'true';
       if (shouldHide) {
         scrubberArea.style.opacity = '0';

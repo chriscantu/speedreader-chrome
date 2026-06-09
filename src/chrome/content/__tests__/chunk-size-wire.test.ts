@@ -20,7 +20,7 @@
  */
 import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest';
 import { DEFAULT_SETTINGS } from '../../../core/settings/defaults';
-import type { SettingsV6 } from '../../../core/settings/schema';
+import type { SettingsV7 } from '../../../core/settings/schema';
 import { OVERLAY_CLASS } from '../../../core/overlay/constants';
 
 const SETTINGS_KEY = 'speedreader.settings';
@@ -55,10 +55,10 @@ interface ChromeMock {
   };
 }
 
-function installChromeMock(stored: SettingsV6): {
+function installChromeMock(stored: SettingsV7): {
   mock: ChromeMock;
   getListener: () => Listener;
-  emitStorageChange: (next: SettingsV6) => void;
+  emitStorageChange: (next: SettingsV7) => void;
 } {
   let capturedListener: Listener | undefined;
   const storageListeners: StorageChangedListener[] = [];
@@ -92,7 +92,7 @@ function installChromeMock(stored: SettingsV6): {
       if (!capturedListener) throw new Error('content script never registered listener');
       return capturedListener;
     },
-    emitStorageChange: (next: SettingsV6) => {
+    emitStorageChange: (next: SettingsV7) => {
       for (const l of storageListeners) {
         l({ [SETTINGS_KEY]: { newValue: next, oldValue: stored } }, 'sync');
       }

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { bindOptionsForm, FIELD_IDS, type SettingsApi } from '../controller';
 import { DEFAULT_SETTINGS } from '../../../core/settings/defaults';
-import type { SettingsV6 } from '../../../core/settings/schema';
+import type { SettingsV7 } from '../../../core/settings/schema';
 
 const HTML = `
   <div id="load-error-banner"></div>
@@ -46,15 +46,15 @@ interface Stub extends SettingsApi {
   saveMock: ReturnType<typeof vi.fn>;
   flushMock: ReturnType<typeof vi.fn>;
   subscribeMock: ReturnType<typeof vi.fn>;
-  emit(s: SettingsV6): void;
+  emit(s: SettingsV7): void;
 }
 
-function makeStub(initial: SettingsV6 = DEFAULT_SETTINGS): Stub {
-  let listener: ((s: SettingsV6) => void) | null = null;
+function makeStub(initial: SettingsV7 = DEFAULT_SETTINGS): Stub {
+  let listener: ((s: SettingsV7) => void) | null = null;
   const loadMock = vi.fn(async () => initial);
   const saveMock = vi.fn(async () => undefined);
   const flushMock = vi.fn(async () => undefined);
-  const subscribeMock = vi.fn((cb: (s: SettingsV6) => void) => {
+  const subscribeMock = vi.fn((cb: (s: SettingsV7) => void) => {
     listener = cb;
     return () => {
       listener = null;
@@ -444,7 +444,7 @@ describe('options controller', () => {
   });
 
   // #49 — historyEnabled toggle + onHistoryDisabled side-effect hook.
-  // The controller's settings data model is pure SettingsV6; the hook
+  // The controller's settings data model is pure SettingsV7; the hook
   // is the bridge to the position-store wipe action wired in index.ts.
   describe('history toggle (#49)', () => {
     it('populates historyEnabled checkbox from loaded settings', async () => {

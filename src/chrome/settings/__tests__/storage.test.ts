@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import sinonChrome from 'sinon-chrome';
 import { DEFAULT_SETTINGS } from '../../../core/settings/defaults';
-import type { SettingsV6 } from '../../../core/settings/schema';
+import type { SettingsV7 } from '../../../core/settings/schema';
 import { DEBOUNCE_MS } from '../storage';
 
 const KEY = 'speedreader.settings';
@@ -81,7 +81,7 @@ describe('chrome settings storage adapter', () => {
   });
 
   it('loadSettings returns valid stored payload as-is', async () => {
-    storedRaw = { ...DEFAULT_SETTINGS, wpm: 380 } satisfies SettingsV6;
+    storedRaw = { ...DEFAULT_SETTINGS, wpm: 380 } satisfies SettingsV7;
     const { loadSettings } = await import('../storage');
     const settings = await loadSettings();
     expect(settings.wpm).toBe(380);
@@ -96,7 +96,7 @@ describe('chrome settings storage adapter', () => {
   });
 
   it('saveSettings coalesces 10 calls within 300ms into one write', async () => {
-    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV6;
+    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV7;
     const { saveSettings } = await import('../storage');
     const stub = (globalThis as unknown as { chrome: ChromeStub }).chrome;
 
@@ -113,14 +113,14 @@ describe('chrome settings storage adapter', () => {
     // Exactly one set call (the trailing-edge write); set may also fire from
     // an internal load() canonicalisation if storedRaw mismatched, so assert
     // the *final* persisted wpm rather than count alone.
-    const finalStored = storedRaw as SettingsV6;
+    const finalStored = storedRaw as SettingsV7;
     expect(finalStored.wpm).toBe(340);
     expect(stub.storage.sync.set).toHaveBeenCalledTimes(1);
   });
 
   // #68 — debounce window resolution contract.
   it('saveSettings: 3 calls in one window share resolution, all resolve on one set', async () => {
-    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV6;
+    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV7;
     const { saveSettings } = await import('../storage');
     const stub = (globalThis as unknown as { chrome: ChromeStub }).chrome;
 
@@ -145,12 +145,12 @@ describe('chrome settings storage adapter', () => {
     // All three resolved together, and exactly one set fired.
     expect(resolved).toEqual([true, true, true]);
     expect(stub.storage.sync.set).toHaveBeenCalledTimes(1);
-    expect((storedRaw as SettingsV6).wpm).toBe(280);
+    expect((storedRaw as SettingsV7).wpm).toBe(280);
   });
 
   // #68 — late call landing during in-flight flush queues for next window.
   it('saveSettings: call landing during in-flight flush queues for next window (distinct resolutions)', async () => {
-    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV6;
+    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV7;
     const stub = (globalThis as unknown as { chrome: ChromeStub }).chrome;
 
     // Replace `get` with a controllable Promise so we can park the in-flight
@@ -207,12 +207,12 @@ describe('chrome settings storage adapter', () => {
 
     // Two distinct sets — late call did not coalesce into the in-flight write.
     expect(stub.storage.sync.set).toHaveBeenCalledTimes(2);
-    expect((storedRaw as SettingsV6).wpm).toBe(380);
+    expect((storedRaw as SettingsV7).wpm).toBe(380);
   });
 
   // #68 — flushSettings semantics.
   it('flushSettings resolves immediately when no pending save', async () => {
-    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV6;
+    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV7;
     const { flushSettings } = await import('../storage');
     const stub = (globalThis as unknown as { chrome: ChromeStub }).chrome;
 
@@ -221,7 +221,7 @@ describe('chrome settings storage adapter', () => {
   });
 
   it('flushSettings cancels debounce timer and forces an immediate flush', async () => {
-    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV6;
+    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV7;
     const { saveSettings, flushSettings } = await import('../storage');
     const stub = (globalThis as unknown as { chrome: ChromeStub }).chrome;
 
@@ -250,7 +250,7 @@ describe('chrome settings storage adapter', () => {
     expect(flushPromiseResolved).toBe(true);
     expect(savePromiseResolved).toBe(true);
     expect(stub.storage.sync.set).toHaveBeenCalledTimes(1);
-    expect((storedRaw as SettingsV6).wpm).toBe(410);
+    expect((storedRaw as SettingsV7).wpm).toBe(410);
 
     // Confirm there is no zombie timer left behind — advancing past 300ms
     // must not produce a second set.
@@ -259,7 +259,7 @@ describe('chrome settings storage adapter', () => {
   });
 
   it('flushSettings rejects when the forced flush fails', async () => {
-    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV6;
+    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV7;
     const { saveSettings, flushSettings } = await import('../storage');
     const stub = (globalThis as unknown as { chrome: ChromeStub }).chrome;
     const setErr = new Error('quota exceeded');
@@ -280,13 +280,13 @@ describe('chrome settings storage adapter', () => {
   });
 
   it('saveSettings preserves the version field', async () => {
-    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV6;
+    storedRaw = { ...DEFAULT_SETTINGS } satisfies SettingsV7;
     const { saveSettings } = await import('../storage');
     const p = saveSettings({ theme: 'dark' });
     await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
     await p;
-    const stored = storedRaw as SettingsV6;
-    expect(stored.version).toBe(6);
+    const stored = storedRaw as SettingsV7;
+    expect(stored.version).toBe(7);
     expect(stored.theme).toBe('dark');
   });
 
@@ -295,7 +295,7 @@ describe('chrome settings storage adapter', () => {
     const listener = vi.fn();
     const unsubscribe = subscribeSettings(listener);
 
-    const next: SettingsV6 = { ...DEFAULT_SETTINGS, wpm: 420 };
+    const next: SettingsV7 = { ...DEFAULT_SETTINGS, wpm: 420 };
     emitChange(next, 'sync');
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener).toHaveBeenCalledWith(next);

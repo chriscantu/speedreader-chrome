@@ -1,4 +1,4 @@
-import type { SettingsV6 } from '../../core/settings/schema';
+import type { SettingsV7 } from '../../core/settings/schema';
 import { DEFAULT_SETTINGS } from '../../core/settings/defaults';
 import {
   FONT_SIZE_MAX,
@@ -10,10 +10,10 @@ import {
 import { resolveFontId } from '../../core/overlay/font-ids';
 
 export interface SettingsApi {
-  load(): Promise<SettingsV6>;
-  save(partial: Partial<Omit<SettingsV6, 'version' | 'lastUsedWpm'>>): Promise<void>;
+  load(): Promise<SettingsV7>;
+  save(partial: Partial<Omit<SettingsV7, 'version' | 'lastUsedWpm'>>): Promise<void>;
   flush(): Promise<void>;
-  subscribe(listener: (s: SettingsV6) => void): () => void;
+  subscribe(listener: (s: SettingsV7) => void): () => void;
 }
 
 /**
@@ -45,6 +45,9 @@ export const FIELD_IDS = {
   // #51 — chunk size select (1 | 2 | 3). Default 1 keeps today's
   // single-word display; opting into 2 or 3 enables multi-word RSVP.
   chunkSize: 'chunkSize',
+  // #211 — scrubber auto-hide opt-out checkbox. Default checked (auto-hide
+  // on); ADHD readers who use the position bar as an anchor uncheck it.
+  scrubberAutoHide: 'scrubberAutoHide',
 } as const;
 
 /**
@@ -54,7 +57,7 @@ export const FIELD_IDS = {
  * common case; nuking stored data is the destructive sub-action.
  *
  * This ID is read by `index.ts` (the chrome glue), NOT by the controller
- * — the controller's data model is `SettingsV6` only. The wipe call goes
+ * — the controller's data model is `SettingsV7` only. The wipe call goes
  * to the position store directly.
  */
 export const HISTORY_CLEAR_ON_DISABLE_ID = 'historyClearOnDisable';
@@ -66,8 +69,8 @@ const SAVED_INDICATOR_MS = 1500;
 const SAVE_ERROR_MS = 4000;
 
 type EditableField = keyof typeof FIELD_IDS;
-type EditableValue<K extends EditableField> = SettingsV6[K];
-type EditablePatch = Partial<Omit<SettingsV6, 'version' | 'lastUsedWpm'>>;
+type EditableValue<K extends EditableField> = SettingsV7[K];
+type EditablePatch = Partial<Omit<SettingsV7, 'version' | 'lastUsedWpm'>>;
 
 const THEME_VALUES = ['system', 'light', 'dark', 'sepia', 'paper', 'cream', 'nord'] as const;
 const ALIGNMENT_VALUES = ['orp', 'center'] as const;
@@ -79,7 +82,7 @@ function getInput(doc: Document, id: string): HTMLInputElement | HTMLSelectEleme
   return null;
 }
 
-function populate(doc: Document, s: SettingsV6): void {
+function populate(doc: Document, s: SettingsV7): void {
   const wpm = getInput(doc, FIELD_IDS.wpm);
   if (wpm) wpm.value = String(s.wpm);
 
@@ -114,6 +117,9 @@ function populate(doc: Document, s: SettingsV6): void {
 
   const chunkSize = getInput(doc, FIELD_IDS.chunkSize);
   if (chunkSize) chunkSize.value = String(s.chunkSize);
+
+  const scrubberAutoHide = getInput(doc, FIELD_IDS.scrubberAutoHide);
+  if (scrubberAutoHide instanceof HTMLInputElement) scrubberAutoHide.checked = s.scrubberAutoHide;
 }
 
 function flashIndicator(doc: Document, win: Window, id: string, ms: number): void {
@@ -131,7 +137,7 @@ function showLoadErrorBanner(doc: Document): void {
 
 /**
  * Per-field reader. `K` ties the element-read result to the exact
- * `SettingsV6[K]` slot so `theme`-shaped readers can't accidentally return
+ * `SettingsV7[K]` slot so `theme`-shaped readers can't accidentally return
  * a number. Each reader returns `null` to reject invalid input — the binder
  * suppresses save on null, leaving the stored value untouched.
  */
@@ -167,13 +173,13 @@ function readFont(el: HTMLInputElement | HTMLSelectElement): string | null {
   return v;
 }
 
-function readTheme(el: HTMLInputElement | HTMLSelectElement): SettingsV6['theme'] | null {
-  const v = el.value as SettingsV6['theme'];
+function readTheme(el: HTMLInputElement | HTMLSelectElement): SettingsV7['theme'] | null {
+  const v = el.value as SettingsV7['theme'];
   return (THEME_VALUES as readonly string[]).includes(v) ? v : null;
 }
 
-function readAlignment(el: HTMLInputElement | HTMLSelectElement): SettingsV6['alignment'] | null {
-  const v = el.value as SettingsV6['alignment'];
+function readAlignment(el: HTMLInputElement | HTMLSelectElement): SettingsV7['alignment'] | null {
+  const v = el.value as SettingsV7['alignment'];
   return (ALIGNMENT_VALUES as readonly string[]).includes(v) ? v : null;
 }
 
@@ -181,7 +187,7 @@ function readCheckbox(el: HTMLInputElement | HTMLSelectElement): boolean | null 
   return el instanceof HTMLInputElement ? el.checked : null;
 }
 
-function readChunkSize(el: HTMLInputElement | HTMLSelectElement): SettingsV6['chunkSize'] | null {
+function readChunkSize(el: HTMLInputElement | HTMLSelectElement): SettingsV7['chunkSize'] | null {
   // Select values are strings even when the underlying schema is a
   // numeric literal union; parse, then validate against the V6 literal
   // set so HTML drift (a "4" option added to the select) does not
@@ -190,7 +196,7 @@ function readChunkSize(el: HTMLInputElement | HTMLSelectElement): SettingsV6['ch
   const n = Number(el.value);
   if (!Number.isInteger(n)) return null;
   if (!(CHUNK_SIZE_VALUES as readonly number[]).includes(n)) return null;
-  return n as SettingsV6['chunkSize'];
+  return n as SettingsV7['chunkSize'];
 }
 
 const FIELD_READERS: { [K in EditableField]: Reader<K> } = {
@@ -204,6 +210,7 @@ const FIELD_READERS: { [K in EditableField]: Reader<K> } = {
   startFromWordOne: readCheckbox,
   historyEnabled: readCheckbox,
   chunkSize: readChunkSize,
+  scrubberAutoHide: readCheckbox,
 };
 
 function bindField<K extends EditableField>(
@@ -256,7 +263,7 @@ export async function bindOptionsForm(
   onHistoryDisabled?: OnHistoryDisabled,
 ): Promise<() => void> {
   let degraded = false;
-  let initial: SettingsV6;
+  let initial: SettingsV7;
   try {
     initial = await api.load();
   } catch (err) {
