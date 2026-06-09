@@ -581,7 +581,15 @@ export const OVERLAY_CSS = `
 
 /* ===== Resume toast (#48) — Hi-Fi chip styling. ===== */
 .resume-toast {
-  margin: 4px 24px 0;
+  /* #218 — out of flow so its 5 s auto-dismiss / Start Over removal does
+   * NOT reflow the word region mid-read. With block insets left auto, the
+   * chip renders at its static flow position (just below the scope-header,
+   * over the word region's 36px top padding) but reserves no layout space,
+   * so appearance AND dismissal are reflow-free. The .modal ancestor is the
+   * position:relative containing block. */
+  position: absolute;
+  inset-inline: 24px;
+  margin: 0;
   padding: 8px 14px;
   border-radius: var(--radius);
   background: var(--accent-soft, #e8f0fe);
