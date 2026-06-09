@@ -134,23 +134,59 @@ describe('createOverlay — font-size stepper (#29)', () => {
     overlay.unmount();
   });
 
-  test('A+ is disabled when fontSize === FONT_SIZE_MAX', () => {
+  test('A+ is aria-disabled at FONT_SIZE_MAX and stays in the tab chain (#215)', () => {
     const overlay = createOverlay(
       defaultOpts({ initialSettings: defaultSettings({ fontSize: FONT_SIZE_MAX }) }),
     );
     overlay.mount();
-    expect(getIncBtn().disabled).toBe(true);
-    expect(getDecBtn().disabled).toBe(false);
+    // #215 — aria-disabled (not native `disabled`), so keyboard users tabbing
+    // the control bar still reach the button at the bound.
+    expect(getIncBtn().getAttribute('aria-disabled')).toBe('true');
+    expect(getDecBtn().getAttribute('aria-disabled')).toBe('false');
+    expect(getIncBtn().disabled).toBe(false);
     overlay.unmount();
   });
 
-  test('A− is disabled when fontSize === FONT_SIZE_MIN', () => {
+  test('A− is aria-disabled at FONT_SIZE_MIN and stays in the tab chain (#215)', () => {
     const overlay = createOverlay(
       defaultOpts({ initialSettings: defaultSettings({ fontSize: FONT_SIZE_MIN }) }),
     );
     overlay.mount();
-    expect(getDecBtn().disabled).toBe(true);
-    expect(getIncBtn().disabled).toBe(false);
+    expect(getDecBtn().getAttribute('aria-disabled')).toBe('true');
+    expect(getIncBtn().getAttribute('aria-disabled')).toBe('false');
+    expect(getDecBtn().disabled).toBe(false);
+    overlay.unmount();
+  });
+
+  test('+ click at FONT_SIZE_MAX does not fire onFontSizeChange (aria-disabled handler short-circuit, #215)', () => {
+    const onFontSizeChange = vi.fn<(n: number) => void>();
+    const overlay = createOverlay(
+      defaultOpts({
+        initialSettings: defaultSettings({ fontSize: FONT_SIZE_MAX }),
+        onFontSizeChange,
+      }),
+    );
+    overlay.mount();
+    getIncBtn().click();
+    expect(onFontSizeChange).not.toHaveBeenCalled();
+    overlay.unmount();
+  });
+
+  test('mutation guard — aria-disabled handler gate is load-bearing, independent of the clamp (#215)', () => {
+    // The handler-level early-return is belt-and-suspenders on top of
+    // stepFontSize's `next === currentFontSize` clamp short-circuit. To
+    // discriminate the HANDLER gate from the clamp, force aria-disabled='true'
+    // on the + button at a mid-range fontSize (where the clamp would NOT
+    // short-circuit). Intact gate → click no-ops. Removed gate → click reaches
+    // stepFontSize and fires onFontSizeChange.
+    const onFontSizeChange = vi.fn<(n: number) => void>();
+    const overlay = createOverlay(
+      defaultOpts({ initialSettings: defaultSettings({ fontSize: 20 }), onFontSizeChange }),
+    );
+    overlay.mount();
+    getIncBtn().setAttribute('aria-disabled', 'true');
+    getIncBtn().click();
+    expect(onFontSizeChange).not.toHaveBeenCalled();
     overlay.unmount();
   });
 
@@ -187,7 +223,7 @@ describe('createOverlay — font-size stepper (#29)', () => {
     expect(modal.style.getPropertyValue('--rsvp-font-size')).toBe('36px');
     // Stepper boundary state also refreshes on emission.
     notify({ theme: 'system', wpm: 300, fontSize: FONT_SIZE_MAX });
-    expect(getIncBtn().disabled).toBe(true);
+    expect(getIncBtn().getAttribute('aria-disabled')).toBe('true');
     overlay.unmount();
   });
 

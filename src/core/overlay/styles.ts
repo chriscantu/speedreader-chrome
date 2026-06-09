@@ -440,8 +440,8 @@ export const OVERLAY_CSS = `
 
 .prev-sentence-btn:hover,
 .next-sentence-btn:hover,
-.font-dec-btn:hover,
-.font-inc-btn:hover {
+.font-dec-btn:hover:not([aria-disabled='true']),
+.font-inc-btn:hover:not([aria-disabled='true']) {
   background: var(--accent-soft, #e8f0fe);
   color: var(--text, #202124);
 }
@@ -455,9 +455,14 @@ export const OVERLAY_CSS = `
   outline-offset: 2px;
 }
 
-.font-dec-btn:disabled,
-.font-inc-btn:disabled {
-  opacity: 0.4;
+/* #215 — [aria-disabled="true"] (not native :disabled) so the buttons stay in
+ * the tab chain (WCAG 2.4.3), and --text-muted (not opacity: 0.4) so the
+ * disabled glyph clears WCAG 1.4.11 3:1 non-text contrast against --surface-2.
+ * Mirrors the #214 WPM-stepper treatment; cursor: not-allowed carries the
+ * state affordance (WCAG 1.4.1 — not by contrast alone). */
+.font-dec-btn[aria-disabled='true'],
+.font-inc-btn[aria-disabled='true'] {
+  color: var(--text-muted);
   cursor: not-allowed;
 }
 
@@ -493,7 +498,7 @@ export const OVERLAY_CSS = `
   font-size: 16px;
 }
 
-.play-pause-btn:hover {
+.play-pause-btn:hover:not([aria-disabled='true']) {
   background: var(--accent-soft, #e8f0fe);
   color: var(--text, #202124);
 }
@@ -503,8 +508,15 @@ export const OVERLAY_CSS = `
   outline-offset: 3px;
 }
 
-.play-pause-btn:disabled {
-  opacity: 0.5;
+/* #215 — see font-stepper note. Primary filled button: drop opacity (which
+ * collapsed non-text contrast on the accent fill) for a muted surface + muted
+ * glyph that clears WCAG 1.4.11 against the footer. Only the 'done' engine
+ * state sets aria-disabled here; box-shadow removed so the disabled chip reads
+ * as inert. */
+.play-pause-btn[aria-disabled='true'] {
+  background: var(--surface-3, var(--surface-2));
+  color: var(--text-muted);
+  box-shadow: none;
   cursor: not-allowed;
 }
 

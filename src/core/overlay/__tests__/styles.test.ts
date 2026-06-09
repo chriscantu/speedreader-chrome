@@ -38,7 +38,11 @@ describe('OVERLAY_CSS theme-slot consumers (issue #150)', () => {
   });
 
   test('.play-pause-btn:hover binds background to var(--accent-soft, …)', () => {
-    expect(OVERLAY_CSS).toMatch(/\.play-pause-btn:hover\s*\{[^}]*background:\s*var\(--accent-soft/);
+    // #215 — hover is guarded `:not([aria-disabled='true'])` so the disabled
+    // ('done') chip does not light up on hover.
+    expect(OVERLAY_CSS).toMatch(
+      /\.play-pause-btn:hover:not\(\[aria-disabled='true'\]\)\s*\{[^}]*background:\s*var\(--accent-soft/,
+    );
   });
 
   test('.scope-swap-btn:hover binds background to var(--accent-soft, …)', () => {
@@ -69,5 +73,35 @@ describe('OVERLAY_CSS resume-toast is out of flow (issue #218)', () => {
   // in a Playwright pass (noted on #218).
   test('.resume-toast is taken out of flow (position: absolute|fixed)', () => {
     expect(OVERLAY_CSS).toMatch(/\.resume-toast\s*\{[^}]*position:\s*(absolute|fixed)/);
+  });
+});
+
+describe('OVERLAY_CSS disabled-button a11y treatment (issue #215)', () => {
+  // #215 extended the #214 WPM-stepper treatment to the font stepper and
+  // play-pause buttons: native `:disabled` (drops out of tab chain) and
+  // `opacity` (collapses WCAG 1.4.11 3:1 non-text contrast) replaced with
+  // `[aria-disabled="true"]` + a muted color token. jsdom has no layout/paint,
+  // so these guard the CSS-source invariant; the tab-chain + handler behavior
+  // is covered by font-size-stepper.test.ts and play-pause.test.ts, and axe
+  // runs in the e2e overlay-polish pass.
+  test('font stepper disabled rule keys on [aria-disabled] and uses --text-muted', () => {
+    expect(OVERLAY_CSS).toMatch(
+      /\.font-dec-btn\[aria-disabled='true'\],\s*\.font-inc-btn\[aria-disabled='true'\]\s*\{[^}]*color:\s*var\(--text-muted/,
+    );
+  });
+
+  test('font stepper disabled rule does NOT reintroduce opacity (1.4.11 regression guard)', () => {
+    const block = OVERLAY_CSS.match(
+      /\.font-dec-btn\[aria-disabled='true'\],\s*\.font-inc-btn\[aria-disabled='true'\]\s*\{[^}]*\}/,
+    )?.[0];
+    expect(block, 'expected the font aria-disabled rule').not.toBeUndefined();
+    expect(block).not.toMatch(/opacity/);
+  });
+
+  test('play-pause disabled rule keys on [aria-disabled] and drops opacity', () => {
+    const block = OVERLAY_CSS.match(/\.play-pause-btn\[aria-disabled='true'\]\s*\{[^}]*\}/)?.[0];
+    expect(block, 'expected the play-pause aria-disabled rule').not.toBeUndefined();
+    expect(block).toMatch(/color:\s*var\(--text-muted/);
+    expect(block).not.toMatch(/opacity/);
   });
 });
