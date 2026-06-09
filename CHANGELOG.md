@@ -16,6 +16,16 @@ heading and a fresh `[Unreleased]` block is opened above it.
 
 ### Changed
 
+- Sentence-boundary detection is now unified across sentence navigation
+  (← / →), the paused context preview, and chunk mode (#208). All three
+  share the chunk-mode predicate: ellipsis (`…`) and CJK terminators
+  (`。！？`) end sentences, trailing closing quotes/brackets after a
+  terminator are recognized, and honorifics (Dr., Mr., Mrs., Ms., St.,
+  Prof., Sr., Jr.) no longer count as sentence ends. Behavior change for
+  `seekToSentence` / snap-to-sentence: boundaries land differently on
+  abbreviation-heavy, quoted, or CJK text — previously the preview and
+  chunk boundaries could disagree on the same sentence.
+
 ### Deprecated
 
 ### Removed

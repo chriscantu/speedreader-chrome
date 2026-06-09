@@ -10,7 +10,7 @@
 
 import { calculatePunctuationDelay } from './punctuation-pacing';
 import { buildChunks, type Chunk, type ChunkSize, type WordToken } from './chunks';
-import { markSentenceBoundaries } from '../tokenize/sentence-boundary';
+import { markSentenceBoundaries, endsSentence } from '../tokenize/sentence-boundary';
 
 export const RSVP_STATE = {
   IDLE: 'idle',
@@ -248,12 +248,13 @@ export function wpmToDelay(wpm: number): number {
 // "Cannot read properties of null" surprise.
 // Walk backward from `target - 1` to find the nearest preceding word ending in
 // sentence-final punctuation. Sentence-start = the word immediately after that
-// boundary. If no such boundary exists, snap to 0. Naive — does not handle
-// abbreviations like "Dr." or "U.S.A."; documented in PR self-weakness #1.
-const SENTENCE_END = /[.!?]$/;
+// boundary. If no such boundary exists, snap to 0. Uses the shared
+// `endsSentence` predicate (#208) so seek, the pause-state preview, and
+// chunk-mode `sentenceStart` flags all agree on what a sentence is —
+// honorifics (Dr./Mr./…), ellipsis, CJK terminators, trailing quotes.
 function snapToSentenceStart(words: string[], target: number): number {
   for (let i = target - 1; i >= 0; i--) {
-    if (SENTENCE_END.test(words[i])) return i + 1;
+    if (endsSentence(words[i])) return i + 1;
   }
   return 0;
 }
@@ -266,7 +267,7 @@ function snapToSentenceStart(words: string[], target: number): number {
 // punctuation-free text AND on a terminator at the last word).
 function findNextSentenceStart(words: string[], from: number): number {
   for (let i = from; i < words.length; i++) {
-    if (SENTENCE_END.test(words[i])) {
+    if (endsSentence(words[i])) {
       const next = i + 1;
       return next < words.length ? next : -1;
     }

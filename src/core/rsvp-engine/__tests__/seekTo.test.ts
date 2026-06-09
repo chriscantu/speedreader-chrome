@@ -261,22 +261,23 @@ describe('seekTo() with snapToSentence', () => {
     expect(last).toEqual({ type: 'word', index: 0, word: 'First.' });
   });
 
-  it('TODO #90: naive snap mis-fires on abbreviations ("Dr." treated as sentence end)', () => {
-    // Pins the CURRENT (intentionally naive) [.!?]$ heuristic so a future
-    // sentence-detector refactor (issue #90 markSentenceBoundaries) gets caught
-    // as a behavior change rather than slipping in silently. Builder
-    // self-weakness #1.
+  it('snap exempts honorifics ("Dr." not treated as sentence end) — #208', () => {
+    // Pre-#208 this test pinned the naive [.!?]$ heuristic (snap to 1,
+    // 'Smith') so a sentence-detector refactor would be caught as a
+    // behavior change rather than slipping in silently. #208 unified the
+    // predicate with chunk-mode's `endsSentence` — the honorific
+    // exemption now applies, and this test pins the CORRECTED behavior.
     const words = ['Dr.', 'Smith', 'said', 'hello.', 'Next', 'sentence', 'here.'];
     const engine = createRsvpEngine({ words, wpm: 300 });
     const events: RsvpEvent[] = [];
     engine.subscribe((e) => events.push(e));
     engine.start();
 
-    // Seek to index 2 ("said") with snap. Naive heuristic sees "Dr." as a
-    // sentence end and snaps to 1 ("Smith") — INCORRECT for English prose.
+    // Seek to index 2 ("said") with snap. "Dr." is exempt, so the
+    // sentence start is index 0.
     engine.seekTo(2, { snapToSentence: true });
 
-    expect(events[events.length - 1]).toEqual({ type: 'word', index: 1, word: 'Smith' });
+    expect(events[events.length - 1]).toEqual({ type: 'word', index: 0, word: 'Dr.' });
   });
 
   it('snapToSentence past-end still → done (snap is bypassed for out-of-range targets)', () => {

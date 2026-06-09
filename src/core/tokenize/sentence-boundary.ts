@@ -76,7 +76,17 @@ const SENTENCE_END_RE = /[.!?…。！？](?:\[[^\]]*\]|\([^)]*\)|["'”’)\]])
 // sentence). Read spec §"Looks like an abbreviation" before adding to this set.
 const ABBREVIATION_RE = /\b(?:Dr|Mr|Mrs|Ms|St|Prof|Sr|Jr)\.(?:\[[^\]]*\]|\([^)]*\)|["'”’)\]])*$/u;
 
-function endsSentence(word: string): boolean {
+/**
+ * Single source of truth for "does this word end a sentence?" (#208).
+ *
+ * Shared by `markSentenceBoundaries` (chunk-mode `sentenceStart` flags),
+ * the engine's `snapToSentenceStart` / `findNextSentenceStart`
+ * (`seekToSentence` navigation), and the pause-state preview
+ * (`overlay/sentence-context.ts`). All three consumers MUST agree —
+ * divergent predicates surface as the preview showing one sentence
+ * shape while seek/chunks use another (issue #208's defect).
+ */
+export function endsSentence(word: string): boolean {
   return SENTENCE_END_RE.test(word) && !ABBREVIATION_RE.test(word);
 }
 
