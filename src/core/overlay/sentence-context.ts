@@ -5,18 +5,17 @@
  * builds the preview region from the slices returned here; rendering and
  * visibility toggling live in `overlay.ts`.
  *
- * Sentence model intentionally mirrors the engine's `[.!?]$` predicate
- * (see `rsvp-engine.ts` `SENTENCE_END`, `snapToSentenceStart`,
- * `findNextSentenceStart`). Keeping the predicate identical means the
- * preview's "before / current / after" slices agree with
- * `seekToSentence('prev' | 'next')` navigation — the user sees the same
- * sentence shape the engine will jump within. Drift here would surface
- * as a subtle UX mismatch where ←/→ would skip past words the preview
- * had just shown as part of the current sentence.
+ * Sentence model uses the shared `endsSentence` predicate from
+ * `tokenize/sentence-boundary.ts` (#208) — the same predicate behind the
+ * engine's `seekToSentence` navigation and chunk-mode `sentenceStart`
+ * flags. Keeping all three identical means the preview's "before /
+ * current / after" slices agree with ←/→ navigation AND chunk
+ * boundaries — the user sees the same sentence shape everywhere.
+ * Drift here would surface as a subtle UX mismatch where ←/→ would
+ * skip past words the preview had just shown as part of the current
+ * sentence, or chunks would respect an honorific the preview split on.
  */
-
-/** Match the engine's sentence terminator. Do NOT introduce a divergent regex. */
-const SENTENCE_END = /[.!?]$/;
+import { endsSentence } from '../tokenize/sentence-boundary';
 
 export interface SentenceContext {
   /** Words preceding the current word in the same sentence. May be empty. */
@@ -86,7 +85,7 @@ export function buildSentenceContext(
   const beforeFloor = Math.max(0, currentIndex - BEFORE_MAX_WORDS);
   let sentenceStart = beforeFloor;
   for (let i = currentIndex - 1; i >= beforeFloor; i--) {
-    if (SENTENCE_END.test(words[i])) {
+    if (endsSentence(words[i])) {
       sentenceStart = i + 1;
       break;
     }
@@ -99,7 +98,7 @@ export function buildSentenceContext(
   // `terminatorIndex` equals `currentIndex` and `after` starts past it.
   let terminatorIndex = -1;
   for (let i = currentIndex; i < words.length; i++) {
-    if (SENTENCE_END.test(words[i])) {
+    if (endsSentence(words[i])) {
       terminatorIndex = i;
       break;
     }

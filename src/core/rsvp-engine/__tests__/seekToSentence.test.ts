@@ -219,3 +219,100 @@ describe('seekToSentence edge cases', () => {
     expect(events).toEqual([{ type: 'word', index: 0, word: 'no' }]);
   });
 });
+
+describe('unified sentence predicate (#208)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  // Engine seek now shares `endsSentence` with chunk-mode
+  // (`tokenize/sentence-boundary.ts`) so honorifics, ellipsis, CJK
+  // terminators, and trailing closing quotes agree across seek,
+  // preview, and chunk boundaries. Pre-#208 the naive `[.!?]$`
+  // predicate diverged on every case below.
+
+  //   0      1        2       3         4       5
+  const HONORIFIC = ['Dr.', 'Smith', 'said', 'hello.', 'Next', 'one.'];
+
+  it('honorific: next does not break after "Dr."', () => {
+    //   0      1      2      3        4         5       6
+    // ['She', 'met', 'Dr.', 'Smith', 'today.', 'Then', 'left.']
+    const engine = createRsvpEngine({
+      words: ['She', 'met', 'Dr.', 'Smith', 'today.', 'Then', 'left.'],
+      wpm: 300,
+    });
+    const events: RsvpEvent[] = [];
+    engine.subscribe((e) => events.push(e));
+    engine.start();
+    engine.pause(); // emitted 'She' (index 0); nextIndex=1
+    events.length = 0;
+
+    engine.seekToSentence('next');
+
+    // Naive predicate breaks after 'Dr.' and jumps to 3 ('Smith');
+    // unified skips the honorific and lands on the true next sentence at 5.
+    expect(events).toEqual([{ type: 'word', index: 5, word: 'Then' }]);
+  });
+
+  it('honorific: prev snaps past "Dr." to the true sentence start', () => {
+    const engine = createRsvpEngine({ words: HONORIFIC, wpm: 300 });
+    const events: RsvpEvent[] = [];
+    engine.subscribe((e) => events.push(e));
+    engine.start();
+    engine.pause();
+    engine.seekTo(2); // mid "Dr. Smith said hello."
+    events.length = 0;
+
+    engine.seekToSentence('prev');
+
+    // Naive predicate treats 'Dr.' as a boundary and snaps to 1;
+    // unified walks through it to index 0.
+    expect(events).toEqual([{ type: 'word', index: 0, word: 'Dr.' }]);
+  });
+
+  it('ellipsis terminates a sentence for next', () => {
+    const engine = createRsvpEngine({ words: ['OK,', 'wait…', 'Then', 'go.'], wpm: 300 });
+    const events: RsvpEvent[] = [];
+    engine.subscribe((e) => events.push(e));
+    engine.start();
+    engine.pause(); // emitted 'OK,' (index 0); nextIndex=1
+    events.length = 0;
+
+    engine.seekToSentence('next');
+
+    // Naive predicate sees no boundary until the final word (whose
+    // next-start is past-end) → no-op. Unified breaks after 'wait…'.
+    expect(events).toEqual([{ type: 'word', index: 2, word: 'Then' }]);
+  });
+
+  it('CJK terminator ends a sentence for next', () => {
+    const engine = createRsvpEngine({ words: ['先说', '你好。', '下一句', '结束'], wpm: 300 });
+    const events: RsvpEvent[] = [];
+    engine.subscribe((e) => events.push(e));
+    engine.start();
+    engine.pause(); // emitted '先说' (index 0); nextIndex=1
+    events.length = 0;
+
+    engine.seekToSentence('next');
+
+    // Naive predicate never matches '。' → no-op.
+    expect(events).toEqual([{ type: 'word', index: 2, word: '下一句' }]);
+  });
+
+  it('terminator followed by closing quote ends a sentence for next', () => {
+    const engine = createRsvpEngine({
+      words: ['He', 'said,', '"Stop."', 'Then', 'left.'],
+      wpm: 300,
+    });
+    const events: RsvpEvent[] = [];
+    engine.subscribe((e) => events.push(e));
+    engine.start();
+    engine.pause(); // emitted 'He' (index 0)
+    events.length = 0;
+
+    engine.seekToSentence('next');
+
+    // Naive predicate fails on the trailing quote → walks to 'left.'
+    // whose next-start is past-end → no-op.
+    expect(events).toEqual([{ type: 'word', index: 3, word: 'Then' }]);
+  });
+});

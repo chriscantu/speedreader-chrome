@@ -292,3 +292,36 @@ describe('createOverlay — context preview (#20)', () => {
     overlay.unmount();
   });
 });
+
+describe('buildSentenceContext — unified sentence predicate (#208)', () => {
+  // Preview now shares `endsSentence` with the engine and chunk-mode
+  // (`tokenize/sentence-boundary.ts`). Pre-#208 the naive `[.!?]$`
+  // predicate made the preview disagree with chunk boundaries on
+  // honorifics, ellipsis, and trailing closing quotes.
+
+  test('honorific: "Dr." does not split the before-walk', () => {
+    const ctx = buildSentenceContext(['Dr.', 'Smith', 'said', 'hi'], 3);
+    // Naive predicate stops the backward walk at 'Dr.' → ['Smith', 'said'].
+    expect(ctx?.before).toEqual(['Dr.', 'Smith', 'said']);
+  });
+
+  test('ellipsis terminates the after-walk', () => {
+    const ctx = buildSentenceContext(['Wait…', 'Then', 'we', 'go', 'now', 'ok'], 0);
+    // Current word is itself the terminator → after = next 3 words.
+    // Naive predicate finds no terminator → after runs to end of stream.
+    expect(ctx?.after).toEqual(['Then', 'we', 'go']);
+  });
+
+  test('terminator followed by closing quote ends the after-walk', () => {
+    const ctx = buildSentenceContext(['He', 'said,', '"Stop."', 'And', 'then', 'more', 'words'], 1);
+    // Terminator at index 2 → after = terminator + next 3 words.
+    // Naive predicate misses the quoted terminator → after runs to end.
+    expect(ctx?.after).toEqual(['"Stop."', 'And', 'then', 'more']);
+  });
+
+  test('CJK terminator splits the before-walk', () => {
+    const ctx = buildSentenceContext(['你好。', '我们', '走吧'], 2);
+    // '你好。' ends a sentence → before excludes it.
+    expect(ctx?.before).toEqual(['我们']);
+  });
+});
