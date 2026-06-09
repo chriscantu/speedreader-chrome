@@ -122,15 +122,34 @@ describe('createOverlay — play/pause control (#22)', () => {
     overlay.unmount();
   });
 
-  test('engine `done` event disables the button and sets pressed=false', () => {
+  test('engine `done` event aria-disables the button (tab-chain preserved) and sets pressed=false', () => {
     const overlay = createOverlay(defaultOpts({ words: ['only'] }));
     overlay.mount();
     // Advance past the single word's display time → engine emits done.
     vi.advanceTimersByTime(60000 / 300 + 1);
 
     const btn = getPlayPauseBtn();
-    expect(btn.disabled).toBe(true);
+    // #215 — aria-disabled (not native `disabled`) so a keyboard user can
+    // still focus the finished button; togglePlayPause short-circuits on it.
+    expect(btn.getAttribute('aria-disabled')).toBe('true');
+    expect(btn.disabled).toBe(false);
     expect(btn.getAttribute('aria-pressed')).toBe('false');
+    overlay.unmount();
+  });
+
+  test('click on the `done` button does not toggle the engine (aria-disabled handler short-circuit, #215)', () => {
+    const overlay = createOverlay(defaultOpts({ words: ['only'] }));
+    overlay.mount();
+    vi.advanceTimersByTime(60000 / 300 + 1);
+
+    const btn = getPlayPauseBtn();
+    expect(btn.getAttribute('aria-disabled')).toBe('true');
+    // A programmatic click bypasses any pointer-events styling; the handler
+    // gate must keep it inert at 'done'.
+    const labelBefore = btn.getAttribute('aria-label');
+    btn.click();
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
+    expect(btn.getAttribute('aria-label')).toBe(labelBefore);
     overlay.unmount();
   });
 });

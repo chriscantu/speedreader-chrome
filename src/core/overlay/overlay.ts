@@ -835,8 +835,11 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       // avoiding inline-style invalidation on every RSVP tick (~10 Hz
       // at 600 wpm).
       modal.style.setProperty('--rsvp-font-size', `${n}px`);
-      fontDecBtn.disabled = n <= FONT_SIZE_MIN;
-      fontIncBtn.disabled = n >= FONT_SIZE_MAX;
+      // #215 — aria-disabled (not native `disabled`) so the buttons stay in
+      // the tab chain at MIN/MAX (WCAG 2.4.3); the click handlers short-circuit
+      // on it. Mirrors the #214 WPM-stepper treatment.
+      fontDecBtn.setAttribute('aria-disabled', n <= FONT_SIZE_MIN ? 'true' : 'false');
+      fontIncBtn.setAttribute('aria-disabled', n >= FONT_SIZE_MAX ? 'true' : 'false');
     };
     // Clamp at mount-time too (review M4) — subscribeSettings clamps but
     // initialSettings flows in unclamped from caller, so a bad value
@@ -1079,18 +1082,20 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         playPauseBtn.setAttribute('aria-pressed', 'true');
         playPauseBtn.setAttribute('aria-label', OVERLAY_TEXT.PAUSE_LABEL);
         playPauseBtn.textContent = OVERLAY_TEXT.PAUSE_GLYPH;
-        playPauseBtn.disabled = false;
+        playPauseBtn.setAttribute('aria-disabled', 'false');
       } else if (s === 'paused') {
         playPauseBtn.setAttribute('aria-pressed', 'false');
         playPauseBtn.setAttribute('aria-label', OVERLAY_TEXT.PLAY_LABEL);
         playPauseBtn.textContent = OVERLAY_TEXT.PLAY_GLYPH;
-        playPauseBtn.disabled = false;
+        playPauseBtn.setAttribute('aria-disabled', 'false');
       } else {
-        // 'idle' or 'done'
+        // 'idle' or 'done'. #215 — aria-disabled (not native `disabled`) so a
+        // keyboard user can still focus the finished button; togglePlayPause
+        // short-circuits on it. Only 'done' disables.
         playPauseBtn.setAttribute('aria-pressed', 'false');
         playPauseBtn.setAttribute('aria-label', OVERLAY_TEXT.PLAY_LABEL);
         playPauseBtn.textContent = OVERLAY_TEXT.PLAY_GLYPH;
-        playPauseBtn.disabled = s === 'done';
+        playPauseBtn.setAttribute('aria-disabled', s === 'done' ? 'true' : 'false');
       }
       // Engine-state transitions can flip the auto-hide outcome (e.g.
       // playing → paused → visible). Recompute here so any caller of
@@ -1300,6 +1305,11 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
 
     const togglePlayPause = (): void => {
       if (!engine) return;
+      // #215 — honor aria-disabled. The button stays focusable when 'done'
+      // (no native `disabled`), so guard here against keyboard / programmatic
+      // / tap-to-pause activation. Behavior-preserving: 'done' already fell
+      // through to the no-op `else` below.
+      if (playPauseBtn.getAttribute('aria-disabled') === 'true') return;
       if (engine.state === 'playing') {
         engine.pause();
       } else if (engine.state === 'paused') {
@@ -1483,8 +1493,18 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       applyFontSize(next);
       opts.onFontSizeChange?.(next);
     };
-    fontDecBtn.addEventListener('click', () => stepFontSize(-FONT_SIZE_STEP));
-    fontIncBtn.addEventListener('click', () => stepFontSize(FONT_SIZE_STEP));
+    // #215 — aria-disabled handler short-circuit (mirrors #214). The button
+    // is no longer natively `disabled`, so a programmatic .click() at MIN/MAX
+    // would otherwise reach stepFontSize; the clamp no-ops it, but the explicit
+    // gate keeps this independent of clamp behavior and matches the WPM stepper.
+    fontDecBtn.addEventListener('click', () => {
+      if (fontDecBtn.getAttribute('aria-disabled') === 'true') return;
+      stepFontSize(-FONT_SIZE_STEP);
+    });
+    fontIncBtn.addEventListener('click', () => {
+      if (fontIncBtn.getAttribute('aria-disabled') === 'true') return;
+      stepFontSize(FONT_SIZE_STEP);
+    });
     // Plain clamp — native <input type="range"> already enforces min/max and
     // step on browser-driven events, and the keyboard ArrowUp/Down deltas are
     // always on the canonical grid. The previous `Number.isFinite` guard and
