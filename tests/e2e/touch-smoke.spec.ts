@@ -103,6 +103,25 @@ test.describe('Touch-primary smoke (#36 / PR #149)', () => {
     }
   });
 
+  test('scrubber slider is a >=44 CSS px drag target (#205 AAA SC 2.5.5)', async ({ page }) => {
+    await mountOverlay(page);
+    const host = page.locator('[data-speedreader-overlay]');
+    const dims = await host.evaluate((el) => {
+      const root = (el as HTMLElement).shadowRoot;
+      if (!root) throw new Error('no shadowRoot');
+      const s = root.querySelector<HTMLInputElement>('input.scrubber-slider');
+      if (!s) throw new Error('missing scrubber-slider');
+      const r = s.getBoundingClientRect();
+      return { h: r.height, accentColor: getComputedStyle(s).accentColor };
+    });
+    // 44px-tall drag strip = the WCAG 2.2 AAA 44×44 target (the thumb's 44px
+    // hit area is set via the ::*-thumb pseudos, guarded in styles.test.ts).
+    expect(dims.h).toBeGreaterThanOrEqual(44);
+    // accent-color must survive — it paints the native track progress fill
+    // (the reading-position indicator); the thumb-only restyle must not drop it.
+    expect(dims.accentColor).not.toBe('');
+  });
+
   test('footer area resolves a finite computed padding-bottom', async ({ page }) => {
     await mountOverlay(page);
     const host = page.locator('[data-speedreader-overlay]');
