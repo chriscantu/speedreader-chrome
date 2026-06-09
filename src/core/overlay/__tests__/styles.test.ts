@@ -105,3 +105,27 @@ describe('OVERLAY_CSS disabled-button a11y treatment (issue #215)', () => {
     expect(block).not.toMatch(/opacity/);
   });
 });
+
+describe('OVERLAY_CSS scrubber 44×44 thumb target (issue #205)', () => {
+  // #205 upgraded the scrubber thumb to a WCAG 2.2 AAA (SC 2.5.5) 44×44 hit
+  // target. Only the thumb pseudo is restyled (appearance:none); the input
+  // keeps its native track + accent-color fill. jsdom has no paint, so these
+  // guard the CSS-source invariant; the 44px drag-strip height + accent-color
+  // survival are exercised in touch-smoke.spec.ts.
+  test('webkit thumb is 44px with appearance:none', () => {
+    const block = OVERLAY_CSS.match(/\.scrubber-slider::-webkit-slider-thumb\s*\{[^}]*\}/)?.[0];
+    expect(block, 'expected the webkit thumb rule').not.toBeUndefined();
+    expect(block).toMatch(/appearance:\s*none/);
+    expect(block).toMatch(/block-size:\s*44px/);
+  });
+
+  test('moz thumb is 44px', () => {
+    const block = OVERLAY_CSS.match(/\.scrubber-slider::-moz-range-thumb\s*\{[^}]*\}/)?.[0];
+    expect(block, 'expected the moz thumb rule').not.toBeUndefined();
+    expect(block).toMatch(/block-size:\s*44px/);
+  });
+
+  test('scrubber keeps accent-color (native track progress fill preserved)', () => {
+    expect(OVERLAY_CSS).toMatch(/\.scrubber-slider\s*\{[^}]*accent-color:\s*var\(--accent/);
+  });
+});

@@ -374,7 +374,10 @@ export const OVERLAY_CSS = `
 
 .scrubber-slider {
   inline-size: 100%;
-  block-size: 22px; /* hit-target while visual track stays 4px */
+  /* #205 — 44px-tall drag strip so the whole slider is a WCAG 2.2 AAA
+   * (SC 2.5.5) 44×44 target; the native track + accent-color fill stay
+   * centered inside it. */
+  block-size: 44px;
   accent-color: var(--accent, #1a73e8);
   cursor: pointer;
   margin: 0;
@@ -383,6 +386,49 @@ export const OVERLAY_CSS = `
 .scrubber-slider:focus-visible {
   outline: 2px solid var(--accent, #1a73e8);
   outline-offset: 4px;
+}
+
+/* #205 — 44×44 thumb hit-target (WCAG 2.2 AAA SC 2.5.5). Only the thumb
+ * pseudo is restyled (appearance:none); the input keeps its native track and
+ * accent-color progress fill (the reading-position indicator). A layered
+ * radial gradient paints a modest ~18px visible knob centered in the 44px hit
+ * area so the thin track is not dominated by an oversized painted thumb.
+ *
+ * a11y review (PR #223): the knob shares the --accent hue with the fill it
+ * straddles, so an accent-on-accent disc failed WCAG 1.4.11 (3:1 non-text
+ * contrast) on the already-read half of the track. A 2px --surface halo ring
+ * between the disc and the surrounding fill restores ≥3:1 separation on BOTH
+ * sides and keeps the knob legible as a position cue. --surface is
+ * theme-aware (runtime-injected by applyTheme), so the halo holds in dark
+ * theme too. The hard color stops paint a solid disc (no faint gradient) and
+ * the transparent outer ring keeps the 44px hit area invisible. */
+.scrubber-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  inline-size: 44px;
+  block-size: 44px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    var(--accent, #1a73e8) 0 9px,
+    var(--surface, #ffffff) 9px 11px,
+    transparent 11px
+  );
+  cursor: pointer;
+}
+
+.scrubber-slider::-moz-range-thumb {
+  inline-size: 44px;
+  block-size: 44px;
+  border: none;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    var(--accent, #1a73e8) 0 9px,
+    var(--surface, #ffffff) 9px 11px,
+    transparent 11px
+  );
+  cursor: pointer;
 }
 
 /* ===== Footer — mockup ".rsvp-controls" =====
@@ -766,6 +812,10 @@ export const OVERLAY_CSS = `
   .prev-sentence-btn:focus-visible,
   .next-sentence-btn:focus-visible { outline-color: Highlight; }
   .scrubber-slider:focus-visible { outline-color: Highlight; }
+  /* #205 — forced-colors strips the radial-gradient knob to nothing; restore a
+   * solid system-color thumb so the drag handle stays visible. */
+  .scrubber-slider::-webkit-slider-thumb { background: Highlight; }
+  .scrubber-slider::-moz-range-thumb { background: Highlight; border: 1px solid CanvasText; }
   /* #213 — replaced .wpm-slider + .wpm-readout with the stepper. */
   .wpm-display { color: CanvasText; border-color: CanvasText; background: Canvas; }
   .wpm-display button { background: ButtonFace; color: ButtonText; border: 1px solid ButtonText; }
@@ -879,8 +929,7 @@ export const OVERLAY_CSS = `
     width: 48px;
     height: 48px;
   }
-  .scrubber-slider {
-    block-size: 32px;
-  }
+  /* #205 — base .scrubber-slider is already 44px (AAA target); no touch
+   * override needed. */
 }
 `;
