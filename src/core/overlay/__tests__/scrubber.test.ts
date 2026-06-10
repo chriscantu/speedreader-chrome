@@ -347,25 +347,120 @@ describe('createOverlay — scrubber done terminal state (#47 ring-review FIX-2)
   });
 });
 
-describe('createOverlay — scrubber keyboard-only input pause (#47 ring-review FIX-3)', () => {
+describe('createOverlay — scrubber keyboard-only input pause (#47 ring-review FIX-3, tightened per #207 ITEM-M4)', () => {
   // test-gap MED #2: the existing "input event pauses a playing engine"
   // test creates an input event but doesn't pin that NO preceding
   // mousedown fired. A regression that moved `scrubFromPause()` into a
   // mousedown-only branch would leave keyboard-driven scrub un-paused
   // (Arrow keys on the focused range fire `input` with no mousedown).
   // This test is explicit: input WITHOUT mousedown still pauses.
-  test('input event with no preceding mousedown still pauses a playing engine (Arrow-key path)', () => {
+  //
+  // #207 ITEM-M4 — the original `state === 'paused'` assertion was a weak
+  // discriminator: it cannot tell pause-on-transition apart from
+  // pause-on-every-input. `engine.pause()` is internally idempotent, so a
+  // mutation that swaps scrubFromPause's `engine?.state === 'playing'`
+  // guard for the session flag (`if (scrubInProgress)` — already set by
+  // `beginScrubSession()` before scrubFromPause runs) leaves the engine
+  // paused (old assertion green) while redundantly re-invoking
+  // `engine.pause()` on EVERY input of the session. The spy + exactly-once
+  // count below pins the contract: pause is requested only on the
+  // playing→paused transition of the keyboard path, never re-issued on
+  // held-Arrow repeats.
+  test('input event with no preceding mousedown pauses a playing engine exactly once (Arrow-key path)', () => {
     const holder: Holder = { engine: null };
     const overlay = createOverlay(defaultOpts(holder));
     overlay.mount();
     expect(engineOf(holder).state).toBe('playing');
+    const pauseSpy = vi.spyOn(engineOf(holder), 'pause');
     const s = getScrubber();
     s.focus();
     // Simulate the Arrow-key path: the browser fires `input` directly on
     // a focused range when the user presses Arrow. No prior mousedown.
     s.value = '2';
     s.dispatchEvent(new Event('input', { bubbles: true }));
+    // Held-Arrow repeat: a second input in the same session. The engine is
+    // already paused, so no further engine.pause() call may be issued.
+    s.value = '3';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
     expect(engineOf(holder).state).toBe('paused');
+    expect(pauseSpy).toHaveBeenCalledTimes(1);
+    overlay.unmount();
+  });
+});
+
+describe('createOverlay — unmount mid-debounce cleanup (#207 ITEM-M2)', () => {
+  // overlay.ts unmount() clears `scrubDebounceTimer` (#47 ring-review
+  // FIX-6 cleanup) so a pending 250ms session-reset cannot fire into the
+  // detached shadow / nulled engine. That invariant was untested: every
+  // prior test either let the debounce elapse or never armed it before
+  // unmount.
+  test('unmount with a pending scrub debounce clears the timer — no late fire into the detached shadow', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    const live = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.ARIA_LIVE}`);
+    if (!live) throw new Error('missing aria-live');
+    const s = getScrubber();
+    s.value = '2';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    // Debounce armed: the scrub session-reset timer is pending (the
+    // engine's own tick was cleared by pause-on-scrub, so this is the
+    // only live timer).
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    const liveBefore = live.textContent;
+    overlay.unmount();
+    // Load-bearing discriminator: deleting the
+    // `clearTimeout(scrubDebounceTimer)` block in unmount() leaves the
+    // debounce pending here (count 1) and flips this red. The late
+    // callback's writes happen to be value-idempotent against a
+    // stopped/nulled engine, so timer absence IS the observable contract.
+    expect(vi.getTimerCount()).toBe(0);
+    // Belt-and-braces: advancing past the window must neither throw nor
+    // mutate the aria-live node captured pre-unmount.
+    expect(() => vi.advanceTimersByTime(300)).not.toThrow();
+    expect(live.textContent).toBe(liveBefore);
+  });
+});
+
+describe('createOverlay — engine done mid-scrub session boundary (#207 ITEM-D1)', () => {
+  // Pins current behavior when the engine transitions to `done` while a
+  // scrub session is open (debounce pending, announcement latch true):
+  // nothing throws, the `done` branch never writes aria-live (the session
+  // announcement remains the defined announcement state), and the session
+  // boundary stays TIMER-driven — the debounce elapsing resets the latch
+  // even though the engine finished mid-session, so the next scrub on the
+  // done engine re-announces.
+  test('done mid-scrub: no throw, announcement preserved, debounce still resets the session latch', () => {
+    const holder: Holder = { engine: null };
+    const overlay = createOverlay(defaultOpts(holder));
+    overlay.mount();
+    const live = getShadow().querySelector<HTMLElement>(`.${OVERLAY_CLASS.ARIA_LIVE}`);
+    if (!live) throw new Error('missing aria-live');
+    const s = getScrubber();
+    s.focus();
+    // Open a scrub session: pauses the engine, fires the announcement,
+    // arms the 250ms debounce, sets the one-shot latch.
+    s.value = '2';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(live.textContent).toBe(OVERLAY_TEXT.SCRUB_PAUSED_ANNOUNCEMENT);
+    // Drive the engine to `done` while the session is still open
+    // (paused-state seekTo past the end emits `done` synchronously).
+    expect(() => engineOf(holder).seekTo(999)).not.toThrow();
+    expect(engineOf(holder).state).toBe('done');
+    // The subscribe handler's done branch never writes aria-live: the
+    // session announcement is the defined announcement state.
+    expect(live.textContent).toBe(OVERLAY_TEXT.SCRUB_PAUSED_ANNOUNCEMENT);
+    // The pending debounce fires after `done` without throwing and ends
+    // the session (latch reset included — see next assertion).
+    expect(() => vi.advanceTimersByTime(300)).not.toThrow();
+    // Session boundary is debounce-driven, not engine-state-driven: a new
+    // scrub on the done engine starts a fresh session and re-announces.
+    // Mutation guard: deleting `scrubAnnouncementFired = false` from the
+    // debounce callback leaves the latch stuck and flips this red.
+    live.textContent = '';
+    s.value = '1';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(live.textContent).toBe(OVERLAY_TEXT.SCRUB_PAUSED_ANNOUNCEMENT);
     overlay.unmount();
   });
 });
