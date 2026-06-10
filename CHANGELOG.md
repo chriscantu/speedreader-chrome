@@ -14,6 +14,20 @@ heading and a fresh `[Unreleased]` block is opened above it.
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.3.0] - 2026-06-10
+
+### Added
+
 - Bold overlay text now renders the true OpenDyslexic-Bold face instead of
   a synthetic embolden of the dyslexia-tuned letterforms; the Bold woff2 is
   bundled and injected into the overlay shadow root, and the options page
@@ -98,5 +112,6 @@ parity with the Safari reference plus Hi-Fi overlay polish landed in M2.
 
 ### Security
 
-[Unreleased]: https://github.com/chriscantu/speedreader-chrome/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/chriscantu/speedreader-chrome/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/chriscantu/speedreader-chrome/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/chriscantu/speedreader-chrome/compare/v0.1.0...v0.2.0
