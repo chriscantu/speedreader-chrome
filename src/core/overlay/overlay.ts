@@ -125,14 +125,14 @@ export function sanitizeHostname(hostname: string): string {
   return hostname.replace(UNSAFE, '').slice(0, 60);
 }
 
-function buildOpenDyslexicFontFace(url: string): string {
+function buildOpenDyslexicFontFace(url: string, weight: 'normal' | 'bold' = 'normal'): string {
   if (!/^chrome-extension:\/\/[a-zA-Z0-9_-]+\/[^"<>\s]+$/.test(url)) {
     throw new Error(`buildOpenDyslexicFontFace: untrusted URL ${url}`);
   }
   return `@font-face {
   font-family: 'OpenDyslexic';
   src: url("${url}") format('woff2');
-  font-weight: normal;
+  font-weight: ${weight};
   font-style: normal;
   font-display: swap;
 }`;
@@ -227,9 +227,22 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // Injection is unconditional on URL presence — the modal class governs
     // whether the family is actually applied — so toggling the setting
     // mid-session is a pure class flip, not a fresh font fetch.
+    //
+    // #191 — the Bold face rides the same mechanism: a second @font-face
+    // block (`font-weight: bold`, same family) injected when the bold URL
+    // is supplied, so bold text renders the true Bold face instead of a
+    // synthetic embolden of Regular. Each block is gated on its own URL's
+    // presence — the two faces are independently wireable.
+    const fontFaces: string[] = [];
     if (opts.openDyslexicFontUrl) {
+      fontFaces.push(buildOpenDyslexicFontFace(opts.openDyslexicFontUrl, 'normal'));
+    }
+    if (opts.openDyslexicBoldFontUrl) {
+      fontFaces.push(buildOpenDyslexicFontFace(opts.openDyslexicBoldFontUrl, 'bold'));
+    }
+    if (fontFaces.length > 0) {
       const fontStyle = doc.createElement('style');
-      fontStyle.textContent = buildOpenDyslexicFontFace(opts.openDyslexicFontUrl);
+      fontStyle.textContent = fontFaces.join('\n');
       shadow.appendChild(fontStyle);
     }
 
