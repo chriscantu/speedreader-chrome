@@ -4,9 +4,23 @@ Fonts shipped with the extension as web-accessible resources. The content
 script references these via `chrome.runtime.getURL('fonts/...')` from
 injected overlay `@font-face` rules.
 
-## Bundled asset
+## Bundled assets
 
 - `OpenDyslexic-Regular.woff2` — committed; integrity-pinned (see below).
+- `OpenDyslexic-Bold.woff2` — committed (#191); integrity-pinned (see
+  below). Backs `font-weight: bold` text inside the overlay so bold
+  renders the true Bold face instead of a synthetic embolden of Regular.
+
+Both faces are upstream v0.990 from the same pinned commit
+(`antijingoist/opendyslexic@77bda89f`). Italic is NOT bundled — issue
+#191 explicitly defers it; bold-italic and italic text fall back to the
+browser's synthetic oblique.
+
+Version note: "OpenDyslexic 3" is typeface branding, not a release tag —
+upstream `antijingoist/opendyslexic` has no v3.x GitHub release (newest
+is a 2019 v0.91.12 pre-release). Provenance is therefore recorded as the
+pinned commit URL plus the font's internal version (name table ID 5):
+`Version 0.990;Glyphs 3.3.1 (3343)`, abbreviated v0.990.
 
 ## Pinned font integrity
 
@@ -16,7 +30,8 @@ Each bundled `.woff2` is hash-pinned to defeat silent supply-chain TOFU.
 hash drifts. Run locally via `npm run verify:fonts`.
 
 ```
-OpenDyslexic-Regular.woff2  sha256:0441bc21071e42db57c217f93fbc48d3b55a2987c02814c94dc93621c42e8695  source:opendyslexic.org (downloaded 2026-05-30)
+OpenDyslexic-Regular.woff2  sha256:0441bc21071e42db57c217f93fbc48d3b55a2987c02814c94dc93621c42e8695  source:opendyslexic.org → github.com/antijingoist/opendyslexic@77bda89f (v0.990, byte-identical, downloaded 2026-05-30)
+OpenDyslexic-Bold.woff2  sha256:b534a0b84ef3cca941ebdb506ce3f4e0010aa4ef881271bac8b6959dbf694fbf  source:github.com/antijingoist/opendyslexic@77bda89f/compiled/OpenDyslexic-Bold.woff2 (v0.990, downloaded 2026-06-09)
 OFL.txt                     sha256:caafcccfb70fc72458fcbda812ec8f0a06cb300cbabb87eabbb30b946124394b  source:github.com/antijingoist/opendyslexic@master/OFL.txt (fetched 2026-05-30)
 ```
 
@@ -59,7 +74,7 @@ bundled and have no sourcing gap to close:
 | Picker ID      | Family stack (`styles.ts`)                             | Disposition                                                                                                                                                                                                           |
 | -------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `system`       | system-ui, -apple-system, Segoe UI, Roboto, sans-serif | No bundle — OS default.                                                                                                                                                                                               |
-| `opendyslexic` | 'OpenDyslexic', system-ui, …                           | **Bundle** — see "Pinned font integrity" above.                                                                                                                                                                                |
+| `opendyslexic` | 'OpenDyslexic', system-ui, …                           | **Bundle** (Regular + Bold, #191; Italic deferred) — see "Pinned font integrity" above.                                                                                                                                        |
 | `newYork`      | 'New York', 'Iowan Old Style', Georgia, serif          | No bundle — Apple system serif; the fallback chain (Iowan → Georgia → generic serif) covers Windows / Linux / ChromeOS. Visually drifts from Safari on non-Apple platforms; that's the parity floor, not the ceiling. |
 | `georgia`      | Georgia, 'Times New Roman', serif                      | No bundle — ships with Windows, macOS, iOS, Android, ChromeOS.                                                                                                                                                        |
 | `menlo`        | Menlo, 'Courier New', monospace                        | No bundle — Menlo is Apple-only; Windows falls back to Courier New, Linux to the generic monospace face.                                                                                                              |

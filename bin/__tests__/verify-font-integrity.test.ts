@@ -77,6 +77,10 @@ describe('verify-font-integrity.sh', () => {
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
     );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
+    );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
 
     const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
@@ -99,6 +103,10 @@ describe('verify-font-integrity.sh', () => {
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
     );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
+    );
     copyFileSync(join(REPO_ROOT, 'fonts', 'README.md'), join(dir, 'README.md'));
     // Deliberately omit OFL.txt / LICENSE.
 
@@ -112,6 +120,10 @@ describe('verify-font-integrity.sh', () => {
     copyFileSync(
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
     );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
     // README with no pinned-hash line for OpenDyslexic.
@@ -134,13 +146,21 @@ describe('verify-font-integrity.sh', () => {
         join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
         join(fontsDir, 'OpenDyslexic-Regular.woff2'),
       );
+      copyFileSync(
+        join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+        join(fontsDir, 'OpenDyslexic-Bold.woff2'),
+      );
       copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(fontsDir, 'OFL.txt'));
       copyFileSync(join(REPO_ROOT, 'fonts', 'README.md'), join(fontsDir, 'README.md'));
 
-      // Byte-identical copy in the simulated dist/fonts/.
+      // Byte-identical copies in the simulated dist/fonts/.
       copyFileSync(
         join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
         join(distDir, 'OpenDyslexic-Regular.woff2'),
+      );
+      copyFileSync(
+        join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+        join(distDir, 'OpenDyslexic-Bold.woff2'),
       );
 
       const result = runScript(fontsDir, { args: ['--check-dist'], distDir });
@@ -156,6 +176,10 @@ describe('verify-font-integrity.sh', () => {
         join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
         join(fontsDir, 'OpenDyslexic-Regular.woff2'),
       );
+      copyFileSync(
+        join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+        join(fontsDir, 'OpenDyslexic-Bold.woff2'),
+      );
       copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(fontsDir, 'OFL.txt'));
       copyFileSync(join(REPO_ROOT, 'fonts', 'README.md'), join(fontsDir, 'README.md'));
 
@@ -166,6 +190,11 @@ describe('verify-font-integrity.sh', () => {
       const perturbed = Buffer.from(realBytes);
       perturbed[perturbed.length - 1] = perturbed[perturbed.length - 1] ^ 0xff;
       writeFileSync(join(distDir, 'OpenDyslexic-Regular.woff2'), perturbed);
+      // Bold emitted untouched — only the Regular perturbation should fail.
+      copyFileSync(
+        join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+        join(distDir, 'OpenDyslexic-Bold.woff2'),
+      );
 
       const result = runScript(fontsDir, { args: ['--check-dist'], distDir });
       expect(result.status).not.toBe(0);
@@ -178,6 +207,10 @@ describe('verify-font-integrity.sh', () => {
       copyFileSync(
         join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
         join(fontsDir, 'OpenDyslexic-Regular.woff2'),
+      );
+      copyFileSync(
+        join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+        join(fontsDir, 'OpenDyslexic-Bold.woff2'),
       );
       copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(fontsDir, 'OFL.txt'));
       copyFileSync(join(REPO_ROOT, 'fonts', 'README.md'), join(fontsDir, 'README.md'));
@@ -212,6 +245,10 @@ describe('verify-font-integrity.sh', () => {
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
     );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
+    );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
 
     const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
@@ -241,6 +278,10 @@ describe('verify-font-integrity.sh', () => {
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
     );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
+    );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
     copyFileSync(join(REPO_ROOT, 'fonts', 'README.md'), join(dir, 'README.md'));
 
@@ -256,6 +297,10 @@ describe('verify-font-integrity.sh', () => {
     copyFileSync(
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
     );
     copyFileSync(join(REPO_ROOT, 'fonts', 'README.md'), join(dir, 'README.md'));
     // Perturb OFL.txt — append a stray byte. Real file unchanged; only
@@ -274,6 +319,10 @@ describe('verify-font-integrity.sh', () => {
     copyFileSync(
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
     );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
 
@@ -307,6 +356,10 @@ describe('verify-font-integrity.sh', () => {
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
     );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
+    );
     // Rename OFL.txt → LICENSE; README's OFL.txt pin gets stripped so
     // the F2 enforcement layer doesn't reject the renamed file. The
     // license-sibling check is what's under test here.
@@ -325,6 +378,10 @@ describe('verify-font-integrity.sh', () => {
     copyFileSync(
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
     );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'LICENSE.md'));
     const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
@@ -345,6 +402,10 @@ describe('verify-font-integrity.sh', () => {
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
     );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
+    );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
     copyFileSync(join(REPO_ROOT, 'fonts', 'README.md'), join(dir, 'README.md'));
 
@@ -364,6 +425,10 @@ describe('verify-font-integrity.sh', () => {
     copyFileSync(
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
     );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'LICENSE.txt'));
     const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
@@ -387,6 +452,10 @@ describe('verify-font-integrity.sh', () => {
     copyFileSync(
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
     );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
 
@@ -419,6 +488,10 @@ describe('verify-font-integrity.sh', () => {
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
     );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
+    );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
 
     const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
@@ -440,6 +513,10 @@ describe('verify-font-integrity.sh', () => {
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
     );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
+    );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
 
     const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
@@ -460,6 +537,10 @@ describe('verify-font-integrity.sh', () => {
     copyFileSync(
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
     );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
 
@@ -488,6 +569,10 @@ describe('verify-font-integrity.sh', () => {
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
     );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
+    );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
 
     const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');
@@ -513,6 +598,10 @@ describe('verify-font-integrity.sh', () => {
     copyFileSync(
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(dir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(dir, 'OpenDyslexic-Bold.woff2'),
     );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(dir, 'OFL.txt'));
 
@@ -547,10 +636,14 @@ describe('verify-font-integrity.sh', () => {
     const fontsDir = mkdtempSync(join(tmpdir(), 'verify-font-dist-sh3-fonts-'));
     const distDir = mkdtempSync(join(tmpdir(), 'verify-font-dist-sh3-dist-'));
 
-    // Two pinned woff2 in fonts/, only one emitted to dist/.
+    // Pinned woff2 set in fonts/, only some emitted to dist/.
     copyFileSync(
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(fontsDir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(fontsDir, 'OpenDyslexic-Bold.woff2'),
     );
     copyFileSync(
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
@@ -558,10 +651,14 @@ describe('verify-font-integrity.sh', () => {
     );
     copyFileSync(join(REPO_ROOT, 'fonts', 'OFL.txt'), join(fontsDir, 'OFL.txt'));
 
-    // dist/ has only the first font — second-font.woff2 is missing.
+    // dist/ has the real fonts but NOT second-font.woff2 — it's missing.
     copyFileSync(
       join(REPO_ROOT, 'fonts', 'OpenDyslexic-Regular.woff2'),
       join(distDir, 'OpenDyslexic-Regular.woff2'),
+    );
+    copyFileSync(
+      join(REPO_ROOT, 'fonts', 'OpenDyslexic-Bold.woff2'),
+      join(distDir, 'OpenDyslexic-Bold.woff2'),
     );
 
     const realReadme = readFileSync(join(REPO_ROOT, 'fonts', 'README.md'), 'utf8');

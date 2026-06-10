@@ -262,6 +262,19 @@ export interface OverlayOptions {
    * applied but no custom font loads.
    */
   openDyslexicFontUrl?: string;
+  /**
+   * Absolute URL of the bundled OpenDyslexic Bold woff2 (#191). Same
+   * contract as `openDyslexicFontUrl`: resolved by the chrome glue via
+   * `chrome.runtime.getURL('fonts/...')` and passed in (`core/` cannot
+   * call `chrome.*`). When provided, the overlay injects a second
+   * `@font-face` rule (`font-weight: bold`, same 'OpenDyslexic' family)
+   * into the shadow root at mount so bold text inside the modal renders
+   * the true Bold face instead of a synthetically-emboldened Regular.
+   * When omitted, bold text falls back to faux-bold of whichever face
+   * the family resolves to. Italic is intentionally not bundled (#191
+   * defers it).
+   */
+  openDyslexicBoldFontUrl?: string;
 }
 
 /**

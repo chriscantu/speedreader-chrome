@@ -322,6 +322,16 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             }
             return chrome.runtime.getURL('fonts/OpenDyslexic-Regular.woff2');
           })(),
+          // #191 — Bold face, same WAR + getURL contract as Regular above.
+          // The getURL-unavailable warning is emitted once by the Regular
+          // wiring; re-warning here would double the breadcrumb for the
+          // same root cause.
+          openDyslexicBoldFontUrl: (() => {
+            if (!chrome.runtime.getURL) {
+              return undefined;
+            }
+            return chrome.runtime.getURL('fonts/OpenDyslexic-Bold.woff2');
+          })(),
           engineFactory: createRsvpEngine,
           // #48 — toast the persistent resume so the user knows their
           // position was restored AND has a one-click escape hatch to

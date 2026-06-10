@@ -187,6 +187,19 @@ describe('options index.html structure', () => {
     });
   });
 
+  describe('font attribution (#191)', () => {
+    it('credits OpenDyslexic with author and license as accessible text', () => {
+      const credit = doc.querySelector('[data-font-attribution]');
+      expect(credit, 'missing [data-font-attribution] element').not.toBeNull();
+      expect(credit?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'OpenDyslexic font © Abbie Gonzalez, SIL OFL 1.1.',
+      );
+      // Must be perceivable by AT — normal text, not decorative.
+      expect(credit?.getAttribute('aria-hidden')).toBeNull();
+      expect(credit?.closest('[aria-hidden="true"]')).toBeNull();
+    });
+  });
+
   describe('responsive scaffolding', () => {
     it('declares a viewport meta tag', () => {
       const viewport = doc.querySelector('meta[name="viewport"]');

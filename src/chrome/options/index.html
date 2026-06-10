@@ -132,6 +132,14 @@
       .shortcuts-footnote a {
         color: inherit;
       }
+      /* Font attribution (#191) — unobtrusive about-line under the last
+         section. Same scale/opacity as the .hint helper text. */
+      .attribution {
+        margin: 16px 0 0 0;
+        font-size: 0.75rem;
+        opacity: 0.7;
+        text-align: center;
+      }
       /* Toast + load-error banner — unchanged behavior, kept legible at 320px. */
       .toast {
         position: fixed;
@@ -369,6 +377,11 @@
           >.
         </p>
       </fieldset>
+
+      <!-- #191 — OFL credit for the bundled OpenDyslexic faces. -->
+      <p class="attribution" data-font-attribution>
+        OpenDyslexic font &copy; Abbie Gonzalez, SIL OFL 1.1.
+      </p>
 
       <div class="toast saved" id="saved" role="status" aria-live="polite">Saved</div>
       <div class="toast error" id="save-error" role="alert" aria-live="assertive">

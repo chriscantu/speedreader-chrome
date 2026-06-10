@@ -24,8 +24,10 @@ import { OVERLAY_CLASS } from '../../../core/overlay/constants';
 
 const SETTINGS_KEY = 'speedreader.settings';
 const FONT_PATH = 'fonts/OpenDyslexic-Regular.woff2';
+const BOLD_FONT_PATH = 'fonts/OpenDyslexic-Bold.woff2';
 const EXT_ID = 'test-ext';
 const FONT_URL = `chrome-extension://${EXT_ID}/${FONT_PATH}`;
+const BOLD_FONT_URL = `chrome-extension://${EXT_ID}/${BOLD_FONT_PATH}`;
 
 type Listener = (
   msg: unknown,
@@ -168,5 +170,19 @@ describe('content script — OpenDyslexic wire (#27)', () => {
     expect(css).toContain('@font-face');
     expect(css).toContain('OpenDyslexic');
     expect(css).toContain(FONT_URL);
+  });
+
+  test('bold font path (#191) is resolved via getURL and embedded as a bold @font-face', async () => {
+    const { mock, getListener } = installChromeMock({ openDyslexic: true });
+    await mountOverlay(getListener);
+
+    // Mutation guard: dropping `openDyslexicBoldFontUrl` from the
+    // createOverlay call leaves the regular wire intact but fails both
+    // assertions below — the getURL call AND the bold-weight rule.
+    expect(mock.runtime.getURL).toHaveBeenCalledWith(BOLD_FONT_PATH);
+
+    const css = getShadowCss();
+    expect(css).toContain(BOLD_FONT_URL);
+    expect(css).toMatch(/font-weight:\s*bold/);
   });
 });

@@ -25,6 +25,7 @@ import { FONT_IDS, resolveFontId, type FontId } from '../font-ids';
 
 const STREAM = ['hello', 'world', 'foo', 'bar'];
 const FONT_URL = 'chrome-extension://stub-extension-id/fonts/OpenDyslexic-Regular.woff2';
+const BOLD_FONT_URL = 'chrome-extension://stub-extension-id/fonts/OpenDyslexic-Bold.woff2';
 
 function defaultSettings(overrides: Partial<OverlaySettings> = {}): OverlaySettings {
   return { theme: 'system', wpm: 300, fontSize: 20, ...overrides };
@@ -269,6 +270,71 @@ describe('createOverlay — font picker (#28)', () => {
     const css = getShadowCss();
     expect(css).not.toContain('@font-face');
     overlay.unmount();
+  });
+
+  test('bold @font-face is injected when openDyslexicBoldFontUrl provided (#191)', () => {
+    const overlay = createOverlay(
+      makeOpts({
+        initialSettings: defaultSettings({ font: 'opendyslexic' }),
+        openDyslexicFontUrl: FONT_URL,
+        openDyslexicBoldFontUrl: BOLD_FONT_URL,
+      }),
+    );
+    overlay.mount();
+    const css = getShadowCss();
+    // Both faces share the family; the bold block carries font-weight: bold
+    // and binds to the Bold woff2 URL.
+    expect(css).toContain(BOLD_FONT_URL);
+    expect(css).toMatch(/font-weight:\s*bold/);
+    expect(css).toMatch(/font-weight:\s*normal/);
+    overlay.unmount();
+  });
+
+  test('bold @font-face is NOT injected when openDyslexicBoldFontUrl is omitted (#191)', () => {
+    // Mutation guard: unconditional bold injection (`if (true)`) would
+    // embed a font-weight: bold block with no URL to back it — the strict
+    // not-bold assertions bite that mutation deterministically.
+    const overlay = createOverlay(
+      makeOpts({
+        initialSettings: defaultSettings({ font: 'opendyslexic' }),
+        openDyslexicFontUrl: FONT_URL,
+      }),
+    );
+    overlay.mount();
+    const css = getShadowCss();
+    expect(css).not.toContain(BOLD_FONT_URL);
+    expect(css).not.toMatch(/font-weight:\s*bold/);
+    overlay.unmount();
+  });
+
+  test('bold @font-face injects independently when only the bold URL is supplied (#191)', () => {
+    // Injection is per-URL-presence — a caller wiring only the Bold face
+    // (regular missing on disk) still gets the bold block, and no
+    // regular-weight block sneaks in.
+    const overlay = createOverlay(
+      makeOpts({
+        initialSettings: defaultSettings({ font: 'opendyslexic' }),
+        openDyslexicBoldFontUrl: BOLD_FONT_URL,
+      }),
+    );
+    overlay.mount();
+    const css = getShadowCss();
+    expect(css).toContain(BOLD_FONT_URL);
+    expect(css).toMatch(/font-weight:\s*bold/);
+    expect(css).not.toContain(FONT_URL);
+    overlay.unmount();
+  });
+
+  test('mount rejects a malicious openDyslexicBoldFontUrl (#191 — same XSS guard as regular)', () => {
+    const malicious = 'a") format("woff2"); } body { background: url("https://evil/';
+    const overlay = createOverlay(
+      makeOpts({
+        initialSettings: defaultSettings({ font: 'opendyslexic' }),
+        openDyslexicFontUrl: FONT_URL,
+        openDyslexicBoldFontUrl: malicious,
+      }),
+    );
+    expect(() => overlay.mount()).toThrow(/untrusted URL/);
   });
 
   test('@font-face rule binds OpenDyslexic to the supplied URL with woff2 format', () => {
