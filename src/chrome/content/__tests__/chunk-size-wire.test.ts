@@ -188,11 +188,17 @@ describe('content script — chunkSize wire boundary (#51)', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // Word region should now contain a multi-word chunk (text
-    // includes a space). Asserting "contains a space" is robust to
-    // exactly which chunk the engine lands on after the live switch.
-    const text = getWordRegion().textContent ?? '';
-    expect(text.includes(' ')).toBe(true);
-    expect(text.split(' ').length).toBeGreaterThanOrEqual(2);
+    // #202 ITEM-B — pin the EXACT chunk text. The old "contains a space"
+    // assertion passed for any multi-word chunk, so a wire defect that
+    // delivered the wrong chunkSize (e.g. 3 when 2 was requested) still
+    // rendered a spaced chunk and stayed green. The expected text is
+    // deterministic from engine state:
+    //   fixture = 9 words ('The' … 'dog.'), word mode emitted 'The' →
+    //   raw pos 1. setChunkSize(2) on PLAYING captures rawPos 1, rebuilds
+    //   chunks [The quick][brown fox][jumps over][the lazy][dog.], maps
+    //   wordIndexToChunkIndex(1) = 0, and ticks immediately → chunk 0,
+    //   text 'The quick'. (chunkSize=3 would render 'The quick brown' —
+    //   spaced, but ≠ this pin.)
+    expect(getWordRegion().textContent).toBe('The quick');
   });
 });

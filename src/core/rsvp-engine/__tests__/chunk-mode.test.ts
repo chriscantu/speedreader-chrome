@@ -636,6 +636,48 @@ describe('createRsvpEngine — chunk mode (chunkSize >= 2)', () => {
       });
     });
 
+    it('paused 2 → 3 with advanced position maps the current raw pos into the new layout (#202 ITEM-A)', () => {
+      // Discriminator for the test above: that test sits at raw position 2,
+      // which maps to chunk 0 of the new layout — the SAME result an
+      // "always restart at chunk 0" mutation produces (its expected
+      // startIndex is 0 either way). Advance to raw position 4 first so
+      // correct mapping and mutated mapping diverge.
+      //
+      // Stream (single sentence, no early sentence cuts):
+      //   ['One','two','three','four','five','six','seven','eight.']
+      //      0     1      2      3      4     5      6        7
+      // chunkSize=2 chunks: [One two][three four][five six][seven eight.]
+      // start() emits chunk 0 sync; +200ms tick emits chunk 1 → raw pos
+      // after chunk 1 = chunks[1].endIndex + 1 = 4.
+      // chunkSize=3 chunks: [One two three][four five six][seven eight.]
+      // wordIndexToChunkIndex(4) = 1 → paused replacement emit MUST be
+      // chunk 1: startIndex 3, endIndex 5, text 'four five six'.
+      //
+      // Mutation guard: replacing the `currentRawPos` capture in
+      // setChunkSize with `0` keeps the test above green (it expected
+      // startIndex 0 anyway) and flips this exact-value assertion red
+      // (mutant emits chunk 0: startIndex 0, 'One two three').
+      const engine = createRsvpEngine({
+        words: ['One', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight.'],
+        wpm: 300,
+        chunkSize: 2,
+      });
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start();
+      vi.advanceTimersByTime(60000 / 300); // chunk 1 ('three four') emitted
+      engine.pause();
+      engine.setChunkSize(3);
+      const last = events[events.length - 1];
+      expect(last).toEqual({
+        type: 'chunk',
+        startIndex: 3,
+        endIndex: 5,
+        text: 'four five six',
+        words: ['four', 'five', 'six'],
+      });
+    });
+
     it('playing 2 → 1 flips engine to word emission mid-session', () => {
       const engine = createRsvpEngine({
         words: ['The', 'quick', 'brown', 'fox.'],

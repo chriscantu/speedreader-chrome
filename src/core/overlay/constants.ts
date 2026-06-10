@@ -228,6 +228,10 @@ export const OVERLAY_TEXT = Object.freeze({
    * suppressed for the remainder of the session by the FIX-6 debounce
    * (so rapid drags don't re-fire). A new session begins after the
    * 250ms scrub-debounce window elapses.
+   *
+   * Session boundaries are debounce-timer-driven ONLY: engine state
+   * transitions mid-scrub (pause/resume/`done`) neither end the session
+   * nor reset the one-shot latch — see #207 ITEM-D1.
    */
   SCRUB_PAUSED_ANNOUNCEMENT: 'Paused. Scrubbing reading position.',
 
