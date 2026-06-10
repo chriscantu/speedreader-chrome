@@ -14,6 +14,16 @@ heading and a fresh `[Unreleased]` block is opened above it.
 
 ### Added
 
+- Bold overlay text now renders the true OpenDyslexic-Bold face instead of
+  a synthetic embolden of the dyslexia-tuned letterforms; the Bold woff2 is
+  bundled and injected into the overlay shadow root, and the options page
+  credits the font (© Abbie Gonzalez, SIL OFL 1.1) (#191).
+- `scrubberAutoHide` opt-out (settings V7): an Appearance-section "Hide the
+  position bar during playback" checkbox keeps the playback position bar
+  visible during playback as a fixed visual anchor for time-blindness.
+  Default is on (the post-#210 auto-hide behavior); the 6 → 7 migration
+  never silently opts a user out (#211).
+
 ### Changed
 
 - Sentence-boundary detection is now unified across sentence navigation
@@ -25,12 +35,25 @@ heading and a fresh `[Unreleased]` block is opened above it.
   `seekToSentence` / snap-to-sentence: boundaries land differently on
   abbreviation-heavy, quoted, or CJK text — previously the preview and
   chunk boundaries could disagree on the same sentence.
+- The scrubber thumb is now a WCAG 2.2 AAA (SC 2.5.5) 44×44 hit target — a
+  taller drag strip and a centered radial-gradient knob, with the native
+  accent-color progress fill preserved and a forced-colors solid-thumb
+  fallback (#205).
 
 ### Deprecated
 
 ### Removed
 
 ### Fixed
+
+- Disabled overlay controls (font − / +, play-pause) now use
+  `aria-disabled` instead of the native `disabled` attribute, keeping them
+  in the tab chain (WCAG 2.4.3), and a muted color token instead of reduced
+  opacity so non-text contrast stays above 3:1 (WCAG 1.4.11) (#215).
+- The resume toast no longer shifts the word region when it dismisses: it
+  is now rendered out of flow, so neither its appearance nor its 5 s
+  auto-dismiss / Start Over removal reflows the reading area mid-read
+  (#218).
 
 ### Security
 
