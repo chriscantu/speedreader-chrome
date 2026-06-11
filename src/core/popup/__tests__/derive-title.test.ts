@@ -82,6 +82,42 @@ describe('deriveTitleFromUrl — query / fragment stripping', () => {
   });
 });
 
+describe('deriveTitleFromUrl — IDN / punycode and IP addresses', () => {
+  // These cases are currently best-effort: the code runs the raw hostname
+  // through the same pipeline as any ASCII hostname. Tests pin CURRENT
+  // behaviour so a future change (e.g., decoding punycode via Intl, or
+  // rejecting private IP ranges) surfaces here rather than silently drifting.
+  // Note: #196 (combined S3 + real title persistence) may supersede derive-title
+  // for common paths, but IP/IDN URLs will still reach this code for any URL
+  // that lacks a persisted title.
+
+  it('shows punycode hostname as-is (no client-side decode)', () => {
+    // `new URL('http://xn--bcher-kva.example.com/')` exposes the xn-- form.
+    // We pin that shape: future Intl.decodePunycode integration would flip this.
+    expect(deriveTitleFromUrl('http://xn--bcher-kva.example.com/article')).toBe(
+      'xn--bcher-kva.example.com / article',
+    );
+  });
+
+  it('shows IPv4 address as the hostname label', () => {
+    expect(deriveTitleFromUrl('http://192.168.1.1/page')).toBe('192.168.1.1 / page');
+  });
+
+  it('shows IPv4 root URL as bare address (no path)', () => {
+    expect(deriveTitleFromUrl('http://192.168.1.1/')).toBe('192.168.1.1');
+  });
+
+  it('shows IPv6 address including brackets (URL host shape)', () => {
+    // `new URL('http://[::1]/page').hostname` → '[::1]' in the Node/jsdom
+    // runtime. The brackets are part of the URL host component.
+    expect(deriveTitleFromUrl('http://[::1]/page')).toBe('[::1] / page');
+  });
+
+  it('shows IPv6 root URL as bare bracketed address', () => {
+    expect(deriveTitleFromUrl('http://[::1]/')).toBe('[::1]');
+  });
+});
+
 describe('deriveTitleFromUrl — defensive', () => {
   it('returns the raw input string when URL fails to parse', () => {
     // Non-URL strings shouldn't crash the popup; surface what the
