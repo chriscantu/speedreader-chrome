@@ -113,10 +113,10 @@ describe('createOverlay — chunk event rendering (#51)', () => {
     // After first chunk: progress.index = 2 (raw), total = 5 (raw
     // including the paragraph sentinel slot).
     expect(onWordAdvance).toHaveBeenCalledTimes(1);
-    expect(onWordAdvance).toHaveBeenLastCalledWith(2, 5);
+    expect(onWordAdvance).toHaveBeenLastCalledWith({ index: 2, total: 5 });
     vi.advanceTimersByTime(60000 / 300);
     expect(onWordAdvance).toHaveBeenCalledTimes(2);
-    expect(onWordAdvance).toHaveBeenLastCalledWith(5, 5);
+    expect(onWordAdvance).toHaveBeenLastCalledWith({ index: 5, total: 5 });
     overlay.unmount();
   });
 

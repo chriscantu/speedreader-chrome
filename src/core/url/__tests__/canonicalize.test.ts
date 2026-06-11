@@ -151,4 +151,50 @@ describe('canonicalizeUrl — length cap', () => {
     const input = base + padding;
     expect(canonicalizeUrl(input)?.length).toBe(MAX_CANONICAL_URL_LENGTH - 1);
   });
+
+  /**
+   * TG5 — pin the order-sensitivity gap: a URL whose RAW form exceeds
+   * the cap but whose canonical form (post-utm-strip) falls within it
+   * MUST be accepted. If the cap check were applied before stripping
+   * utm_ params, long-tracking-param URLs would be incorrectly rejected.
+   *
+   * Mutation evidence: swapping the order so the cap check runs before
+   * utm-stripping flips this test red.
+   */
+  test('TG5 — accepts URL whose raw form exceeds cap but canonical (post-utm-strip) is within cap', () => {
+    // Build a base URL just within the cap, then append utm params that
+    // push the raw form over the cap. After stripping the utm params the
+    // canonical form must still be within MAX_CANONICAL_URL_LENGTH.
+    const base = 'https://example.com/';
+    // Path that puts the canonical form (no utm params) exactly at cap-1.
+    const pathLen = MAX_CANONICAL_URL_LENGTH - base.length - 1;
+    const path = 'a'.repeat(pathLen);
+    // utm suffix that pushes the raw URL well past the cap.
+    const utmSuffix = '?utm_source=' + 'x'.repeat(100);
+    const rawInput = base + path + utmSuffix;
+    // Sanity: raw form exceeds cap.
+    expect(rawInput.length).toBeGreaterThan(MAX_CANONICAL_URL_LENGTH);
+    const got = canonicalizeUrl(rawInput);
+    // Canonical form (utm stripped) should be within cap and not null.
+    expect(got).not.toBeNull();
+    expect(got?.length).toBeLessThanOrEqual(MAX_CANONICAL_URL_LENGTH);
+  });
+
+  /**
+   * TG5 — pin that a URL with an embedded rejected-scheme value in a
+   * query param canonicalizes correctly. The scheme allow-list gates on
+   * the TOP-LEVEL URL scheme, not on values inside query parameters —
+   * `javascript:alert(1)` as a query-param value is fine; only a
+   * top-level `javascript:` URL is rejected.
+   *
+   * Mutation evidence: adding a param-value scheme check that rejects
+   * query values starting with `javascript:` would flip this test red.
+   */
+  test('TG5 — URL with embedded javascript: in query param canonicalizes (scheme check is top-level only)', () => {
+    const input = 'https://example.com/?return=javascript:alert(1)';
+    const got = canonicalizeUrl(input);
+    expect(got).not.toBeNull();
+    // The embedded scheme value must be preserved verbatim in the canonical form.
+    expect(got).toBe('https://example.com/?return=javascript:alert(1)');
+  });
 });
