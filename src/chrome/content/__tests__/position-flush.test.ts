@@ -352,10 +352,22 @@ describe('content script — visibility/pagehide flush wiring (#48)', () => {
  * is treated as stale and the resume is skipped (fresh start). This matches
  * the `#25` mutation-fallback pattern in `session-position.ts`.
  *
- * Mutation evidence: removing the `countDrift <= tolerance` guard in
- * `index.ts` (i.e. always trusting the saved position regardless of
- * totalWords) would flip the "stale totalWords" test red — the overlay
- * would resume at a stale index instead of starting fresh.
+ * OBSERVABLE under test: the resume toast. The overlay only renders the
+ * `[data-sr-resume-toast]` chip when it ACTUALLY resumed at a saved index
+ * (`resumedAt !== null && opts.resumeToast`), and `index.ts` only passes
+ * `resumeToast` when `persistentResume !== undefined` — i.e. when the CR2
+ * guard honored the saved position. Therefore:
+ *   - toast PRESENT  ⇔ guard honored the resume (drift within tolerance)
+ *   - toast ABSENT   ⇔ guard suppressed the resume (drift over tolerance)
+ *
+ * This is a real observable that flips under guard mutation. The earlier
+ * version of these tests asserted only `local.get` was called (fires
+ * regardless of resume) and seeded an OUT-OF-RANGE wordIndex (rejected by
+ * the pre-existing `wordIndex < fullWords.length` guard before CR2 even
+ * runs) — both made the tests pass green even with the CR2 guard deleted.
+ * Each test below has been mutation-validated: deleting or inverting the
+ * `countDrift <= tolerance` guard in `index.ts` flips the relevant
+ * assertion red.
  */
 describe('content script — CR2 persistent-resume sanity guard', () => {
   function installChromeStubWithSavedPosition(
@@ -427,21 +439,39 @@ describe('content script — CR2 persistent-resume sanity guard', () => {
   afterEach(() => {
     delete (globalThis as unknown as { chrome?: unknown }).chrome;
     document.body.innerHTML = '';
+    document.querySelectorAll('[data-speedreader-overlay]').forEach((n) => n.remove());
     vi.resetModules();
   });
 
-  test('CR2 — skips resume when saved totalWords diverges by more than 5% from current count', async () => {
-    // The article body has 6 words. The saved record claims 100 totalWords
-    // (massive drift — clearly a different content snapshot). The sanity
-    // guard must suppress the resume; the overlay starts at word 0.
-    const pageUrl = 'https://example.com/cr2-stale-count';
-    document.body.innerHTML = '<article>alpha beta gamma delta epsilon zeta.</article>';
+  /**
+   * Resolve the overlay's resume toast from the open shadow root. Returns
+   * null when no overlay is mounted OR the overlay mounted but did NOT
+   * resume (toast suppressed). This is the single OBSERVABLE the CR2 tests
+   * key on — its presence is the production signal that `persistentResume`
+   * was honored.
+   */
+  function getResumeToast(): HTMLElement | null {
+    const host = document.body.querySelector('[data-speedreader-overlay]');
+    if (!(host instanceof HTMLElement) || !host.shadowRoot) return null;
+    return host.shadowRoot.querySelector('[role="status"][data-sr-resume-toast]');
+  }
+
+  /**
+   * Mount the overlay through the content-script activate path against a
+   * pre-seeded saved position, then settle the async mount. Returns the
+   * resolved toast (or null) plus the storage spy for completeness.
+   */
+  async function mountWithSavedPosition(
+    pageUrl: string,
+    body: string,
+    savedWordIndex: number,
+    savedTotalWords: number,
+  ): Promise<{ local: FakeStorageLocal; toast: HTMLElement | null }> {
+    document.body.innerHTML = `<article>${body}</article>`;
     Object.defineProperty(globalThis, 'location', {
       configurable: true,
       value: { href: pageUrl },
     });
-    const savedWordIndex = 50; // well into the (stale) 100-word stream
-    const savedTotalWords = 100; // actual current page has ~6 words — huge drift
     const { local, getListener } = installChromeStubWithSavedPosition(
       pageUrl,
       savedWordIndex,
@@ -450,68 +480,110 @@ describe('content script — CR2 persistent-resume sanity guard', () => {
     await import('../index');
     const listener = getListener();
     listener({ type: 'activate-reader' }, { id: 'test-ext' }, vi.fn());
+    // Overlay mount is async (loadSettings + positionStore.read await).
     await new Promise((r) => setTimeout(r, 80));
-    // The overlay should have mounted and started from word 0 (no resume).
-    // We verify by checking that no `resumeToast` write happened — the
-    // toast is only shown on a persistent resume. However, it's easier
-    // to check that storage.local.set was called (the normal write path)
-    // and that the position key was NOT pre-set with index=50 initially
-    // (i.e. no resume was honoured at overlay construction).
+    return { local, toast: getResumeToast() };
+  }
+
+  test('CR2 — skips resume when saved totalWords diverges by more than 5% from current count', async () => {
+    // Body has 6 words. savedWordIndex=3 is IN-RANGE for the current body
+    // (0 < 3 < 6), so the PRE-EXISTING `wordIndex < fullWords.length` range
+    // guard does NOT reject it — the CR2 drift guard is what must fire.
+    // savedTotalWords=20 → tolerance = ceil(20*0.05) = 1; drift = |20-6| = 14
+    // (> tolerance). The CR2 guard must suppress the resume.
     //
-    // The guard works at mount time (synchronously before start()). We
-    // confirm by checking the local storage state: because the overlay
-    // starts at index 0, the first onWordAdvance fires with index=1,
-    // NOT index=50+1. There's no direct read of the engine's initialIndex
-    // from tests, so we rely on: if resume was NOT applied, the first
-    // write from onWordAdvance carries wordIndex=1 (first word). If it
-    // WAS applied (guard broken), the first write would carry a higher index.
-    local.set.mockClear();
-    // Let the debounce timer fire (1 s). Advance fake timers instead.
-    await new Promise((r) => setTimeout(r, 1100));
-    // The first write should carry wordIndex ≥ 1 and <<< 50 (no resume).
-    const setCalls = local.set.mock.calls as Array<[Record<string, unknown>]>;
-    const positionCall = setCalls.find((c) =>
-      Object.keys(c[0]).some((k) => k.startsWith('position:https')),
+    // OBSERVABLE: the resume toast must be ABSENT. If the guard is deleted
+    // (resume unconditional), `persistentResume` would be set, `resumeToast`
+    // passed, and the toast would render — flipping this assertion red.
+    const { toast } = await mountWithSavedPosition(
+      'https://example.com/cr2-stale-count',
+      'alpha beta gamma delta epsilon zeta.',
+      3,
+      20,
     );
-    // It's valid for no write to have fired yet in this test env (engine
-    // may not have ticked). The key assertion is: if a write DID occur,
-    // it must not carry a stale index of 50.
-    if (positionCall) {
-      const posKey = Object.keys(positionCall[0]).find((k) => k.startsWith('position:https'));
-      if (posKey) {
-        const payload = positionCall[0][posKey] as { wordIndex?: number };
-        expect(payload.wordIndex ?? 0).toBeLessThan(50);
-      }
-    }
+    expect(toast).toBeNull();
   });
 
   test('CR2 — allows resume when saved totalWords is within 5% tolerance of current count', async () => {
-    // Saved: 100 totalWords, wordIndex=30. Current page: 102 words (2% drift).
-    // Within the ±5% tolerance, so resume IS allowed.
-    const pageUrl = 'https://example.com/cr2-within-tolerance';
-    // Build a 102-word body.
-    const words = Array.from({ length: 102 }, (_, i) => `word${i}`).join(' ') + '.';
-    document.body.innerHTML = `<article>${words}</article>`;
-    Object.defineProperty(globalThis, 'location', {
-      configurable: true,
-      value: { href: pageUrl },
-    });
+    // Body: 102 words. Saved: wordIndex=30, totalWords=100. Range guard:
+    // 0 < 30 < 102 (passes). tolerance = ceil(100*0.05) = 5; drift =
+    // |100-102| = 2 (≤ tolerance). The CR2 guard must HONOR the resume.
+    //
+    // OBSERVABLE: the resume toast must be PRESENT, and its label must name
+    // the resumed index (30). If the guard is inverted (reject within
+    // tolerance) or `persistentResume` forced undefined, the toast would
+    // not render — flipping this assertion red.
+    const body = Array.from({ length: 102 }, (_, i) => `word${i}`).join(' ') + '.';
     const savedWordIndex = 30;
-    const savedTotalWords = 100; // 2% drift from 102 — within tolerance
-    const { local, getListener } = installChromeStubWithSavedPosition(
-      pageUrl,
+    const { toast } = await mountWithSavedPosition(
+      'https://example.com/cr2-within-tolerance',
+      body,
       savedWordIndex,
-      savedTotalWords,
+      100,
     );
-    // Mutation evidence: removing the tolerance check (requiring exact match)
-    // would flip this test red — the resume would be skipped even though the
-    // drift is within the allowed range.
-    await import('../index');
-    const listener = getListener();
-    listener({ type: 'activate-reader' }, { id: 'test-ext' }, vi.fn());
-    await new Promise((r) => setTimeout(r, 80));
-    // The overlay should have mounted. We can't easily assert initialIndex
-    // from outside, but we assert no crash occurred and the store was read.
-    expect(local.get).toHaveBeenCalled();
+    expect(toast).not.toBeNull();
+    // The toast label is `resumeToast(resumedAt, totalWords)` — resumedAt is
+    // the honored saved index, so the visible text must mention it.
+    expect(toast?.textContent).toContain(String(savedWordIndex));
+  });
+
+  // FIX 3 — boundary cases at the `countDrift <= tolerance` seam.
+
+  test('CR2 — resumes when drift EXACTLY equals tolerance (pins the <=)', async () => {
+    // Body: 95 words. Saved: totalWords=100 → tolerance = ceil(100*0.05) = 5.
+    // drift = |100-95| = 5 == tolerance → the `<=` must HONOR the resume.
+    // Mutating the guard to `<` (strict) flips this red.
+    const body = Array.from({ length: 95 }, (_, i) => `word${i}`).join(' ') + '.';
+    const savedWordIndex = 10; // 0 < 10 < 95 — passes the range guard
+    const { toast } = await mountWithSavedPosition(
+      'https://example.com/cr2-drift-eq-tolerance',
+      body,
+      savedWordIndex,
+      100,
+    );
+    expect(toast).not.toBeNull();
+    expect(toast?.textContent).toContain(String(savedWordIndex));
+  });
+
+  test('CR2 — skips resume when drift equals tolerance + 1', async () => {
+    // Body: 94 words. Saved: totalWords=100 → tolerance = 5.
+    // drift = |100-94| = 6 == tolerance + 1 → just over the seam → SKIP.
+    // The toast must be ABSENT.
+    const body = Array.from({ length: 94 }, (_, i) => `word${i}`).join(' ') + '.';
+    const { toast } = await mountWithSavedPosition(
+      'https://example.com/cr2-drift-over-tolerance',
+      body,
+      10,
+      100,
+    );
+    expect(toast).toBeNull();
+  });
+
+  test('CR2 — tolerance uses Math.ceil: small totalWords still admits ±1 drift', async () => {
+    // Edge of the Math.ceil rounding. The task brief asked for the
+    // savedTotalWords===0 case (tolerance = ceil(0) = 0), but that record is
+    // unreachable at the CR2 seam: the store's own invariant in
+    // `core/storage/reading-position.ts` (`makeReadingPosition`) rejects any
+    // saved record with `totalWords <= 0` and returns undefined, so
+    // `positionStore.read()` never surfaces it to the guard. A test seeded
+    // with totalWords=0 would pass for the WRONG reason (upstream rejection,
+    // not the CR2 guard) — i.e. it would be vacuous w.r.t. CR2, the exact
+    // defect class this PR fixes.
+    //
+    // The reachable low-end edge that genuinely pins the `Math.ceil` is
+    // totalWords=2: tolerance = ceil(2*0.05) = ceil(0.1) = 1. A `Math.floor`
+    // mutation would yield tolerance 0. Seed: body=3 words, wordIndex=1
+    // (range guard 0 < 1 < 3 passes), drift = |2-3| = 1 == tolerance.
+    //   - ceil (correct): drift 1 <= 1  → resume HONORED → toast PRESENT
+    //   - floor (mutant):  drift 1 >  0 → resume SKIPPED → toast absent
+    const savedWordIndex = 1;
+    const { toast } = await mountWithSavedPosition(
+      'https://example.com/cr2-ceil-low-end',
+      'word0 word1 word2.',
+      savedWordIndex,
+      2,
+    );
+    expect(toast).not.toBeNull();
+    expect(toast?.textContent).toContain(String(savedWordIndex));
   });
 });
