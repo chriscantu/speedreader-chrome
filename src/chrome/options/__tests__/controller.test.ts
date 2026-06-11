@@ -567,6 +567,33 @@ describe('options controller', () => {
       expect(onHistoryDisabled).toHaveBeenCalledTimes(2);
     });
 
+    it('does NOT pass alsoClearEntries=true when companion is ticked AFTER toggling off', async () => {
+      // Pin current read-timing behaviour: the companion checkbox is sampled
+      // at the moment the historyEnabled change event fires. Ticking the
+      // companion AFTER the toggle has no effect on that specific disable
+      // event — the hook has already been called with the value that was
+      // present at event time.
+      //
+      // Intent: documents the "check companion BEFORE toggling" contract so
+      // that a future refactor moving the read to a later microtask would
+      // surface here rather than silently changing UX.
+      const stub = makeStub({ ...DEFAULT_SETTINGS, historyEnabled: true });
+      const onHistoryDisabled = vi.fn();
+      await bindOptionsForm(document, window, stub, onHistoryDisabled);
+
+      const toggle = document.getElementById(FIELD_IDS.historyEnabled) as HTMLInputElement;
+      toggle.checked = false;
+      fire(toggle, 'change');
+      await Promise.resolve();
+
+      // Companion ticked AFTER the event has already fired — too late.
+      (document.getElementById('historyClearOnDisable') as HTMLInputElement).checked = true;
+
+      // Hook was called once, but with the companion's state AT event time (false).
+      expect(onHistoryDisabled).toHaveBeenCalledTimes(1);
+      expect(onHistoryDisabled).toHaveBeenCalledWith(false);
+    });
+
     it('does NOT fire onHistoryDisabled when omitted from bindOptionsForm', async () => {
       // No hook supplied → the controller must not throw when the user
       // toggles off. Defaults still apply (no wipe).

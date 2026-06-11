@@ -57,8 +57,10 @@ describe('renderHistorySection — disabled state', () => {
     const enableBtn = section.querySelector('button');
     expect(enableBtn).not.toBeNull();
     expect(enableBtn?.textContent).toMatch(/enable/i);
-    // No list element when disabled.
-    expect(section.querySelector('[role="list"]')).toBeNull();
+    // No list element when disabled. Query by tag so the assertion holds
+    // whether the implementation uses an explicit role attribute or relies
+    // on <ul>'s implicit ARIA list role.
+    expect(section.querySelector('ul')).toBeNull();
   });
 
   it('Enable link click invokes onEnableInSettings', () => {
@@ -97,7 +99,9 @@ describe('renderHistorySection — enabled but empty', () => {
     // Critical anti-tautology: list element ABSENT, not "list has 0
     // items" — a broken render path could yield an empty <ul> and we'd
     // never catch it. Forces the implementation to a single render path.
-    expect(section.querySelector('[role="list"]')).toBeNull();
+    // Query by tag so the assertion is not coupled to the explicit role
+    // attribute (works with both implicit and explicit ARIA list role).
+    expect(section.querySelector('ul')).toBeNull();
     // No clear-all button when there's nothing to clear.
     expect(section.querySelector('button')).toBeNull();
   });
@@ -127,7 +131,9 @@ describe('renderHistorySection — enabled with entries', () => {
         onEnableInSettings: vi.fn(),
       }),
     );
-    const list = section.querySelector('[role="list"]');
+    // Query by tag: mutation-resistant to the explicit role attribute being
+    // dropped in favour of <ul>'s implicit ARIA list role.
+    const list = section.querySelector('ul');
     expect(list).not.toBeNull();
     const items = section.querySelectorAll('[role="listitem"]');
     expect(items.length).toBe(2);
