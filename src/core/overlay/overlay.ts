@@ -1183,7 +1183,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         // treats as "finished, start fresh."
         if (opts.onWordAdvance && engine) {
           const p = engine.progress();
-          opts.onWordAdvance(p.index, p.total);
+          opts.onWordAdvance({ index: p.index, total: p.total });
         }
         // Only re-render the preview if the just-emitted word landed
         // while the engine was already paused (paused-state seekTo emits
@@ -1210,7 +1210,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
         if (!scrubInProgress) ariaLive.textContent = ev.text;
         if (opts.onWordAdvance && engine) {
           const p = engine.progress();
-          opts.onWordAdvance(p.index, p.total);
+          opts.onWordAdvance({ index: p.index, total: p.total });
         }
         if (engine?.state === 'paused') renderPreview();
         updateScrubber();

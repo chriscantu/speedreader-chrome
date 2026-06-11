@@ -31,6 +31,13 @@ import {
  * one layer up in `createReadingPositionStore`'s internal write-queue;
  * see `createChromePositionStore` for the construction discipline that
  * preserves that queue.
+ *
+ * Compatibility note: the Promise form of `chrome.storage.local`
+ * (`.get()` / `.set()` / `.remove()` returning Promises instead of
+ * requiring a callback) requires Chrome 88+, which is the MV3 baseline.
+ * If `minimum_chrome_version` is ever pinned below 88, this adapter
+ * breaks silently — the Promise overload simply does not exist and calls
+ * return `undefined` with no error thrown.
  */
 function chromeStorageAdapter(): StorageAdapter {
   return {

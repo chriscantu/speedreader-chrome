@@ -191,7 +191,7 @@ describe('overlay — onWordAdvance callback (#48)', () => {
     const advances: Array<{ index: number; total: number }> = [];
     const overlay = createOverlay(
       defaultOpts(holder, {
-        onWordAdvance: (index, total) => {
+        onWordAdvance: ({ index, total }) => {
           advances.push({ index, total });
         },
       }),
@@ -216,7 +216,7 @@ describe('overlay — onWordAdvance callback (#48)', () => {
     const overlay = createOverlay(
       defaultOpts(holder, {
         initialIndex: 4,
-        onWordAdvance: (index, total) => {
+        onWordAdvance: ({ index, total }) => {
           advances.push({ index, total });
         },
       }),

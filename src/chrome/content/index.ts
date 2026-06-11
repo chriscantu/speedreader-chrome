@@ -42,10 +42,12 @@ console.log('[SpeedReader] Content script loaded');
 
 let activeOverlay: OverlayHandle | null = null;
 
-// #48 — persistent per-URL reading-position store. Module-scoped so a
-// fresh activation reuses the same chrome.storage.local adapter. The
-// store itself is stateless; the singleton is just an allocation
-// hygiene measure.
+// #48 — persistent per-URL reading-position store. Injection-scoped —
+// one instance per content-script load; repeated activations on the
+// same tab share this instance via the `activeOverlay` guard. The
+// internal write-queue lives on this instance, so constructing a new
+// store per-mount would fragment the queue and reintroduce the
+// LRU read-modify-write race the queue exists to prevent.
 const positionStore = createChromePositionStore();
 
 // #48 — single module-load warn when the local-storage surface is
@@ -66,6 +68,14 @@ if (typeof chrome === 'undefined' || !chrome.storage?.local) {
  * article is wasteful disk I/O. A 1 s trailing-edge debounce keeps
  * the on-disk position no more than a second stale, which is well
  * within the resume-experience floor.
+ *
+ * MV3 throttle note: Chrome throttles `setTimeout` to ≥1 min when a
+ * backgrounded tab is in an energy-saver state. The 1 s debounce here
+ * is the "happy path" timer; the dual flush via `visibilitychange` +
+ * `pagehide` (below) is the teardown safety net that fires before the
+ * timer would. `chrome.alarms` would be belt-and-suspenders for the
+ * backgrounded-tab edge case but adds manifest permission overhead and
+ * is deferred per the #195 tracking issue.
  */
 const POSITION_WRITE_DEBOUNCE_MS = 1_000;
 
@@ -144,6 +154,13 @@ function attachPositionFlushListeners(): void {
   window.addEventListener('pagehide', onPageHide);
   positionFlushListenersAttached = true;
 }
+// ME5 — detach is called unconditionally from onClose (no scope check
+// at the call site) because the `positionFlushListenersAttached` guard
+// here makes it idempotent — closing without having attached (e.g. a
+// non-full-scope mount) is a safe no-op. The asymmetry between the
+// conditional attach (only for full-scope mounts with storage available)
+// and the unconditional close call is intentional: the flag is the
+// single source of truth for whether listeners are live.
 function detachPositionFlushListeners(): void {
   if (!positionFlushListenersAttached) return;
   if (typeof document === 'undefined' || typeof window === 'undefined') return;
@@ -242,7 +259,19 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
           try {
             const saved = await positionStore.read(pageUrl);
             if (saved !== undefined && saved.wordIndex > 0 && saved.wordIndex < fullWords.length) {
-              persistentResume = saved.wordIndex;
+              // CR2 — sanity guard: the saved record carries its own
+              // `totalWords` snapshot from when the position was written.
+              // If the current page has a significantly different word
+              // count, the stored index likely points into a stale DOM
+              // snapshot (content changed, re-render, A/B variant, etc.).
+              // Matches the `#25` mutation-fallback pattern in session-position.ts.
+              // Allow ±5% tolerance to absorb minor dynamic-content drift
+              // (ads, timestamps) without discarding otherwise-valid resumes.
+              const tolerance = Math.ceil(saved.totalWords * 0.05);
+              const countDrift = Math.abs(saved.totalWords - fullWords.length);
+              if (countDrift <= tolerance) {
+                persistentResume = saved.wordIndex;
+              }
             }
           } catch (err: unknown) {
             console.warn('[speedreader] reading-position read failed', err);
@@ -367,7 +396,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
           // second; closing the overlay flushes any pending write.
           onWordAdvance:
             persistAvailable && scope === 'full'
-              ? (index, total) => {
+              ? ({ index, total }) => {
                   schedulePositionWrite({
                     url: pageUrl,
                     wordIndex: index,

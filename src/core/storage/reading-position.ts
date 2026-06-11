@@ -44,11 +44,11 @@ export const POSITION_LRU_MAX = 100;
 /** Bumped when the stored payload shape changes. */
 export const POSITION_SCHEMA_VERSION = 1;
 
-/** Key prefix for the per-URL payload. */
-export const POSITION_KEY_PREFIX = 'position:';
+/** Key prefix for the per-URL payload. @internal */
+const POSITION_KEY_PREFIX = 'position:';
 
-/** Key for the LRU order array. */
-export const POSITION_INDEX_KEY = 'position-index';
+/** Key for the LRU order array. @internal */
+const POSITION_INDEX_KEY = 'position-index';
 
 /**
  * Computes the storage key for a canonical URL, or `null` when the
@@ -60,6 +60,15 @@ export function positionKey(url: string): string | null {
   const canonical = canonicalizeUrl(url);
   if (canonical === null) return null;
   return `${POSITION_KEY_PREFIX}${canonical}`;
+}
+
+/**
+ * The write-side position shape. Callers supply both fields when
+ * calling `write()`; `lastReadAt` is stamped by the store itself.
+ */
+export interface WritableReadingPosition {
+  wordIndex: number;
+  totalWords: number;
 }
 
 /**
@@ -80,6 +89,11 @@ interface StoredPayload extends ReadingPosition {
  * Minimal storage contract — matches the subset of
  * `chrome.storage.local` the store uses. Test fakes implement the same
  * three methods against an in-memory map.
+ *
+ * Adapters MAY reject with the platform-native error. The store treats
+ * rejections as fatal for the current operation but does not poison
+ * subsequent calls (the internal write-queue's error handler swallows
+ * per-op rejections so a single failed write does not stall the queue).
  */
 export interface StorageAdapter {
   get(keys: string[]): Promise<Record<string, unknown>>;
@@ -100,7 +114,7 @@ export interface ReadingPositionStore {
    * the existing stored record carries a higher schema version (an
    * older build must not clobber a newer build's payload).
    */
-  write(url: string, position: { wordIndex: number; totalWords: number }): Promise<void>;
+  write(url: string, position: WritableReadingPosition): Promise<void>;
   /**
    * Bump `lastReadAt` and the LRU slot for `url` without changing the
    * stored `wordIndex`/`totalWords`. No-op when `url` has no record,
@@ -147,8 +161,18 @@ export function createReadingPositionStore(
 
   // Per-instance mutation queue. Every write/touch/clear/clearAll
   // chains onto this so the read-modify-write of the LRU index never
-  // interleaves with another mutation against the same adapter. Reads
-  // remain concurrent — they only sample the adapter snapshot.
+  // interleaves with another mutation WITHIN the same store instance.
+  // Reads remain concurrent — they only sample the adapter snapshot.
+  //
+  // Cross-tab note: Chrome serializes chrome.storage.local.set calls
+  // across tabs at the storage API level, but the LRU index
+  // read-modify-write cycle (get index → mutate → set index) is NOT
+  // atomic across tabs. Two tabs writing simultaneously can each read
+  // the pre-write index and produce divergent updates; the last write
+  // wins and the other tab's mutations are silently dropped from the
+  // index. This is a known limitation of using a non-transactional
+  // store for an ordered index; it does not corrupt individual position
+  // payloads, only the LRU ordering across concurrent tabs.
   let writeQueue: Promise<void> = Promise.resolve();
   function enqueue<T>(op: () => Promise<T>): Promise<T> {
     const run = writeQueue.then(op, op);

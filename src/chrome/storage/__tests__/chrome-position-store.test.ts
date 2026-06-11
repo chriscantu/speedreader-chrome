@@ -68,4 +68,31 @@ describe('chrome-position-store adapter', () => {
     await store.write('https://example.com/a', { wordIndex: 1, totalWords: 10 });
     expect(local.set).toHaveBeenCalled();
   });
+
+  /**
+   * ME3 — contract test: chrome.storage.local.set MUST be called with
+   * exactly ONE argument (the items object). The callback form of
+   * chrome.storage.local.set takes a second `callback` argument; if an
+   * accidental refactor to the callback form were to land, the Promise
+   * API contract would break silently in production (Chrome ignores
+   * extra arguments but the Promise is never resolved when callback form
+   * is used alongside the Promise expectation). Pinning the argument
+   * count here guards against that regression.
+   *
+   * Mutation evidence: removing `.length` check or changing `toBe(1)` to
+   * `toBe(2)` flips this test red.
+   */
+  test('ME3 — chrome.storage.local.set is called with exactly one argument (items object only)', async () => {
+    const store = createChromePositionStore();
+    local.set.mockClear();
+    await store.write('https://example.com/contract', { wordIndex: 5, totalWords: 50 });
+    // The store calls set at least once (for the payload) and possibly
+    // twice (for the LRU index update). Every call must pass exactly ONE
+    // argument — the items Record. A second callback arg would indicate
+    // the callback API form was accidentally used.
+    expect(local.set).toHaveBeenCalled();
+    for (const call of local.set.mock.calls) {
+      expect(call.length).toBe(1);
+    }
+  });
 });

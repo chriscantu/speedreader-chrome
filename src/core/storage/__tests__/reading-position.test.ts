@@ -15,7 +15,6 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import {
-  POSITION_INDEX_KEY,
   POSITION_LRU_MAX,
   POSITION_SCHEMA_VERSION,
   positionKey,
@@ -23,6 +22,10 @@ import {
   type ReadingPositionStore,
   type StorageAdapter,
 } from '../reading-position';
+
+// TD2 — POSITION_INDEX_KEY is module-private; tests that inspect raw
+// storage must use the literal string instead of the exported constant.
+const POSITION_INDEX_KEY = 'position-index';
 
 /**
  * In-memory storage adapter. Uses a plain `Map<string, unknown>` and

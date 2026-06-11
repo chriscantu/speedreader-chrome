@@ -222,12 +222,12 @@ export interface OverlayOptions {
     onStartOver?: () => void;
   };
   /**
-   * Called on every `word` event with the post-emit progress index
-   * (1-based count of words consumed) and the active stream's total
-   * (#48). The host debounces and persists this value to
-   * `chrome.storage.local` so a later visit can resume. Optional —
-   * omitting it disables persistence; the overlay still operates
-   * normally.
+   * Called on every `word` or `chunk` event with the post-emit progress
+   * as a single object `{ index, total }`. `index` is the 1-based count
+   * of tokens consumed; `total` is the active stream length. The host
+   * debounces and persists this value to `chrome.storage.local` so a
+   * later visit can resume. Optional — omitting it disables persistence;
+   * the overlay still operates normally.
    *
    * Invoked only on full-scope mounts; selection-scope mounts do not
    * persist position because selection text does not survive
@@ -249,7 +249,7 @@ export interface OverlayOptions {
    * the raw stream directly). Host persistence keyed on this value
    * must use the same axis on both write and read.
    */
-  onWordAdvance?: (index: number, total: number) => void;
+  onWordAdvance?: (progress: { index: number; total: number }) => void;
   /**
    * Absolute URL of the bundled OpenDyslexic woff2 (#27, #10). The chrome
    * glue resolves this via `chrome.runtime.getURL('fonts/...')` and passes
