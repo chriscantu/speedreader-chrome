@@ -786,4 +786,31 @@ describe('createRsvpEngine — chunk mode (chunkSize >= 2)', () => {
       expect(afterProgress.index).toBe(afterProgress.total);
     });
   });
+
+  // Issue #118 — rescheduleRemaining is mode-agnostic and runs for
+  // chunk-mode setWpm too. Pin that elapsed-fraction preservation holds
+  // on the chunk axis (one tick = one chunk), not just word mode.
+  describe('setWpm mid-tick preserves elapsed fraction in chunk mode (#118)', () => {
+    it('halving the cadence mid-chunk fires the next chunk at the preserved remaining slice', () => {
+      const engine = createRsvpEngine({
+        words: ['a', 'b', 'c', 'd'],
+        wpm: 100, // 600 ms/chunk
+        chunkSize: 2,
+      });
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start(); // chunk 0 [a,b] at t=0, 600 ms beat
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ type: 'chunk', startIndex: 0, endIndex: 1 });
+
+      vi.advanceTimersByTime(300); // 50% through chunk 0
+      engine.setWpm(600); // 100 ms/chunk → remaining = 100 * 0.5 = 50 ms
+
+      vi.advanceTimersByTime(49);
+      expect(events).toHaveLength(1); // not yet — old code waited a fresh full beat
+      vi.advanceTimersByTime(1); // 50 ms after setWpm
+      expect(events).toHaveLength(2);
+      expect(events[1]).toMatchObject({ type: 'chunk', startIndex: 2, endIndex: 3 });
+    });
+  });
 });

@@ -136,6 +136,114 @@ describe('createRsvpEngine', () => {
     });
   });
 
+  // Issue #118 — a mid-tick setWpm must preserve the FRACTION of the
+  // current word already displayed, not discard it and restart a full
+  // beat at the new cadence. The old behavior (clearPending + full
+  // scheduleNext) cost up to a full msPerWord of jitter — at low WPM
+  // (the accessibility floor) that is the dominant perceived latency.
+  describe('setWpm mid-tick preserves elapsed fraction (#118)', () => {
+    it('AC#3: 100 wpm, 300 ms elapsed, setWpm(600) → next emission at ~50 ms not 100 ms', () => {
+      const engine = createRsvpEngine({ words: ['a', 'b', 'c'], wpm: 100 }); // 600 ms/word
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start(); // 'a' at t=0, 600 ms beat
+      expect(events).toHaveLength(1);
+
+      vi.advanceTimersByTime(300); // 50% through 'a'
+      engine.setWpm(600); // 100 ms/word → remaining = 100 * (1 - 0.5) = 50 ms
+
+      vi.advanceTimersByTime(49);
+      expect(events).toHaveLength(1); // not yet
+      vi.advanceTimersByTime(1); // 50 ms after setWpm
+      expect(events).toHaveLength(2);
+      expect(events[1]).toEqual({ type: 'word', index: 1, word: 'b' });
+    });
+
+    it('setWpm near the end of a slow beat fires almost immediately, not a fresh full beat', () => {
+      const engine = createRsvpEngine({ words: ['a', 'b'], wpm: 100 }); // 600 ms/word
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start();
+
+      vi.advanceTimersByTime(599); // 599/600 through 'a'
+      engine.setWpm(600); // remaining ≈ 100 * (1/600) ≈ 0.17 ms
+      vi.advanceTimersByTime(1); // next macrotask
+      expect(events).toHaveLength(2); // 'b' fired ~immediately; old code waited a full 100 ms
+    });
+
+    it('setWpm to the SAME wpm still preserves the in-flight beat (no reset)', () => {
+      const engine = createRsvpEngine({ words: ['a', 'b'], wpm: 300 }); // 200 ms/word
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start();
+
+      vi.advanceTimersByTime(150); // 75% through 'a'
+      engine.setWpm(300); // same cadence → remaining = 200 * 0.25 = 50 ms
+      vi.advanceTimersByTime(49);
+      expect(events).toHaveLength(1);
+      vi.advanceTimersByTime(1); // t = 200 total → 'b'
+      expect(events).toHaveLength(2);
+    });
+
+    it('repeated setWpm measures elapsed from the original emit, not the last reschedule', () => {
+      const engine = createRsvpEngine({ words: ['a', 'b'], wpm: 300 }); // 200 ms/word
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start(); // 'a' at t=0
+
+      vi.advanceTimersByTime(100); // 50% through 'a'
+      engine.setWpm(600); // 100 ms → remaining 50 ms (would fire t=150)
+      vi.advanceTimersByTime(20); // t=120 → fraction now 120/200 = 0.6
+      engine.setWpm(300); // 200 ms → remaining 200 * 0.4 = 80 ms (fires t=200)
+      vi.advanceTimersByTime(79);
+      expect(events).toHaveLength(1);
+      vi.advanceTimersByTime(1); // t=200 → 'b' at the word's true original deadline
+      expect(events).toHaveLength(2);
+    });
+
+    it('setWpm after resume measures elapsed from the RESUME baseline, not the original emit', () => {
+      const engine = createRsvpEngine({ words: ['a', 'b'], wpm: 300 }); // 200 ms/word
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start(); // 'a' at t=0
+      vi.advanceTimersByTime(100); // 50% through 'a'
+      engine.pause(); // beat cancelled mid-tick
+      engine.resume(); // fresh full beat: baseline resets to resume time
+      vi.advanceTimersByTime(100); // 50% through the RESUMED 200 ms beat
+      engine.setWpm(600); // 100 ms → remaining = 100 * (1 - 0.5) = 50 ms
+      // If the baseline had NOT reset on resume, elapsed would read 200 ms
+      // against the original t=0 emit → fraction clamps to 1 → 'b' immediately.
+      vi.advanceTimersByTime(49);
+      expect(events).toHaveLength(1); // discriminates: stale baseline would already be 2
+      vi.advanceTimersByTime(1);
+      expect(events).toHaveLength(2);
+      expect(events[1]).toEqual({ type: 'word', index: 1, word: 'b' });
+    });
+
+    it('setWpm mid-tick with punctuation pacing preserves the fraction on the multiplied gap', () => {
+      // 'Hi.' is sentence-final → 1.5× gap. The multiplier must survive the
+      // reschedule on BOTH the fraction denominator and the remaining slice.
+      const engine = createRsvpEngine({
+        words: ['Hi.', 'there'],
+        wpm: 100, // 600 ms base → 'Hi.' gap = 600 * 1.5 = 900 ms
+        punctuationPacing: true,
+      });
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start(); // 'Hi.' at t=0
+      expect(events).toHaveLength(1);
+
+      vi.advanceTimersByTime(450); // 50% through the 900 ms paced gap
+      engine.setWpm(600); // base 100 ms → new paced gap 150 ms → remaining 150 * 0.5 = 75 ms
+
+      vi.advanceTimersByTime(74);
+      expect(events).toHaveLength(1);
+      vi.advanceTimersByTime(1); // 75 ms after setWpm
+      expect(events).toHaveLength(2);
+      expect(events[1]).toEqual({ type: 'word', index: 1, word: 'there' });
+    });
+  });
+
   describe('stop', () => {
     it('moves to done and prevents further events', () => {
       const engine = createRsvpEngine({ words: ['a', 'b', 'c'], wpm: 300 });
