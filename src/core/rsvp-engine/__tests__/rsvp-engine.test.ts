@@ -200,6 +200,48 @@ describe('createRsvpEngine', () => {
       vi.advanceTimersByTime(1); // t=200 → 'b' at the word's true original deadline
       expect(events).toHaveLength(2);
     });
+
+    it('setWpm after resume measures elapsed from the RESUME baseline, not the original emit', () => {
+      const engine = createRsvpEngine({ words: ['a', 'b'], wpm: 300 }); // 200 ms/word
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start(); // 'a' at t=0
+      vi.advanceTimersByTime(100); // 50% through 'a'
+      engine.pause(); // beat cancelled mid-tick
+      engine.resume(); // fresh full beat: baseline resets to resume time
+      vi.advanceTimersByTime(100); // 50% through the RESUMED 200 ms beat
+      engine.setWpm(600); // 100 ms → remaining = 100 * (1 - 0.5) = 50 ms
+      // If the baseline had NOT reset on resume, elapsed would read 200 ms
+      // against the original t=0 emit → fraction clamps to 1 → 'b' immediately.
+      vi.advanceTimersByTime(49);
+      expect(events).toHaveLength(1); // discriminates: stale baseline would already be 2
+      vi.advanceTimersByTime(1);
+      expect(events).toHaveLength(2);
+      expect(events[1]).toEqual({ type: 'word', index: 1, word: 'b' });
+    });
+
+    it('setWpm mid-tick with punctuation pacing preserves the fraction on the multiplied gap', () => {
+      // 'Hi.' is sentence-final → 1.5× gap. The multiplier must survive the
+      // reschedule on BOTH the fraction denominator and the remaining slice.
+      const engine = createRsvpEngine({
+        words: ['Hi.', 'there'],
+        wpm: 100, // 600 ms base → 'Hi.' gap = 600 * 1.5 = 900 ms
+        punctuationPacing: true,
+      });
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start(); // 'Hi.' at t=0
+      expect(events).toHaveLength(1);
+
+      vi.advanceTimersByTime(450); // 50% through the 900 ms paced gap
+      engine.setWpm(600); // base 100 ms → new paced gap 150 ms → remaining 150 * 0.5 = 75 ms
+
+      vi.advanceTimersByTime(74);
+      expect(events).toHaveLength(1);
+      vi.advanceTimersByTime(1); // 75 ms after setWpm
+      expect(events).toHaveLength(2);
+      expect(events[1]).toEqual({ type: 'word', index: 1, word: 'there' });
+    });
   });
 
   describe('stop', () => {

@@ -388,6 +388,16 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
   // elapsed time and restarted a whole beat. `wordStartedAt` / `wordFullDelay`
   // are left at the word's original emit baseline so repeated reschedules
   // accumulate correctly rather than resetting the clock each call.
+  //
+  // Clock assumption: elapsed is measured against `Date.now()` (wall clock),
+  // while the gap is armed via `setTimeout` (the runtime's macrotask clock).
+  // These are coherent in the foreground. In a backgrounded/suspended tab —
+  // where `setTimeout` is throttled but the wall clock keeps advancing — the
+  // fraction can read high and is clamped to `[0,1]`, so the worst case is a
+  // word firing on the next (already-throttled) tick. That is strictly no
+  // worse than the old full-beat-restart and is invisible to a reader who
+  // isn't looking at a background tab; the engine lives in `src/core` and
+  // cannot read `document.visibilityState` to gate on foreground. Accepted.
   const rescheduleRemaining = (): void => {
     if (timerId === null || wordStartedAt === null) {
       scheduleNext();
