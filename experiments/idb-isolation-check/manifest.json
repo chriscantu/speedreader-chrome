@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "IDB isolation + sender.url check (#196)",
+  "version": "0.0.1",
+  "description": "Reproducer for spec 2026-06-11-position-store-service-worker §Empirical Precondition. Verifies (1) a content script cannot open the extension-origin IndexedDB 'speedreader-positions' (oldVersion===0), with the popup inverse RPC confirming the shared chrome-extension://<id> namespace; (2) sender.url is populated for a CS->SW message without the tabs permission and equals the top-frame page URL, with the about:blank opaque-origin path hard-rejected; (3) (manual) chrome.storage.session does not survive a real browser restart.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "action": {
+    "default_title": "IDB-isolation reproducer — click to open the inverse-RPC popup",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "all_frames": true,
+      "match_about_blank": true,
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

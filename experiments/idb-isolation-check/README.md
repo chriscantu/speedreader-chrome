@@ -1,0 +1,228 @@
+# IDB-isolation + `sender.url` Reproducer — `experiments/idb-isolation-check/`
+
+Empirical precondition for the SW-owned reading-position store spec
+([`docs/superpowers/specs/2026-06-11-position-store-service-worker.md`](../../docs/superpowers/specs/2026-06-11-position-store-service-worker.md)
+§Empirical Precondition). This reproducer **gates the merge of the spec PR (#232)**:
+the spec flips `Status: Proposed` → `Accepted` only when checks 1 and 2 pass; check 3
+gates the rejection of the cheaper `chrome.storage.session` + `setAccessLevel`
+alternative. No implementation PR dispatches until the load-bearing checks pass.
+
+## Questions this answers
+
+1. **Can a content script (host-page origin) open the extension-origin IndexedDB
+   `speedreader-positions` the SW owns?** It must NOT — that's the storage-layer
+   teeth of the spec's cross-origin-enumeration fix.
+   - **PASS** → backend decision (extension-origin IDB) holds. CS sees only its own
+     page's origin; popup (same `chrome-extension://<id>` origin as the SW) sees the
+     SW's records.
+   - **FAIL** → backend decision is void; spec returns to Solution Design.
+2. **Is `sender.url` populated for a CS→SW message under `activeTab` WITHOUT the
+   `tabs` permission, and does it equal the top-frame page URL?** This is the
+   security invariant: a CS's reach is pinned to `sender.url` (its own page), never a
+   payload URL — so enumeration is structurally impossible.
+   - **PASS** → the URL-binding invariant is sound on the proposed permission set.
+   - **FAIL** → binding falls back to `sender.tab.url`, forcing the `tabs` permission
+     (its own privacy review) or a CS-supplied-then-validated URL scheme.
+3. **Does `chrome.storage.session` survive a real browser restart?** It must NOT —
+   the entire IDB direction is justified by `session` losing data on restart (the
+   cheaper `session` + `setAccessLevel('TRUSTED_CONTEXTS')` alternative would
+   otherwise close the same enumeration threat on Chrome 112+).
+   - **`session` absent after restart (expected)** → IDB direction confirmed.
+   - **`session` survives restart** → rejection is void; the cheaper `session` path
+     re-opens and the spec returns to Solution Design before any impl.
+
+## Manifest
+
+The reproducer uses the SAME least-privilege permission set the spec proposes:
+
+```
+"permissions": ["activeTab", "scripting", "storage"]
+```
+
+Justification (per spec §Least-privilege framing):
+
+- **`activeTab`** — the gesture grant the reader is injected under; the CS runs in
+  proximity to untrusted page content.
+- **`scripting`** — present in the proposed set (lazy-injection path); the reproducer
+  declares a `content_scripts` entry to exercise the `sender.url` path without a
+  gesture (see Automation scope / check 2).
+- **`storage`** — needed for `chrome.storage.session` (check 3) and for the SW to
+  stash the latest sender-probe so the automated suite can read it deterministically.
+- **NO `tabs`** — deliberately excluded. Check 2's whole point is that `sender.url` is
+  populated _without_ `tabs`. T1 asserts `tabs` stays out of the set; a regression
+  that re-adds it is caught.
+
+`content_scripts` matches `http://*/*` + `https://*/*` with `match_about_blank: true`
+(for the check-2 opaque-origin path) and `all_frames: true`. The `action.default_popup`
+drives the check-1 inverse RPC.
+
+## How to run
+
+### Automated (checks 1, 2 — the merge-gating pair)
+
+```
+npm run test:idb
+```
+
+(Wraps `npx playwright test --config experiments/idb-isolation-check/playwright.config.ts`.)
+Runs headed Chromium with the extension loaded via `--load-extension`, serves a
+local-only fixture on `127.0.0.1` (no network), and asserts T1–T3 plumbing + C1a/C1b
+(origin isolation + popup inverse) + C2a/C2b (`sender.url` + about:blank reject).
+
+### Manual (check 3 — real browser restart; checks 1/2 console smoke)
+
+1. **Open Chrome.** Tested floor: Chrome 112+ (`setAccessLevel('TRUSTED_CONTEXTS')`
+   availability; `chrome.storage.session` cleared-on-restart semantics).
+2. `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select this
+   directory (`experiments/idb-isolation-check/`).
+3. Open the SW DevTools: extension card → **Inspect views: service worker**. You
+   should see:
+   - `[idb] background.js loaded — DB: speedreader-positions store: positions`
+   - `[idb] SW sentinel written to speedreader-positions -> position:https://sentinel.example/`
+   - `[session] check-3 sentinel written to chrome.storage.session`
+4. **Check 1 (CS isolation):** open `http://127.0.0.1:<port>/` (or any `https://`
+   page) and open the **page** DevTools console. Look for:
+   - `[content][check1] page-origin IDB probe: {"upgradeFired":true,"oldVersion":0,"sawSentinel":false} ...`
+     → PASS (page origin does not see the SW DB).
+   - **Check 1 inverse:** click the toolbar icon to open the popup; it should read
+     `PASS — popup sees the SW sentinel (shared namespace)`.
+5. **Check 2 (`sender.url`):** in the SW DevTools console, on the same page load, look
+   for `[sender] position/get { 'sender.url': 'http://127.0.0.1:<port>/', 'sender.frameId': 0, ... }`.
+   Confirm `sender.url` equals the page URL and `frameId === 0`. Then open
+   `about:blank` in a tab and watch for
+   `[guard] REJECT position/get — null/opaque-origin sender.url: about:blank`.
+6. **Check 3 (restart survival) — the load-bearing manual step:**
+   1. Confirm `[session] check-3 sentinel written…` appeared (step 3).
+   2. In the SW DevTools console, confirm the value is present:
+      `chrome.storage.session.get('session-sentinel').then(console.log)` → an object.
+   3. **Fully quit Chrome** — `Cmd+Q` (macOS) / fully exit, not just close the window.
+      Wait a few seconds for the browser process to terminate.
+   4. **Relaunch Chrome.** Re-open the SW DevTools (you may need to trigger the SW by
+      reloading the extension or visiting a page).
+   5. In the SW console run `chrome.storage.session.get('session-sentinel').then(console.log)`.
+      - **Expected PASS:** the result is `{}` (empty) — `session` did NOT survive the
+        restart, confirming the spec's rejection of the `session` alternative.
+      - **FAIL:** the sentinel object is still present — `session` survived; the
+        rejection is void, re-open Solution Design.
+
+## Expected output (automated suite)
+
+### PASS
+
+```
+  ✓ T1 — manifest declares the spec permission set, content_scripts, popup
+  ✓ T2 — SW opens the extension-origin IDB and writes the sentinel
+  ✓ T3 — SW registered the onMessage listener (plumbing)
+  ✓ C1a — content/page origin cant open the SW IDB (oldVersion === 0, no sentinel)
+  ✓ C1b — popup position/list returns the SW sentinel (shared extension-origin namespace)
+  ✓ C2a — declared CS gets sender.url == page URL, frameId === 0, without tabs perm
+  ✓ C2b — about:blank top frame -> sender.url canonicalizes null -> handler rejects
+
+  7 passed
+```
+
+### FAIL signatures to watch for
+
+- **C1a** `Expected: 0 / Received: 1` on `oldVersion` → the page origin somehow shares
+  the SW's IDB. This would VOID the backend decision. Investigate before trusting it.
+- **C2a** `sender.url` empty / `undefined` → `sender.url` is NOT populated on the
+  proposed permission set; check-2 FAIL, binding must fall back to `sender.tab.url`.
+- **C2a** `frameId !== 0` → the message came from a sub-frame; the top-frame invariant
+  the gate relies on does not hold for this path.
+- **C2b** `about:blank` canonicalized to non-null → the opaque-origin guard is missing
+  the `null`-key poisoning path the spec requires.
+
+## Reporting the outcome
+
+Paste results into the spec's **§Empirical Precondition** before merge, plus the Chrome
+version (`chrome://version` → first line).
+
+### Check 1 — IDB origin isolation + popup inverse  ·  status: **AUTOMATED**
+
+Fill from `npm run test:idb` (C1a + C1b) — record PASS/FAIL and the suite tail.
+
+```
+oldVersion (page origin): ____   sawSentinel (page): ____   popup position/list saw sentinel: ____
+```
+
+### Check 2 — `sender.url` population + about:blank reject  ·  status: **AUTOMATED**
+
+Fill from `npm run test:idb` (C2a + C2b).
+
+```
+sender.url == page URL: ____   frameId === 0: ____   tabs perm present: NO
+about:blank canonicalizes null (reject): ____
+```
+
+### Check 3 — `chrome.storage.session` restart survival  ·  status: **UNVERIFIED — awaiting manual run**
+
+> **This callout is UNVERIFIED.** It requires a real OS-level Chrome quit+relaunch
+> (Playwright context teardown is NOT equivalent — see §Why check 3 stays manual). Do
+> NOT record a PASS here from the automated suite. Fill after the manual restart run:
+
+```
+Chrome version:                 ____
+session-sentinel before quit:   ____  (expected: present)
+session-sentinel after relaunch: ____  (expected: ABSENT / {})
+Verdict (session cleared on restart → IDB direction confirmed):  PASS / FAIL  ____
+```
+
+## Automation scope
+
+| Check | What it verifies | Coverage |
+|-------|------------------|----------|
+| **T1** | Manifest = proposed set (`activeTab`+`scripting`+`storage`, NO `tabs`) + content_scripts + popup | Full |
+| **T2** | SW opens extension-origin IDB and writes the sentinel | Full |
+| **T3** | SW registered the `onMessage` listener (plumbing) | Plumbing only |
+| **C1a** | Page-origin `indexedDB.open('speedreader-positions')` → `oldVersion === 0`, no sentinel | **Full (automated)** |
+| **C1b** | Popup-equivalent `position/list` RPC returns the SW sentinel (shared namespace) | **Full (automated)** |
+| **C2a** | **Declared** CS → SW `sender.url` == page URL, `frameId === 0`, no `tabs` perm | **Full (automated)** |
+| **C2b** | `about:blank` opaque-origin → `sender.url` canonicalizes null → handler rejects | **Full (automated)** |
+| Check 2 (activeTab-**injected** CS variant) | `scripting.executeScript`-injected CS gets `sender.url` on the gesture path | **Manual** |
+| **Check 3** | `chrome.storage.session` cleared by a REAL browser restart | **Manual** |
+
+## Why check 3 stays manual
+
+`chrome.storage.session` is an in-memory area held in the **browser process** and
+cleared when that process shuts down. The claim under test is precisely "a real
+browser restart clears it." Playwright's `context.close()` + relaunch on a persistent
+context is **not a reliable proxy** for an OS-level Chrome quit: the persistent-context
+teardown does not exercise Chrome's session-restore / process-lifecycle path the same
+way a user `Cmd+Q` + relaunch does, and asserting absence after a Playwright teardown
+could record a PASS for the wrong reason (or a flaky FAIL). Because this rejection is
+**load-bearing** — it is the single fact justifying the entire IDB direction over the
+cheaper `session` + `setAccessLevel` change — a fabricated or proxy PASS here is the
+exact expensive-rollback risk the empirical-precondition section exists to prevent. So
+check 3 is a structured manual callout, left UNVERIFIED until a human runs the real
+quit+relaunch. The automated suite covers the SW-side plumbing (the `session` write
+fires; T2/T3 prove the SW boots) but never claims the restart result.
+
+## Why the activeTab-injected CS variant of check 2 stays manual
+
+Check 2's load-bearing claim — `sender.url` is populated for an extension-internal CS
+message without `tabs` — holds for **any** content script, and a **declared**
+`content_scripts` entry exercises it with no gesture (C2a/C2b, automated). The spec's
+phrasing "injected via `activeTab`" additionally implies the `scripting.executeScript`
+injection path, whose grant requires a real user gesture dispatched by the browser
+process. Playwright's `serviceWorker.evaluate()` lacks gesture provenance (the same
+browser-process invariant that makes the sibling D10 reproducer's T4 manual). The
+declared-CS path proves the `sender.url` property the security invariant rests on;
+the gesture-injected variant is a once-per-Chrome-major-version manual smoke and does
+not change the check-2 verdict.
+
+## Why this experiment lives in-repo
+
+Per spec §Empirical Precondition, the result must be cited in the spec before merge.
+An in-repo reproducer (rather than an external gist or "I tried it once") survives:
+
+- Future Chrome behavior changes (re-run on a newer Chrome to confirm the assumption).
+- Maintainer turnover (the next person to touch #196 doesn't re-derive the question).
+- Memory rot (stored platform-behavior claims decay; reproducers don't).
+
+## When to delete this directory
+
+Once the spec is `Status: Accepted` (checks 1 + 2 recorded PASS, check 3 manual PASS
+recorded) AND the position-store spec is implemented in `src/chrome/`, this experiment
+can be deleted — its job is done. Until then, keep it. A future Chrome breakage on IDB
+origin isolation, `sender.url` population, or `session` restart semantics should
+re-open this directory, not start over.

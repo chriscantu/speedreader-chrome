@@ -203,6 +203,19 @@ Two facts are load-bearing. The entire backend decision is void if either fails,
 
 Reproducer lives at `experiments/idb-isolation-check/`. If (1) fails, the backend decision is void and the spec returns to Solution Design. If (2) fails, the binding falls back to `sender.tab.url` and the spec must add the `tabs` permission (with its own privacy review) or a CS-supplied-then-SW-validated URL scheme. If (3) fails (`session` survives restart), the `session` + `setAccessLevel` path may be sufficient and the IDB direction is re-opened before any impl.
 
+### Reproducer Outcome (recorded in-PR before the Accepted flip)
+
+Harness: `experiments/idb-isolation-check/`. Automated suite: `npm run test:idb` — **7/7 passing** (Chromium via Playwright `--load-extension`). A red-check (forcing C2a's expected URL to a wrong value → failure with `Received: "http://127.0.0.1:.../"`) confirmed the `sender.url` assertion is live, not vacuously passing on `undefined`.
+
+| Check | Method | Status | Evidence |
+|---|---|---|---|
+| **1 — CS cannot open extension-origin IDB** | Automated (structural; gesture-independent) | **PASS** | `C1a`: page/CS-origin `indexedDB.open('speedreader-positions')` fires `onupgradeneeded` with `oldVersion === 0` and reads no sentinel. `C1b` (inverse): popup `position/list` RPC returns the SW-written sentinel — popup + SW share `chrome-extension://<id>`. Both directions hold. |
+| **2 — `sender.url` populated under `activeTab`, no `tabs` perm** | Automated (declared CS path) | **PASS** | `C2a`: `sender.url` == page URL, `frameId === 0`, manifest carries no `tabs`. `C2b`: `about:blank`/`data:`/`undefined` canonicalize to `null` → handler hard-rejects (no silent write), per §Sender-URL Binding. |
+| **2′ — `activeTab`-`executeScript`-injected CS variant** | **Manual** (gesture-provenance; same limit as the D10 reproducer's T4) | **UNVERIFIED** | Once-per-Chrome-major smoke. Load-bearing claim already covered by C2a; this variant does not gate merge. |
+| **3 — `chrome.storage.session` does NOT survive restart** | **Manual** (real OS-level Chrome quit+relaunch; Playwright context teardown is not equivalent) | **UNVERIFIED — gates merge** | See README §Why check 3 stays manual + structured outcome callout. A proxy PASS here is the exact fabrication risk to avoid; left for a human restart run. |
+
+**Merge gate status: NOT cleared.** Checks 1 and 2 (automated, load-bearing) PASS. Check 3 is irreducibly manual and remains UNVERIFIED — the spec stays `Status: Proposed` and no implementation PR dispatches until a human records the restart outcome in the README callout and here. If check 3 shows `session` surviving restart, §The Core Decision reopens before any impl.
+
 ## Code Layout
 
 ```
