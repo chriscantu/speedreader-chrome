@@ -76,23 +76,42 @@ dbPromise
   .then(() => console.log('[idb] SW sentinel written to', DB_NAME, '->', SENTINEL_KEY))
   .catch((err) => console.error('[idb] FAIL: SW could not write sentinel:', err));
 
-// chrome.storage.session sentinel — check 3 (restart survival). Written here so a
-// manual run can quit+relaunch and inspect whether it persists. setAccessLevel is
-// the cheaper-alternative knob the spec rejects; we mirror its intended config so
-// the manual restart test exercises the same area the rejection rests on.
+// chrome.storage.session — check 3 (restart survival). setAccessLevel is the
+// cheaper-alternative knob the spec rejects; we still exercise it on every SW wake
+// (it's the config the rejection rests on), but it does NOT write the sentinel.
+//
+// METHODOLOGY FIX: the sentinel is NO LONGER written at SW top-level. Opening ANY
+// extension context (SW DevTools OR the popup) wakes the SW -> reruns this module ->
+// would re-write the sentinel with a fresh timestamp, making it impossible to tell
+// "session cleared on shutdown" from "session survived" after a real restart. The
+// write now happens ONLY via the explicit `session/write-sentinel` message handler
+// below, so a post-restart read observes the true cleared/survived state.
 try {
   chrome.storage.session.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(() => {});
-  chrome.storage.session
-    .set({
-      'session-sentinel': {
-        writtenAt: Date.now(),
-        note: 'check-3: should be ABSENT after a real browser restart',
-      },
-    })
-    .then(() => console.log('[session] check-3 sentinel written to chrome.storage.session'))
-    .catch((err) => console.error('[session] FAIL writing session sentinel:', err));
+  console.log('[session] setAccessLevel(TRUSTED_CONTEXTS) requested (no sentinel written on wake)');
 } catch (err) {
   console.error('[session] storage.session unavailable:', err);
+}
+
+const SESSION_SENTINEL_KEY = 'session-sentinel';
+
+async function writeSessionSentinel() {
+  const writtenAt = Date.now();
+  await chrome.storage.session.set({
+    [SESSION_SENTINEL_KEY]: {
+      writtenAt,
+      note: 'check-3: should be ABSENT after a real cold restart',
+    },
+  });
+  return writtenAt;
+}
+
+async function readSessionSentinel() {
+  const got = await chrome.storage.session.get(SESSION_SENTINEL_KEY);
+  const value = got[SESSION_SENTINEL_KEY] ?? null;
+  const present = Boolean(value);
+  const deltaSec = present ? Math.round((Date.now() - value.writtenAt) / 1000) : null;
+  return { present, value, deltaSec };
 }
 
 // --- canonicalizer + null/opaque-origin guard (§Sender-URL Binding) ---
@@ -154,6 +173,36 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     void (async () => {
       const all = await idbGetAll();
       sendResponse(ok(all));
+    })();
+    return true;
+  }
+
+  if (type === 'session/write-sentinel') {
+    // The ONLY place the check-3 sentinel is written. Triggered explicitly from the
+    // popup so a manual quit+relaunch can observe whether session survives — never on
+    // a bare SW wake (which would re-stamp a fresh timestamp and mask the verdict).
+    void (async () => {
+      try {
+        const writtenAt = await writeSessionSentinel();
+        console.log('[session] check-3 sentinel WRITTEN via session/write-sentinel:', writtenAt);
+        sendResponse(ok({ writtenAt }));
+      } catch (e) {
+        sendResponse(err(String(e)));
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'session/read-sentinel') {
+    // Read-only. Does NOT write. After a real cold restart this MUST report absent.
+    void (async () => {
+      try {
+        const result = await readSessionSentinel();
+        console.log('[session] check-3 sentinel READ via session/read-sentinel:', result);
+        sendResponse(ok(result));
+      } catch (e) {
+        sendResponse(err(String(e)));
+      }
     })();
     return true;
   }

@@ -21,6 +21,10 @@ import type { AddressInfo } from 'node:net';
 //          permission, equals the top-frame page URL, frameId === 0.
 //   C2b — about:blank opaque-origin top frame -> sender.url canonicalizes to
 //          null -> handler hard-rejects (no silent write).
+//   C3-plumbing — the session/write-sentinel + session/read-sentinel handlers work
+//          IN-SESSION: a write-free SW wake reads ABSENT (auto-write removed — the
+//          methodology fix), and an explicit write round-trips through read. This is
+//          PLUMBING ONLY — the real cold-restart verdict stays MANUAL.
 //
 // MANUAL (cannot be faked from Playwright — see README §Why check 3 stays manual,
 // §activeTab-injection nuance):
@@ -286,6 +290,68 @@ test('C2b — about:blank top frame -> sender.url canonicalizes null -> handler 
   expect(verdict.undef, 'undefined sender.url must canonicalize to null').toBeNull();
   expect(verdict.http, 'a real http URL must NOT be null (control)').not.toBeNull();
   await page.close();
+});
+
+test('C3-plumbing — explicit session/write then read returns the value; a write-free wake reads ABSENT', async () => {
+  // IN-SESSION plumbing only — this CANNOT simulate a real cold boot (see README
+  // §Why check 3 stays manual). The real cleared/survived verdict stays MANUAL.
+  // What this proves:
+  //   (a) a FRESH read (popup just opened, SW woke, NO write triggered) reads ABSENT —
+  //       i.e. opening the popup / waking the SW no longer auto-writes the sentinel
+  //       (the methodology fix this test exists to lock in);
+  //   (b) the explicit session/write-sentinel -> session/read-sentinel round-trip
+  //       returns the written value with a computed deltaSec.
+  const extensionId = serviceWorker.url().split('/')[2];
+
+  // Clear any residual session state from earlier tests so (a) is a true fresh read.
+  await serviceWorker.evaluate(() => chrome.storage.session.remove('session-sentinel'));
+
+  const popup = await context.newPage();
+  await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+  // Opening the popup woke the SW (reran background.js top-level). Assert that wake
+  // did NOT write the sentinel: a read must report ABSENT before any Write click.
+  await expect(popup.locator('#verdict')).toContainText('PASS', { timeout: 10_000 });
+
+  const freshRead = (await popup.evaluate(() => {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'session/read-sentinel' }, (resp) => resolve(resp));
+    });
+  })) as { ok?: boolean; value?: { present?: boolean; deltaSec?: number | null } };
+
+  expect(freshRead.ok, 'read RPC must succeed').toBe(true);
+  expect(
+    freshRead.value?.present,
+    'a write-free SW wake must NOT have written the sentinel (auto-write removed)',
+  ).toBe(false);
+  expect(freshRead.value?.deltaSec, 'absent sentinel -> deltaSec null').toBeNull();
+
+  // Now the explicit write -> read round-trip.
+  const writeResp = (await popup.evaluate(() => {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'session/write-sentinel' }, (resp) => resolve(resp));
+    });
+  })) as { ok?: boolean; value?: { writtenAt?: number } };
+  expect(writeResp.ok, 'write RPC must succeed').toBe(true);
+  expect(typeof writeResp.value?.writtenAt, 'write returns a writtenAt timestamp').toBe('number');
+
+  const readResp = (await popup.evaluate(() => {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'session/read-sentinel' }, (resp) => resolve(resp));
+    });
+  })) as {
+    ok?: boolean;
+    value?: { present?: boolean; deltaSec?: number | null; value?: { writtenAt?: number } };
+  };
+  expect(readResp.ok, 'read-after-write RPC must succeed').toBe(true);
+  expect(readResp.value?.present, 'sentinel present after explicit write').toBe(true);
+  expect(readResp.value?.value?.writtenAt, 'read echoes the written timestamp').toBe(
+    writeResp.value?.writtenAt,
+  );
+  expect(typeof readResp.value?.deltaSec, 'present sentinel -> numeric deltaSec').toBe('number');
+
+  // Cleanup so the residual write doesn't leak into other tests.
+  await serviceWorker.evaluate(() => chrome.storage.session.remove('session-sentinel'));
+  await popup.close();
 });
 
 async function pollSenderProbe(sw: Worker): Promise<{

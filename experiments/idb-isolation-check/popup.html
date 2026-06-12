@@ -32,6 +32,20 @@
         color: #c5221f;
         font-weight: 600;
       }
+      hr {
+        border: none;
+        border-top: 1px solid #ddd;
+        margin: 16px 0;
+      }
+      button {
+        font: inherit;
+        padding: 6px 10px;
+        margin: 0 6px 8px 0;
+        cursor: pointer;
+      }
+      .muted {
+        color: #5f6368;
+      }
     </style>
   </head>
   <body>
@@ -43,6 +57,23 @@
     </p>
     <div id="verdict">running…</div>
     <pre id="out"></pre>
+
+    <hr />
+
+    <h1>Check 3 — session survival across a real cold restart</h1>
+    <p class="muted">
+      The sentinel is written <strong>only</strong> when you click <em>Write</em> — opening this
+      popup no longer writes it (methodology fix). To test: click <strong>Write</strong>, fully quit
+      Chrome (Cmd+Q), relaunch, open this popup, click <strong>Read</strong>. ABSENT = PASS
+      (cleared); PRESENT = SURVIVED/FAIL.
+    </p>
+    <div>
+      <button id="write-session" type="button">Write session sentinel</button>
+      <button id="read-session" type="button">Read session sentinel</button>
+    </div>
+    <div id="session-verdict" class="muted">no action yet</div>
+    <pre id="session-out"></pre>
+
     <script src="popup.js"></script>
   </body>
 </html>

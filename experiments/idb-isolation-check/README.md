@@ -79,7 +79,9 @@ local-only fixture on `127.0.0.1` (no network), and asserts T1–T3 plumbing + C
    should see:
    - `[idb] background.js loaded — DB: speedreader-positions store: positions`
    - `[idb] SW sentinel written to speedreader-positions -> position:https://sentinel.example/`
-   - `[session] check-3 sentinel written to chrome.storage.session`
+   - `[session] setAccessLevel(TRUSTED_CONTEXTS) requested (no sentinel written on wake)`
+     — note the session sentinel is **no longer** written at SW boot (methodology fix,
+     see check 3 below).
 4. **Check 1 (CS isolation):** open `http://127.0.0.1:<port>/` (or any `https://`
    page) and open the **page** DevTools console. Look for:
    - `[content][check1] page-origin IDB probe: {"upgradeFired":true,"oldVersion":0,"sawSentinel":false} ...`
@@ -92,18 +94,44 @@ local-only fixture on `127.0.0.1` (no network), and asserts T1–T3 plumbing + C
    `about:blank` in a tab and watch for
    `[guard] REJECT position/get — null/opaque-origin sender.url: about:blank`.
 6. **Check 3 (restart survival) — the load-bearing manual step:**
-   1. Confirm `[session] check-3 sentinel written…` appeared (step 3).
-   2. In the SW DevTools console, confirm the value is present:
-      `chrome.storage.session.get('session-sentinel').then(console.log)` → an object.
+
+   > **Methodology fix (why the flow changed).** Previously `background.js` wrote the
+   > session sentinel at SW top-level on every wake. Opening **any** extension context —
+   > SW DevTools **or** the popup — wakes the SW, reruns `background.js`, and re-stamps
+   > the sentinel with a fresh `writtenAt`. After a real restart the relaunched SW would
+   > repopulate the value **before you could observe it cleared**, making "cleared on
+   > shutdown" indistinguishable from "survived." The fix: the sentinel is written
+   > **only** via an explicit `session/write-sentinel` trigger (the popup's **Write**
+   > button), and **reading no longer writes**. `setAccessLevel('TRUSTED_CONTEXTS')` is
+   > still called on every wake (it's the config the spec's rejection rests on) — it just
+   > no longer writes the sentinel. So even if you open SW DevTools first, the value is
+   > not rewritten.
+
+   1. **Cold-vs-restore distinction (read first).** Chrome's *Continue where you left off*
+      restore-on-startup keeps the prior session — including `chrome.storage.session` and
+      often the SW itself — alive across a relaunch, so a sentinel surviving that is
+      **expected** and proves nothing. The decisive test is a **non-restore** startup: set
+      `chrome://settings` → On startup → **Open the New Tab page** before testing, so a
+      relaunch is a true **cold** session boundary. (A manual Chrome 138 run with
+      restore-on-startup showed the sentinel surviving with a ~452s-old `writtenAt`
+      precisely because session-restore kept the SW alive and it never reran the write —
+      that's the restore path, not a cold boundary.)
+   2. **Write the sentinel.** Click the toolbar icon to open the popup → in the **Check 3**
+      section click **Write session sentinel**. It shows `Written — writtenAt <time>`.
+      This is the only thing that writes the sentinel.
    3. **Fully quit Chrome** — `Cmd+Q` (macOS) / fully exit, not just close the window.
       Wait a few seconds for the browser process to terminate.
-   4. **Relaunch Chrome.** Re-open the SW DevTools (you may need to trigger the SW by
-      reloading the extension or visiting a page).
-   5. In the SW console run `chrome.storage.session.get('session-sentinel').then(console.log)`.
-      - **Expected PASS:** the result is `{}` (empty) — `session` did NOT survive the
-        restart, confirming the spec's rejection of the `session` alternative.
-      - **FAIL:** the sentinel object is still present — `session` survived; the
-        rejection is void, re-open Solution Design.
+   4. **Relaunch Chrome.** Do **not** open the SW DevTools first (not required, and even if
+      you do it no longer rewrites the sentinel).
+   5. **Read the sentinel.** Open the popup → click **Read session sentinel**. Interpret the
+      verdict it renders:
+      - **ABSENT / `{}` → PASS:** `session` did NOT survive the restart, confirming the
+        spec's rejection of the `session` alternative.
+      - **PRESENT → SURVIVED / FAIL:** the sentinel is still there. A **large** `delta`
+        spanning the quit = genuine survival → the rejection is void, re-open Solution
+        Design. A **small** delta would mean the SW re-wrote on wake — that should no
+        longer happen now that auto-write is removed; if you see it, surface it (the
+        methodology fix regressed).
 
 ## Expected output (automated suite)
 
@@ -117,9 +145,15 @@ local-only fixture on `127.0.0.1` (no network), and asserts T1–T3 plumbing + C
   ✓ C1b — popup position/list returns the SW sentinel (shared extension-origin namespace)
   ✓ C2a — declared CS gets sender.url == page URL, frameId === 0, without tabs perm
   ✓ C2b — about:blank top frame -> sender.url canonicalizes null -> handler rejects
+  ✓ C3-plumbing — explicit session/write then read returns the value; a write-free wake reads ABSENT
 
-  7 passed
+  8 passed
 ```
+
+`C3-plumbing` is **plumbing only** — it proves the new `session/write-sentinel` /
+`session/read-sentinel` handlers work in-session and that a write-free SW wake reads
+ABSENT (the methodology fix). It does **NOT** prove the cold-restart verdict; that
+stays manual (see §Why check 3 stays manual).
 
 ### FAIL signatures to watch for
 
@@ -157,13 +191,19 @@ about:blank canonicalizes null (reject): ____
 ### Check 3 — `chrome.storage.session` restart survival  ·  status: **UNVERIFIED — awaiting manual run**
 
 > **This callout is UNVERIFIED.** It requires a real OS-level Chrome quit+relaunch
-> (Playwright context teardown is NOT equivalent — see §Why check 3 stays manual). Do
-> NOT record a PASS here from the automated suite. Fill after the manual restart run:
+> (Playwright context teardown is NOT equivalent — see §Why check 3 stays manual). The
+> automated `C3-plumbing` test proves the handlers work in-session but does NOT and
+> cannot record the cold-restart verdict — do NOT record a PASS here from the suite.
+> Run the explicit Write → Cmd+Q → relaunch → Read flow (§How to run, manual step 6),
+> with **restore-on-startup OFF** (Open the New Tab page) so the relaunch is a true cold
+> boundary, then fill:
 
 ```
 Chrome version:                 ____
-session-sentinel before quit:   ____  (expected: present)
-session-sentinel after relaunch: ____  (expected: ABSENT / {})
+Startup mode (must be non-restore / New Tab page): ____
+session-sentinel after Write (before quit):   ____  (expected: present)
+session-sentinel after relaunch + Read:       ____  (expected: ABSENT / {})
+delta on relaunch read (large=survival, small=re-write regression): ____
 Verdict (session cleared on restart → IDB direction confirmed):  PASS / FAIL  ____
 ```
 
@@ -178,8 +218,9 @@ Verdict (session cleared on restart → IDB direction confirmed):  PASS / FAIL  
 | **C1b** | Popup-equivalent `position/list` RPC returns the SW sentinel (shared namespace) | **Full (automated)** |
 | **C2a** | **Declared** CS → SW `sender.url` == page URL, `frameId === 0`, no `tabs` perm | **Full (automated)** |
 | **C2b** | `about:blank` opaque-origin → `sender.url` canonicalizes null → handler rejects | **Full (automated)** |
+| **C3-plumbing** | `session/write-sentinel` + `session/read-sentinel` round-trip in-session; a write-free SW wake reads ABSENT (auto-write removed) | **Plumbing only (automated)** |
 | Check 2 (activeTab-**injected** CS variant) | `scripting.executeScript`-injected CS gets `sender.url` on the gesture path | **Manual** |
-| **Check 3** | `chrome.storage.session` cleared by a REAL browser restart | **Manual** |
+| **Check 3** | `chrome.storage.session` cleared by a REAL browser restart (explicit Write → Cmd+Q → Read; non-restore startup) | **Manual** |
 
 ## Why check 3 stays manual
 
@@ -194,8 +235,22 @@ could record a PASS for the wrong reason (or a flaky FAIL). Because this rejecti
 cheaper `session` + `setAccessLevel` change — a fabricated or proxy PASS here is the
 exact expensive-rollback risk the empirical-precondition section exists to prevent. So
 check 3 is a structured manual callout, left UNVERIFIED until a human runs the real
-quit+relaunch. The automated suite covers the SW-side plumbing (the `session` write
-fires; T2/T3 prove the SW boots) but never claims the restart result.
+quit+relaunch. The automated suite covers the SW-side plumbing only:
+`C3-plumbing` proves the `session/write-sentinel` / `session/read-sentinel` handlers
+work in-session and that a write-free SW wake reads ABSENT (so opening the popup or SW
+DevTools no longer masks the verdict). It never claims the restart result.
+
+**Methodology fix.** The sentinel used to be written at SW top-level on every wake. Any
+extension context (SW DevTools or popup) wakes the SW and would re-stamp the sentinel,
+so after a restart the relaunched SW repopulated it before it could be observed cleared
+— "cleared on shutdown" was indistinguishable from "survived." The write now happens
+only on the explicit `session/write-sentinel` trigger, and reading never writes;
+`setAccessLevel('TRUSTED_CONTEXTS')` is still exercised on every wake (it's the config
+the rejection rests on) without writing. Also note the **cold-vs-restore** distinction:
+*Continue where you left off* restore-on-startup preserves the session (and often the SW
+itself) across a relaunch, so survival there is expected and not decisive — the test
+must run with restore OFF (Open the New Tab page) for a relaunch to be a true cold
+session boundary.
 
 ## Why the activeTab-injected CS variant of check 2 stays manual
 
