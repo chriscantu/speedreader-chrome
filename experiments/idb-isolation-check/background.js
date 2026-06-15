@@ -93,6 +93,86 @@ try {
   console.error('[session] storage.session unavailable:', err);
 }
 
+// --- check 5: chrome.storage.local + setAccessLevel('TRUSTED_CONTEXTS') ---
+//
+// The backend-pivot gate. The cheaper candidate the spec must rule in or out:
+// positions already live in chrome.storage.local (durable, no migration). IF
+// setAccessLevel('TRUSTED_CONTEXTS') actually hides the local area from content
+// scripts, this dominates extension-origin IDB (durable AND CS-isolated, zero
+// migration). We must EMPIRICALLY confirm the isolation claim, capture the exact
+// CS-side failure mode, and learn whether the CS also loses WRITE.
+//
+// Sequence: write the sentinel to local FIRST (so a regression where setAccessLevel
+// also blocks the SW would surface), THEN restrict access. The CS probes only after
+// `check5/ready` resolves (which awaits the setAccessLevel promise) so the test is
+// not racing the boot-time restriction.
+const LOCAL_SENTINEL_KEY = 'local-position-sentinel';
+const LOCAL_SENTINEL_VALUE = {
+  note: 'CS must NOT read this after setAccessLevel',
+  source: 'sw-local-sentinel',
+  wordIndex: 7,
+};
+
+// A promise that resolves once the local sentinel is written and the access level
+// has been (attempted to be) set. `check5Ready` carries the empirical facts the
+// test asserts: did setAccessLevel exist, did it succeed, what lastError (if any).
+const check5Ready = (async () => {
+  const facts = {
+    setAccessLevelIsFunction: typeof chrome.storage.local.setAccessLevel === 'function',
+    setAccessLevelCalled: false,
+    setAccessLevelOk: false,
+    setAccessLevelError: null,
+    lastError: null,
+    userAgent: self.navigator ? self.navigator.userAgent : null,
+  };
+  try {
+    await chrome.storage.local.set({ [LOCAL_SENTINEL_KEY]: LOCAL_SENTINEL_VALUE });
+    console.log('[local] check-5 sentinel written to chrome.storage.local ->', LOCAL_SENTINEL_KEY);
+  } catch (e) {
+    console.error('[local] FAIL: SW could not write local sentinel:', e);
+    facts.setAccessLevelError = `sw-write-failed: ${String(e)}`;
+    return facts;
+  }
+  if (!facts.setAccessLevelIsFunction) {
+    console.error('[local] chrome.storage.local.setAccessLevel is NOT a function on this Chrome');
+    facts.setAccessLevelError = 'not-a-function';
+    return facts;
+  }
+  try {
+    facts.setAccessLevelCalled = true;
+    await chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
+    if (chrome.runtime.lastError) {
+      facts.lastError = chrome.runtime.lastError.message;
+      console.error('[local] setAccessLevel lastError:', facts.lastError);
+    } else {
+      facts.setAccessLevelOk = true;
+      console.log('[local] setAccessLevel(TRUSTED_CONTEXTS) on LOCAL succeeded');
+    }
+  } catch (e) {
+    facts.setAccessLevelError = String(e);
+    console.error('[local] setAccessLevel(TRUSTED_CONTEXTS) on LOCAL threw:', e);
+  }
+  // Park the facts in chrome.storage.session (a trusted area) so Playwright can read
+  // them deterministically via serviceWorker.evaluate. A SW cannot receive its own
+  // runtime.sendMessage, so the C5a assertion reads this stash, not a self-send RPC.
+  try {
+    await chrome.storage.session.set({ 'check5-facts': facts });
+  } catch {
+    /* session set is best-effort for the test read-back */
+  }
+  return facts;
+})();
+
+async function readLocalSentinel() {
+  // Trusted-context (SW/popup) read. MUST still see the sentinel after the
+  // restriction — TRUSTED_CONTEXTS includes the SW and the popup.
+  const got = await chrome.storage.local.get(LOCAL_SENTINEL_KEY);
+  return {
+    value: got[LOCAL_SENTINEL_KEY] ?? null,
+    present: Boolean(got[LOCAL_SENTINEL_KEY]),
+  };
+}
+
 const SESSION_SENTINEL_KEY = 'session-sentinel';
 
 async function writeSessionSentinel() {
@@ -203,6 +283,44 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) {
         sendResponse(err(String(e)));
       }
+    })();
+    return true;
+  }
+
+  if (type === 'check5/ready') {
+    // The CS calls this BEFORE probing local, so its probe runs only after the SW
+    // has written the sentinel and (attempted to) restrict the access level. Returns
+    // the empirical setAccessLevel facts so the CS/test never races the restriction.
+    void (async () => {
+      const facts = await check5Ready;
+      sendResponse(ok(facts));
+    })();
+    return true;
+  }
+
+  if (type === 'check5/read-sentinel') {
+    // Trusted-context read (popup/SW). After the restriction, this MUST still return
+    // the sentinel — that's the half of the verdict proving trusted contexts keep access.
+    void (async () => {
+      await check5Ready;
+      const result = await readLocalSentinel();
+      console.log('[local] check-5 trusted-context read:', JSON.stringify(result));
+      sendResponse(ok(result));
+    })();
+    return true;
+  }
+
+  if (type === 'check5/cs-result') {
+    // The CS stashes its OWN probe results here (read attempt, get(null) enumeration,
+    // write attempt). The CS lives in the page's isolated world, out of page.evaluate's
+    // reach, so it relays via this RPC and the SW parks it in chrome.storage.session
+    // (a TRUSTED area, distinct from the restricted `local`) for the test to poll.
+    void (async () => {
+      const payload = (msg && msg.payload) || {};
+      const stamped = { ...payload, senderUrl: sender.url, frameId: sender.frameId };
+      await chrome.storage.session.set({ 'last-check5-cs-result': stamped });
+      console.log('[local] check-5 CS result stashed:', JSON.stringify(stamped));
+      sendResponse(ok(true));
     })();
     return true;
   }

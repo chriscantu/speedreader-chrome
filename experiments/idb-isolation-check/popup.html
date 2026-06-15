@@ -74,6 +74,17 @@
     <div id="session-verdict" class="muted">no action yet</div>
     <pre id="session-out"></pre>
 
+    <hr />
+
+    <h1>Check 5 — <code>local</code> + <code>setAccessLevel</code> trusted-context read</h1>
+    <p>
+      The popup is a <strong>trusted context</strong>. After the SW calls
+      <code>chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })</code>, a content
+      script must NOT read <code>local-position-sentinel</code>, but this popup MUST still see it.
+    </p>
+    <div id="local-verdict">running…</div>
+    <pre id="local-out"></pre>
+
     <script src="popup.js"></script>
   </body>
 </html>

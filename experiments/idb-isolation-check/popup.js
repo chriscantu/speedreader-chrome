@@ -111,3 +111,24 @@ async function readSession() {
 
 document.getElementById('write-session').addEventListener('click', writeSession);
 document.getElementById('read-session').addEventListener('click', readSession);
+
+// --- Check 5: trusted-context read of the restricted local sentinel ---
+// The popup runs in a TRUSTED_CONTEXTS context (alongside the SW), so even after the
+// SW restricts `local`, the popup MUST still read the sentinel. This is the second
+// half of the C5 verdict — CS blocked, trusted context unaffected.
+async function readLocal() {
+  const v = document.getElementById('local-verdict');
+  const out = document.getElementById('local-out');
+  const resp = await send({ type: 'check5/read-sentinel' });
+  out.textContent = JSON.stringify(resp, null, 2);
+  const result = resp && resp.ok ? resp.value : null;
+  if (result && result.present && result.value && result.value.source === 'sw-local-sentinel') {
+    setVerdict(v, 'pass', 'PASS — popup (trusted context) still reads the local sentinel');
+    console.log('[popup][check5] PASS: trusted-context read returned the sentinel');
+  } else {
+    setVerdict(v, 'fail', 'FAIL — popup did NOT read the local sentinel');
+    console.log('[popup][check5] FAIL: trusted-context read missing sentinel:', JSON.stringify(resp));
+  }
+}
+
+readLocal();

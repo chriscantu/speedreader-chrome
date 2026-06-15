@@ -5,7 +5,11 @@ Empirical precondition for the SW-owned reading-position store spec
 §Empirical Precondition). This reproducer **gates the merge of the spec PR (#232)**:
 the spec flips `Status: Proposed` → `Accepted` only when checks 1 and 2 pass; check 3
 gates the rejection of the cheaper `chrome.storage.session` + `setAccessLevel`
-alternative. No implementation PR dispatches until the load-bearing checks pass.
+alternative. **Check 5 is the backend-pivot gate** — it tests a different cheaper
+candidate (`chrome.storage.local` + `setAccessLevel('TRUSTED_CONTEXTS')`) that, if its
+isolation claim holds, dominates extension-origin IDB (durable AND CS-isolated, zero
+migration since positions already live in `local`). No implementation PR dispatches
+until the load-bearing checks pass.
 
 ## Questions this answers
 
@@ -30,6 +34,18 @@ alternative. No implementation PR dispatches until the load-bearing checks pass.
    - **`session` absent after restart (expected)** → IDB direction confirmed.
    - **`session` survives restart** → rejection is void; the cheaper `session` path
      re-opens and the spec returns to Solution Design before any impl.
+4. **Does the `setAccessLevel('TRUSTED_CONTEXTS')` restriction PERSIST while the SW is
+   idle-evicted/stopped?** (check 6 — the follow-up to check 5.) Check 5 proved the
+   restriction blocks a content script **while the SW is alive**. A CS injected during a
+   prior activation stays alive in its tab's renderer after the SW is evicted (~30s idle).
+   If the restriction were SW-lifetime-scoped and lapsed when the SW stopped, that
+   already-alive CS could enumerate `chrome.storage.local` (the user's cross-origin
+   reading history) during the (usually long) evicted window. The Chrome docs do not state
+   whether it persists, so we measure it.
+   - **PASS (restriction persists)** → no eviction-window leak; `local` + `setAccessLevel`
+     remains a sound CS-isolation backend through SW idle/eviction.
+   - **FAIL (restriction lapses)** → there is an exfiltration window during eviction;
+     `local` + `setAccessLevel` cannot be relied on for CS isolation across the SW lifecycle.
 
 ## Manifest
 
@@ -146,8 +162,13 @@ local-only fixture on `127.0.0.1` (no network), and asserts T1–T3 plumbing + C
   ✓ C2a — declared CS gets sender.url == page URL, frameId === 0, without tabs perm
   ✓ C2b — about:blank top frame -> sender.url canonicalizes null -> handler rejects
   ✓ C3-plumbing — explicit session/write then read returns the value; a write-free wake reads ABSENT
+  ✓ C5a — SW setAccessLevel(local, TRUSTED_CONTEXTS) is supported and succeeds on this Chrome
+  ✓ C5b — declared CS is BLOCKED from reading/enumerating/writing local after setAccessLevel
+  ✓ C5c — popup (trusted context) STILL reads the local sentinel after setAccessLevel
+  ✓ C6a — negative control: DOM-channel probe is BLOCKED while the SW is ALIVE
+  ✓ C6b — restriction PERSISTS while the SW is STOPPED (already-alive CS still blocked)
 
-  8 passed
+  13 passed
 ```
 
 `C3-plumbing` is **plumbing only** — it proves the new `session/write-sentinel` /
@@ -219,6 +240,11 @@ Verdict (session cleared on restart → IDB direction confirmed):  PASS / FAIL  
 | **C2a** | **Declared** CS → SW `sender.url` == page URL, `frameId === 0`, no `tabs` perm | **Full (automated)** |
 | **C2b** | `about:blank` opaque-origin → `sender.url` canonicalizes null → handler rejects | **Full (automated)** |
 | **C3-plumbing** | `session/write-sentinel` + `session/read-sentinel` round-trip in-session; a write-free SW wake reads ABSENT (auto-write removed) | **Plumbing only (automated)** |
+| **C5a** | `chrome.storage.local.setAccessLevel` exists and `setAccessLevel('TRUSTED_CONTEXTS')` succeeds on the harness Chrome | **Full (automated)** |
+| **C5b** | Declared CS `local.get(key)` / `get(null)` / `set` all blocked post-restriction (`lastError: "Access to storage is not allowed from this context."`); CS sees no sentinel | **Full (automated)** |
+| **C5c** | Popup (trusted context) STILL reads `local-position-sentinel` after the restriction | **Full (automated)** |
+| **C6a** | Negative control — the check-6 DOM-channel probe is blocked while the SW is ALIVE (proves the channel isn't silently failing; confirms the sentinel exists) | **Full (automated)** |
+| **C6b** | The `setAccessLevel('TRUSTED_CONTEXTS')` restriction PERSISTS while the SW is STOPPED — an already-alive CS still cannot read/enumerate/write `local` during eviction (SW-stop driven via CDP `ServiceWorker.stopAllWorkers`; worker-target-gone asserted as a false-pass guard) | **Full (automated)** |
 | Check 2 (activeTab-**injected** CS variant) | `scripting.executeScript`-injected CS gets `sender.url` on the gesture path | **Manual** |
 | **Check 3** | `chrome.storage.session` cleared by a REAL browser restart (explicit Write → Cmd+Q → Read; non-restore startup) | **Manual** |
 
@@ -251,6 +277,163 @@ the rejection rests on) without writing. Also note the **cold-vs-restore** disti
 itself) across a relaunch, so survival there is expected and not decisive — the test
 must run with restore OFF (Open the New Tab page) for a relaunch to be a true cold
 session boundary.
+
+## Check 5 — `local` + `setAccessLevel` isolation (backend-pivot gate)
+
+### The question this decides
+
+The spec selected **extension-origin IndexedDB** so reading-positions are unreadable by
+content scripts. A simpler candidate may dominate it:
+**`chrome.storage.local` + `chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })`**.
+`local` is durable unconditionally (unlike `session`, which check 3 rejects for not
+surviving restart), and `setAccessLevel('TRUSTED_CONTEXTS')` is documented to hide the
+`local` area from content scripts — so it would be durable AND CS-isolated with **no
+data migration** (positions already live in `local`). Before rewriting the spec around
+it, the isolation claim must be **empirically confirmed** — the same reproducer-gate
+discipline the spec applies to IDB.
+
+> **Decision:** if `local` + `setAccessLevel('TRUSTED_CONTEXTS')` blocks the CS from
+> reading positions, the spec's backend selection pivots from extension-origin IDB to
+> `local` + `setAccessLevel`. If it does NOT block the CS, the IDB direction stands.
+
+### Automated result · status: **AUTOMATED (C5a/C5b/C5c)**
+
+Run on **Chrome for Testing 148.0.7778.96** (UA `Chrome/148.0.0.0`), Playwright 1.60.0,
+macOS arm64.
+
+- **C5a — `setAccessLevel` on `local` is supported and succeeds.**
+  `typeof chrome.storage.local.setAccessLevel === 'function'` → `true`; the
+  `setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })` call resolved with **no throw and
+  no `chrome.runtime.lastError`**. `local.setAccessLevel` is real on this Chrome.
+- **C5b — the declared content script is BLOCKED.** **VERDICT: PASS — the CS cannot read
+  positions.** After the SW restriction, the CS's `chrome.storage.local.get('local-position-sentinel')`,
+  its `get(null)` enumeration, **and** its `chrome.storage.local.set(...)` write all failed
+  identically. The exact CS-observed failure mode (verbatim from the run):
+
+  ```
+  chrome.runtime.lastError.message === "Access to storage is not allowed from this context."
+  ```
+
+  Mode detail: this is **NOT a synchronous throw and NOT a promise rejection** — the
+  `get`/`set` callback fires normally, but `chrome.runtime.lastError` is populated and the
+  returned value object is empty (no sentinel). A CS that ignores `lastError` would see an
+  empty result `{}`, never the data. **Write is blocked too** — `set` produced the same
+  `lastError`, so a restricted CS loses both read and write on `local`.
+- **C5c — the popup (trusted context) is UNAFFECTED.** **PASS** — the popup's
+  `check5/read-sentinel` RPC still returns `local-position-sentinel`
+  (`source: 'sw-local-sentinel'`), confirming `TRUSTED_CONTEXTS` includes the popup + SW.
+
+### Min-version finding (`local.setAccessLevel`)
+
+- **Confirmed working on Chrome 148** (the harness Chrome) — `setAccessLevel` exists on
+  `local` and the `'TRUSTED_CONTEXTS'` restriction takes effect (C5a + C5b).
+- **Documented floor:** `chrome.storage.session.setAccessLevel` shipped in **Chrome 102**;
+  `setAccessLevel` was extended to the `local` (and `sync`) areas **≈Chrome 119** per the
+  storage-API release notes (the Chrome docs say `local` is "by default exposed to content
+  scripts, but this behavior can be changed by calling `chrome.storage.local.setAccessLevel()`").
+  The Chrome docs page does not carry a per-area version badge, so treat **Chrome 119 as the
+  floor for `local.setAccessLevel` pending a confirming run on a 119-range build** — the
+  harness only proves the floor is **≤ 148**. If the spec pivots to this backend, set
+  `min_chrome_version` to the confirmed `local.setAccessLevel` floor (119, or higher if a
+  119-range run shows otherwise) — a bump from the IDB direction's lower floor.
+
+### What feeds the spec
+
+If the backend pivots to `local` + `setAccessLevel`:
+
+- Drop the IDB adapter + the `speedreader-positions` DB; positions stay in `chrome.storage.local`.
+- **No migration** (data already in `local`).
+- The CS-side contract changes: a restricted CS gets `lastError` (not a thrown error) —
+  any CS-side read path must check `chrome.runtime.lastError`, and the spec should state the
+  CS cannot read OR write positions directly (RPC-to-SW only).
+- Bump `min_chrome_version` per the finding above.
+
+### Why this gate is automatable (unlike check 3)
+
+C5 is **structural** — `setAccessLevel` takes effect at SW boot and the declared content
+script's blocked read is deterministic, no user gesture or process restart involved. So
+it's automatable like C1 (origin isolation), not manual like check 3 (which needs a real
+OS-level Chrome quit+relaunch). The CS runs in the isolated world, so its probe results
+are relayed to the SW and parked in `chrome.storage.session` (a trusted area, distinct
+from the restricted `local`) for Playwright to read — the same SW-stash-then-read trick
+C2a uses for the sender-probe.
+
+## Check 6 — does the `setAccessLevel` restriction persist while the SW is stopped?
+
+### The question this decides
+
+Check 5 proved `setAccessLevel('TRUSTED_CONTEXTS')` blocks a content script from reading
+`chrome.storage.local` **while the SW is alive**. Check 6 answers the security-load-bearing
+follow-up: **does that restriction survive the SW being idle-evicted/stopped?** A content
+script injected during a prior activation outlives the SW in its tab's renderer. If the
+restriction were scoped to the SW's lifetime, an already-alive CS could call
+`chrome.storage.local.get(null)` and enumerate the user's cross-origin reading history during
+the (usually long) evicted window. If `local` + `setAccessLevel` is to be the spec's backend,
+this window must NOT exist.
+
+> **Decision:** if the restriction persists with the SW stopped, `local` + `setAccessLevel`
+> survives the SW lifecycle as a CS-isolation backend. If it lapses, there is an
+> eviction-window leak and the candidate is unsafe for cross-origin position isolation.
+
+### Automated result · status: **AUTOMATED (C6a/C6b)** · **VERDICT: PASS — restriction PERSISTS**
+
+Run on **Chrome for Testing 148** (UA `Chrome/148.0.0.0`), Playwright 1.60.0, macOS arm64.
+
+- **C6a — negative control (SW ALIVE).** The check-6 DOM-channel probe is blocked while the
+  SW is alive — re-confirming check 5 through the *same* DOM channel C6b uses, so a C6b
+  "blocked" result can't be the DOM channel silently failing. The test also confirms the
+  `local-position-sentinel` actually exists via a trusted read, so "CS sees nothing" isn't
+  because there was nothing to see. Observed CS outcome (keyed get, `get(null)`, `set`):
+  `{"outcome":"lastError","lastError":"Access to storage is not allowed from this context."}`.
+- **C6b — restriction PERSISTS while the SW is STOPPED.** **VERDICT: PASS.** With the SW
+  confirmed stopped, the already-alive CS's `get('local-position-sentinel')`, its `get(null)`
+  enumeration, **and** its `set(...)` write all STILL fail identically, and the sentinel is
+  never returned. The exact CS-observed failure mode (verbatim from the run, SW stopped):
+
+  ```
+  chrome.runtime.lastError.message === "Access to storage is not allowed from this context."
+  ```
+
+  `sawSentinelKeyed: false`, `sawSentinelEnum: false`. **There is no eviction-window leak on
+  Chrome 148.**
+
+### How check 6 is built (and why it's automatable)
+
+The three constraints that shape the implementation:
+
+1. **No SW relay.** When the probe runs the SW is stopped, so the `check5/cs-result` RPC
+   path is dead — and worse, any `chrome.runtime.sendMessage` would WAKE the SW and void the
+   "SW stopped" precondition. So the CS surfaces its outcome through the **page DOM** (a
+   hidden `<div id="check6-result" data-status data-outcome>`), which `page.evaluate` in the
+   main world can read (the CS isolated world and the page main world share the DOM). The
+   probe touches only `chrome.storage.local` — never `chrome.runtime`.
+2. **On-demand trigger.** The CS registers `window.addEventListener('check6-probe', …)` at
+   injection and signals readiness via `data-status="ready"`. Playwright fires the probe
+   *after* stopping the SW via `page.evaluate(() => window.dispatchEvent(new CustomEvent('check6-probe')))`
+   (DOM events reach both the isolated-world and main-world `window` listeners), then waits
+   for `data-status="done"` and reads `data-outcome`.
+3. **Deterministic SW stop + liveness guard.** The SW is stopped via the browser-level CDP
+   **`ServiceWorker.stopAllWorkers`** (anchored on a `context.newCDPSession(page)` —
+   Playwright 1.60 does not accept a Worker for `newCDPSession`). Liveness is checked via CDP
+   **`Target.getTargets`**: a `service_worker` target is listed iff the worker is running.
+   `context.serviceWorkers()` is NOT used for liveness — it keeps a **stale** Worker handle
+   after the worker stops (verified empirically), which would mask a stopped worker. C6b
+   asserts the worker target is GONE before firing the probe, and re-asserts it stayed gone
+   AFTER — a probe that "passes" only because the SW was secretly still alive would be a
+   false pass, so this liveness assertion is part of the test, not a convenience.
+
+No manual fallback was needed — the CDP `ServiceWorker.stopAllWorkers` + `Target.getTargets`
+path stops the worker and confirms it stopped fully within Playwright.
+
+### What feeds the spec
+
+If the backend pivots to `local` + `setAccessLevel`:
+
+- **Confirmed:** the restriction holds across SW idle/eviction on Chrome 148 — no
+  eviction-window enumeration leak. The CS-cannot-read-positions guarantee the spec rests on
+  is not limited to the SW-alive window.
+- Re-run on a newer Chrome (or the confirmed `local.setAccessLevel` floor build) to keep the
+  assumption fresh if Chrome's restriction-scoping behavior changes.
 
 ## Why the activeTab-injected CS variant of check 2 stays manual
 

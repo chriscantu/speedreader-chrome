@@ -1,4 +1,12 @@
-import { test, expect, chromium, type BrowserContext, type Worker } from '@playwright/test';
+import {
+  test,
+  expect,
+  chromium,
+  type BrowserContext,
+  type Worker,
+  type CDPSession,
+  type Page,
+} from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -25,6 +33,16 @@ import type { AddressInfo } from 'node:net';
 //          IN-SESSION: a write-free SW wake reads ABSENT (auto-write removed — the
 //          methodology fix), and an explicit write round-trips through read. This is
 //          PLUMBING ONLY — the real cold-restart verdict stays MANUAL.
+//   C5* — chrome.storage.local + setAccessLevel('TRUSTED_CONTEXTS') blocks a CS WHILE
+//          THE SW IS ALIVE (the backend-pivot gate).
+//   C6* — the setAccessLevel restriction PERSISTS while the SW is idle-evicted/stopped.
+//          C6a is a negative control (probe while SW ALIVE, through the same DOM channel,
+//          to prove the channel isn't silently failing). C6b stops the SW via the
+//          browser-level CDP ServiceWorker.stopAllWorkers, asserts the worker target is
+//          GONE (a probe that "passes" only because the SW was secretly still alive is a
+//          false pass), then fires the on-demand DOM-channel probe on the already-alive
+//          content script and reads the outcome back from the page DOM. The CS probe does
+//          NOT message the SW — a runtime.sendMessage would WAKE it and void the test.
 //
 // MANUAL (cannot be faked from Playwright — see README §Why check 3 stays manual,
 // §activeTab-injection nuance):
@@ -354,6 +372,127 @@ test('C3-plumbing — explicit session/write then read returns the value; a writ
   await popup.close();
 });
 
+// ---------------------------------------------------------------------------
+// Check 5 — chrome.storage.local + setAccessLevel('TRUSTED_CONTEXTS') isolation.
+// The backend-pivot gate: if this restriction actually blocks content scripts from
+// reading `local`, it dominates extension-origin IDB (durable + CS-isolated, no
+// migration). Structural / gesture-independent, so automatable like C1.
+// ---------------------------------------------------------------------------
+
+type Check5Facts = {
+  setAccessLevelIsFunction?: boolean;
+  setAccessLevelCalled?: boolean;
+  setAccessLevelOk?: boolean;
+  setAccessLevelError?: string | null;
+  lastError?: string | null;
+  userAgent?: string | null;
+};
+
+type LocalProbe = {
+  outcome?: string;
+  lastError?: string | null;
+  error?: string;
+  value?: unknown;
+};
+
+type Check5CsResult = {
+  ready?: Check5Facts;
+  keyedGet?: LocalProbe;
+  enumGet?: LocalProbe;
+  writeAttempt?: LocalProbe;
+  sawSentinelKeyed?: boolean;
+  sawSentinelEnum?: boolean;
+};
+
+test('C5a — SW setAccessLevel(local, TRUSTED_CONTEXTS) is supported and succeeds on this Chrome', async () => {
+  // A SW cannot receive its own runtime.sendMessage, so the SW parks the setAccessLevel
+  // facts in chrome.storage.session under 'check5-facts'; poll the SW for them.
+  let facts: Check5Facts | null = null;
+  for (let i = 0; i < 40; i++) {
+    facts = (await serviceWorker.evaluate(async () => {
+      const got = await chrome.storage.session.get('check5-facts');
+      return got['check5-facts'] ?? null;
+    })) as Check5Facts | null;
+    if (facts) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+
+  expect(facts, 'SW did not park check5 facts — setAccessLevel block never resolved').toBeTruthy();
+  // Capture the Chrome the harness ran on for the min-version finding (logged, asserted loosely).
+  console.log('[C5a] userAgent:', facts?.userAgent);
+  console.log('[C5a] setAccessLevel facts:', JSON.stringify(facts));
+
+  expect(
+    facts?.setAccessLevelIsFunction,
+    'chrome.storage.local.setAccessLevel must exist on the harness Chrome',
+  ).toBe(true);
+  expect(facts?.setAccessLevelCalled, 'SW must have called setAccessLevel on local').toBe(true);
+  expect(
+    facts?.setAccessLevelError,
+    'setAccessLevel on local must not throw / be unsupported',
+  ).toBeNull();
+  expect(facts?.setAccessLevelOk, 'setAccessLevel on local must succeed (no lastError)').toBe(true);
+});
+
+test('C5b — declared CS is BLOCKED from reading/enumerating/writing local after setAccessLevel', async () => {
+  const page = await context.newPage();
+  await page.goto(baseUrl);
+
+  // The declared CS probes local (keyed get, get(null) enum, set write) AFTER the SW
+  // restriction and relays the EXACT outcomes via the SW, parked in chrome.storage.session
+  // (a trusted area distinct from the restricted `local`). Poll the SW for it.
+  const cs = await pollCheck5CsResult(serviceWorker);
+
+  expect(cs, 'SW recorded no check5 CS result — content script did not relay').toBeTruthy();
+  // Print the verbatim CS-observed failure mode — the spec quotes this.
+  console.log('[C5b] CS keyedGet outcome:', JSON.stringify(cs.keyedGet));
+  console.log('[C5b] CS enumGet outcome:', JSON.stringify(cs.enumGet));
+  console.log('[C5b] CS writeAttempt outcome:', JSON.stringify(cs.writeAttempt));
+
+  // The load-bearing assertion: the CS must NOT obtain the sentinel by either path.
+  expect(cs.sawSentinelKeyed, 'CS keyed get must NOT return the local sentinel').toBe(false);
+  expect(cs.sawSentinelEnum, 'CS get(null) enumeration must NOT return the local sentinel').toBe(
+    false,
+  );
+
+  await page.close();
+});
+
+test('C5c — popup (trusted context) STILL reads the local sentinel after setAccessLevel', async () => {
+  const extensionId = serviceWorker.url().split('/')[2];
+  const popup = await context.newPage();
+  await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+
+  // popup.js issues check5/read-sentinel and renders a PASS/FAIL verdict into #local-verdict.
+  await expect(popup.locator('#local-verdict')).toContainText('PASS', { timeout: 10_000 });
+
+  const rendered = await popup.locator('#local-out').textContent();
+  const parsed = JSON.parse(rendered ?? '{}') as {
+    ok?: boolean;
+    value?: { present?: boolean; value?: { source?: string } };
+  };
+  expect(parsed.ok).toBe(true);
+  expect(parsed.value?.present, 'trusted-context popup must still see the local sentinel').toBe(
+    true,
+  );
+  expect(parsed.value?.value?.source, 'trusted read returns the SW-written sentinel').toBe(
+    'sw-local-sentinel',
+  );
+  await popup.close();
+});
+
+async function pollCheck5CsResult(sw: Worker): Promise<Check5CsResult | null> {
+  for (let i = 0; i < 40; i++) {
+    const result = (await sw.evaluate(async () => {
+      const got = await chrome.storage.session.get('last-check5-cs-result');
+      return got['last-check5-cs-result'] ?? null;
+    })) as Check5CsResult | null;
+    if (result) return result;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return null;
+}
+
 async function pollSenderProbe(sw: Worker): Promise<{
   senderUrl?: string;
   frameId?: number;
@@ -375,3 +514,183 @@ async function pollSenderProbe(sw: Worker): Promise<{
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Check 6 — does the setAccessLevel('TRUSTED_CONTEXTS') restriction PERSIST while
+// the SW is idle-evicted/stopped? The security-load-bearing follow-up to check 5.
+//
+// A content script injected during a prior activation stays alive in its tab's
+// renderer after the SW is evicted (~30s idle). If the restriction were scoped to
+// the SW's lifetime and lapsed when the SW stopped, that already-alive CS could
+// enumerate chrome.storage.local (the user's cross-origin reading history) during
+// the (long) evicted window. The Chrome docs don't state whether it persists — so
+// we measure it: stop the SW, prove it's stopped, then fire an on-demand probe at
+// the already-alive CS and read its outcome from the page DOM (the CS isolated
+// world and page main world share the DOM; chrome.runtime is untouched so the
+// stopped SW is never woken).
+//
+//   PASS  — with the SW stopped, the CS's keyed get + get(null) + set all STILL fail
+//           and the sentinel is never returned (restriction persists; no window).
+//   FAIL  — with the SW stopped, the CS reads the sentinel (restriction is
+//           SW-lifetime-scoped; an exfiltration window exists during eviction).
+// ---------------------------------------------------------------------------
+
+type Check6OpProbe = {
+  outcome?: string;
+  lastError?: string | null;
+  error?: string;
+  value?: unknown;
+};
+
+type Check6Result = {
+  keyedGet?: Check6OpProbe;
+  enumGet?: Check6OpProbe;
+  writeAttempt?: Check6OpProbe;
+  sawSentinelKeyed?: boolean;
+  sawSentinelEnum?: boolean;
+  href?: string;
+};
+
+// CDP liveness: the service_worker target is listed in Target.getTargets iff the
+// worker is RUNNING. context.serviceWorkers() is NOT reliable here — it keeps a stale
+// Worker handle after the worker stops (verified empirically), so we use CDP instead.
+async function swTargetRunning(cdp: CDPSession, swUrl: string): Promise<boolean> {
+  const res = (await cdp.send('Target.getTargets')) as {
+    targetInfos: Array<{ type: string; url: string }>;
+  };
+  return res.targetInfos.some((t) => t.type === 'service_worker' && t.url === swUrl);
+}
+
+// Wait for the CS's #check6-result node to wire its listener (data-status="ready"),
+// then dispatch the on-demand probe event and wait for data-status="done". Returns the
+// parsed probe outcome the CS wrote into data-outcome. All of this is main-world DOM
+// access — it does NOT touch chrome.runtime, so a stopped SW stays stopped.
+async function fireCheck6Probe(page: Page): Promise<Check6Result> {
+  // The CS sets data-status="ready" at injection once its listener is registered.
+  await page.waitForFunction(
+    () => document.getElementById('check6-result')?.getAttribute('data-status') === 'ready',
+    undefined,
+    { timeout: 10_000 },
+  );
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('check6-probe')));
+  await page.waitForFunction(
+    () => document.getElementById('check6-result')?.getAttribute('data-status') === 'done',
+    undefined,
+    { timeout: 10_000 },
+  );
+  const raw = await page.evaluate(
+    () => document.getElementById('check6-result')?.getAttribute('data-outcome') ?? '{}',
+  );
+  return JSON.parse(raw) as Check6Result;
+}
+
+test('C6a — negative control: DOM-channel probe is BLOCKED while the SW is ALIVE', async () => {
+  // Re-confirms check 5 THROUGH THE check-6 DOM channel, so a C6b "blocked" result
+  // can't be the DOM channel silently failing. Also confirms the sentinel actually
+  // EXISTS (a trusted read returns it) so "CS sees nothing" isn't because there was
+  // nothing to see.
+  const extensionId = serviceWorker.url().split('/')[2];
+
+  // Confirm the sentinel exists from a trusted context (the popup path / SW read).
+  const trusted = (await serviceWorker.evaluate(async () => {
+    const got = await chrome.storage.local.get('local-position-sentinel');
+    return got['local-position-sentinel'] ?? null;
+  })) as { source?: string } | null;
+  expect(
+    trusted,
+    'local sentinel must exist for the probe to have something to (not) see',
+  ).toBeTruthy();
+  expect(trusted?.source).toBe('sw-local-sentinel');
+
+  const page = await context.newPage();
+  await page.goto(baseUrl);
+
+  // SW is alive here. Fire the DOM-channel probe and confirm it's blocked.
+  const cs = await fireCheck6Probe(page);
+  console.log('[C6a] (SW ALIVE) keyedGet:', JSON.stringify(cs.keyedGet));
+  console.log('[C6a] (SW ALIVE) enumGet:', JSON.stringify(cs.enumGet));
+  console.log('[C6a] (SW ALIVE) writeAttempt:', JSON.stringify(cs.writeAttempt));
+
+  expect(cs.sawSentinelKeyed, 'control: CS keyed get must NOT return the sentinel (SW alive)').toBe(
+    false,
+  );
+  expect(cs.sawSentinelEnum, 'control: CS get(null) must NOT return the sentinel (SW alive)').toBe(
+    false,
+  );
+  expect(extensionId, 'extension id resolvable').toBeTruthy();
+  await page.close();
+});
+
+test('C6b — restriction PERSISTS while the SW is STOPPED (already-alive CS still blocked)', async () => {
+  const swUrl = serviceWorker.url();
+  const page = await context.newPage();
+  await page.goto(baseUrl);
+  // Ensure the CS is injected and its probe listener is wired BEFORE we stop the SW.
+  await page.waitForFunction(
+    () => document.getElementById('check6-result')?.getAttribute('data-status') === 'ready',
+    undefined,
+    { timeout: 10_000 },
+  );
+
+  // Stop the SW via the browser-level CDP ServiceWorker domain. context.newCDPSession
+  // accepts a Page (not a Worker on this Playwright), so anchor the session on `page`;
+  // ServiceWorker.stopAllWorkers is browser-wide and stops the extension worker.
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('ServiceWorker.enable');
+  expect(await swTargetRunning(cdp, swUrl), 'precondition: SW must be running before stop').toBe(
+    true,
+  );
+  await cdp.send('ServiceWorker.stopAllWorkers');
+
+  // LIVENESS CHECK — the false-pass guard. Poll until the worker target is GONE. A
+  // probe that "passes" only because the SW was secretly still alive is a false pass,
+  // so this assertion is part of the test, not a convenience.
+  let stopped = false;
+  for (let i = 0; i < 30; i++) {
+    if (!(await swTargetRunning(cdp, swUrl))) {
+      stopped = true;
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  expect(stopped, 'SW must be STOPPED (target gone from Target.getTargets) before probing').toBe(
+    true,
+  );
+  console.log('[C6b] SW confirmed STOPPED (service_worker target absent). Firing CS probe.');
+
+  // Fire the on-demand probe at the already-alive CS. This is pure DOM + direct
+  // chrome.storage.local — NO chrome.runtime.sendMessage, so the stopped SW is not
+  // woken. Re-assert it stayed stopped right after, so the probe can't have run
+  // against a respawned SW.
+  const cs = await fireCheck6Probe(page);
+  const stillStopped = !(await swTargetRunning(cdp, swUrl));
+
+  console.log('[C6b] SW still stopped after probe:', stillStopped);
+  console.log('[C6b] (SW STOPPED) keyedGet:', JSON.stringify(cs.keyedGet));
+  console.log('[C6b] (SW STOPPED) enumGet:', JSON.stringify(cs.enumGet));
+  console.log('[C6b] (SW STOPPED) writeAttempt:', JSON.stringify(cs.writeAttempt));
+  console.log(
+    '[C6b] sawSentinelKeyed:',
+    cs.sawSentinelKeyed,
+    'sawSentinelEnum:',
+    cs.sawSentinelEnum,
+  );
+
+  expect(
+    stillStopped,
+    'SW must have stayed stopped across the probe (the probe must not wake it)',
+  ).toBe(true);
+
+  // THE VERDICT. PASS = restriction persisted; the already-alive CS still cannot read
+  // positions while the SW is evicted. FAIL here would mean an exfiltration window.
+  expect(
+    cs.sawSentinelKeyed,
+    'CS keyed get must NOT return the sentinel while the SW is stopped (else: eviction-window leak)',
+  ).toBe(false);
+  expect(
+    cs.sawSentinelEnum,
+    'CS get(null) enumeration must NOT return the sentinel while the SW is stopped',
+  ).toBe(false);
+
+  await page.close();
+});
