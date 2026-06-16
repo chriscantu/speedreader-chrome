@@ -23,8 +23,7 @@ import {
   type PopupScope,
 } from './activate';
 import { renderHistorySection, type HistorySectionEntry } from '../../core/popup/history-section';
-import type { ReadingPositionStore } from '../../core/storage/reading-position';
-import { createChromePositionStore } from '../storage/chrome-position-store';
+import { createPopupHistoryClient, type PopupHistoryClient } from './position/client';
 import { loadSettings } from '../settings/storage';
 
 interface PopupBootstrapDeps {
@@ -32,8 +31,12 @@ interface PopupBootstrapDeps {
   readonly doc: Document;
   /** Injectable for tests; defaults to `loadSettings`. */
   readonly loadSettings?: () => Promise<{ historyEnabled: boolean }>;
-  /** Injectable for tests; defaults to `createChromePositionStore()`. */
-  readonly store?: ReadingPositionStore;
+  /**
+   * Injectable for tests; defaults to `createPopupHistoryClient(api)`. #196 —
+   * the popup reaches the SW-owned store via RPC, never a direct
+   * `chrome.storage.local` writer (single-writer rule).
+   */
+  readonly historyClient?: PopupHistoryClient;
   /** Injectable for tests; defaults to `Date.now`. */
   readonly now?: () => number;
 }
@@ -195,7 +198,7 @@ async function mountHistorySection(deps: PopupBootstrapDeps): Promise<void> {
   if (!container) return; // HTML drift; non-fatal — primary buttons still work.
 
   const loadFn = deps.loadSettings ?? loadSettings;
-  const store = deps.store ?? createChromePositionStore();
+  const client = deps.historyClient ?? createPopupHistoryClient(api);
   const now = deps.now ?? (() => Date.now());
 
   const remount = async (): Promise<void> => {
@@ -213,7 +216,7 @@ async function mountHistorySection(deps: PopupBootstrapDeps): Promise<void> {
 
     if (enabled) {
       try {
-        const list = await store.list();
+        const list = await client.list();
         entries = list.map((e) => ({ url: e.url, timestamp: e.position.lastReadAt }));
       } catch (err) {
         console.error('[speedreader] popup: history list() failed', err);
@@ -229,15 +232,15 @@ async function mountHistorySection(deps: PopupBootstrapDeps): Promise<void> {
         void api.tabs.create({ url });
       },
       onDelete: (url) => {
-        void store
-          .clear(url)
+        void client
+          .delete(url)
           .then(() => remount())
           .catch((err: unknown) => {
-            console.error('[speedreader] popup: history clear failed', err);
+            console.error('[speedreader] popup: history delete failed', err);
           });
       },
       onClearAll: () => {
-        void store
+        void client
           .clearAll()
           .then(() => remount())
           .catch((err: unknown) => {

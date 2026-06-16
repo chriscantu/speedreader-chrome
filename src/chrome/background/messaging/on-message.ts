@@ -34,6 +34,10 @@ const POPUP_ONLY_TYPES = new Set<string>([
   'activate-reader',
   'extract-summary',
   'restricted-url-probe',
+  // #196 — popup-only position RPCs (history management). SSOT in
+  // `core/messaging/types.ts` so gate membership and handler wiring cannot
+  // drift apart (spec §"Gate is allowlist, registered atomically").
+  ...POPUP_POSITION_TYPES,
 ]);
 
 /**
@@ -41,9 +45,16 @@ const POPUP_ONLY_TYPES = new Set<string>([
  * CS→SW signals). Listed here so the gate refuses popup-shaped senders
  * for these types.
  */
-const CS_ONLY_TYPES = new Set<string>(['cs-progress', 'overlay-state']);
+const CS_ONLY_TYPES = new Set<string>([
+  'cs-progress',
+  'overlay-state',
+  // #196 — content-script-only position RPCs (sender-bound; no `url` in wire
+  // shape). SSOT in `core/messaging/types.ts`.
+  ...CS_POSITION_TYPES,
+]);
 
 import type { ActivationError } from '../activation/types';
+import { CS_POSITION_TYPES, POPUP_POSITION_TYPES } from '../../../core/messaging/types';
 
 export type OnMessageError =
   | { kind: 'sender-rejected' }
@@ -135,6 +146,16 @@ export function handleOnMessage(
       ok: false,
       error: { kind: 'sender-shape-mismatch', expected: 'content-script', got },
     });
+    return false;
+  }
+
+  // 3b. Fail-closed default (#196, spec §"Gate is allowlist, registered
+  //     atomically"). A type in NEITHER provenance set previously reached the
+  //     router by sender shape alone — so an accidentally-omitted position
+  //     type would route ungated. Reject unknown types here so an omitted
+  //     gate-registration fails closed (invalid-payload) instead of leaking.
+  if (!POPUP_ONLY_TYPES.has(msg.type) && !CS_ONLY_TYPES.has(msg.type)) {
+    sendResponse({ ok: false, error: { kind: 'invalid-payload' } });
     return false;
   }
 

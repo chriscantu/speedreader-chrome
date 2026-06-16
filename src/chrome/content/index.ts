@@ -36,27 +36,26 @@ import { loadSettings, saveSettings, subscribeSettings } from '../settings/stora
 import { tokenize } from '../../core/tokenize';
 import { recordClose, resumeIndex } from './session-position';
 import { resolveFontId } from '../../core/overlay/font-ids';
-import { createChromePositionStore } from '../storage/chrome-position-store';
+import { createContentPositionClient, type ContentPositionClient } from './position/client';
 
 console.log('[SpeedReader] Content script loaded');
 
 let activeOverlay: OverlayHandle | null = null;
 
-// #48 — persistent per-URL reading-position store. Injection-scoped —
-// one instance per content-script load; repeated activations on the
-// same tab share this instance via the `activeOverlay` guard. The
-// internal write-queue lives on this instance, so constructing a new
-// store per-mount would fragment the queue and reintroduce the
-// LRU read-modify-write race the queue exists to prevent.
-const positionStore = createChromePositionStore();
+// #196 — persistent per-URL reading-position client. The CS no longer touches
+// `chrome.storage.local` directly (the SW's `setAccessLevel('TRUSTED_CONTEXTS')`
+// revoked CS access); persistence now flows through sender-bound `sendMessage`
+// RPCs to the SW-owned store. The client is page-bound — it carries no `url`,
+// the SW derives it from `sender.url`. Injection-scoped — one client per
+// content-script load.
+const positionClient: ContentPositionClient = createContentPositionClient();
 
-// #48 — single module-load warn when the local-storage surface is
-// missing (test harnesses, non-MV3 hosts). Matches the
-// `chrome.runtime.getURL` branch below — emit ONCE so per-mount
-// retries don't spam the console.
-if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+// #196 — single module-load warn when the messaging surface is missing
+// (test harnesses, non-MV3 hosts). Matches the `chrome.runtime.getURL`
+// branch below — emit ONCE so per-mount retries don't spam the console.
+if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) {
   console.warn(
-    '[speedreader] chrome.storage.local unavailable, reading-position persistence disabled',
+    '[speedreader] chrome.runtime.sendMessage unavailable, reading-position persistence disabled',
   );
 }
 
@@ -80,7 +79,6 @@ if (typeof chrome === 'undefined' || !chrome.storage?.local) {
 const POSITION_WRITE_DEBOUNCE_MS = 1_000;
 
 interface PendingWrite {
-  url: string;
   wordIndex: number;
   totalWords: number;
 }
@@ -96,8 +94,8 @@ function schedulePositionWrite(write: PendingWrite): void {
     const w = pendingWrite;
     pendingWrite = null;
     if (!w) return;
-    positionStore
-      .write(w.url, { wordIndex: w.wordIndex, totalWords: w.totalWords })
+    positionClient
+      .write({ wordIndex: w.wordIndex, totalWords: w.totalWords })
       .catch((err: unknown) => {
         console.warn('[speedreader] reading-position write failed', err);
       });
@@ -112,8 +110,8 @@ function flushPendingPositionWrite(): void {
   const w = pendingWrite;
   pendingWrite = null;
   if (!w) return;
-  positionStore
-    .write(w.url, { wordIndex: w.wordIndex, totalWords: w.totalWords })
+  positionClient
+    .write({ wordIndex: w.wordIndex, totalWords: w.totalWords })
     .catch((err: unknown) => {
       console.warn('[speedreader] reading-position flush failed', err);
     });
@@ -243,21 +241,19 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
         // in-session sessionResume above still handles selection-scope
         // close/reopen within the same content-script lifetime.
         //
-        // The chrome.storage.local guard handles test harnesses + non-MV3
+        // #196 — the sendMessage guard handles test harnesses + non-MV3
         // host environments that stub a partial `chrome` surface without
-        // the local namespace; the persistence path silently degrades
-        // when storage is unavailable. The single module-load warn at
-        // the top of the file leaves a breadcrumb without spamming
-        // per-mount.
-        const pageUrl = window.location.href;
-        const persistAvailable = !!chrome.storage?.local;
+        // the messaging API; the persistence path silently degrades when
+        // the SW RPC is unavailable. The single module-load warn at the
+        // top of the file leaves a breadcrumb without spamming per-mount.
+        const persistAvailable = !!chrome.runtime?.sendMessage;
         if (persistAvailable && scope === 'full') {
           attachPositionFlushListeners();
         }
         let persistentResume: number | undefined;
         if (persistAvailable && scope === 'full' && sessionResume === undefined) {
           try {
-            const saved = await positionStore.read(pageUrl);
+            const saved = await positionClient.read();
             if (saved !== undefined && saved.wordIndex > 0 && saved.wordIndex < fullWords.length) {
               // CR2 — sanity guard: the saved record carries its own
               // `totalWords` snapshot from when the position was written.
@@ -382,7 +378,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
                       pendingTimer = null;
                     }
                     pendingWrite = null;
-                    positionStore.clear(pageUrl).catch((err: unknown) => {
+                    positionClient.clear().catch((err: unknown) => {
                       console.warn('[speedreader] reading-position clear failed', err);
                     });
                   },
@@ -398,7 +394,6 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             persistAvailable && scope === 'full'
               ? ({ index, total }) => {
                   schedulePositionWrite({
-                    url: pageUrl,
                     wordIndex: index,
                     totalWords: total,
                   });
@@ -413,11 +408,9 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             flushPendingPositionWrite();
             // Drop the visibility / pagehide listeners — the content
             // script outlives the overlay across close/reopen cycles,
-            // so leaving them attached would (a) hold dead closures
-            // referencing this mount's `pageUrl` and (b) re-fire the
-            // flush every time the user backgrounds the tab, even
-            // with no overlay active. They're re-attached on the next
-            // mount.
+            // so leaving them attached would re-fire the flush every
+            // time the user backgrounds the tab, even with no overlay
+            // active. They're re-attached on the next mount.
             detachPositionFlushListeners();
           },
           // Font-size stepper (#29) — overlay clamps to FONT_SIZE_MIN/MAX

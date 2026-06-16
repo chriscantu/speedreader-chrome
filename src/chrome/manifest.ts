@@ -26,6 +26,26 @@ export default {
   version: '0.2.0',
   description: 'RSVP reading accessibility extension for Chrome',
 
+  // --- Minimum Chrome version ---------------------------------------------
+  // #196 — pinned to the floor where `chrome.storage.local.setAccessLevel` is
+  // available. The SW's access-gate calls
+  // `chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })`
+  // to close the cross-origin reading-history enumeration threat; below this
+  // floor the API is absent and the store fails closed (no persistence) rather
+  // than reopen the threat.
+  //
+  // Floor = 140, per MDN browser-compat-data (webextensions/api/storage.json,
+  // `StorageArea.setAccessLevel`): "Supported by the `session` storage area
+  // from Chrome 96. Supported by ALL storage areas from Chrome 140." The
+  // `session` area got it at 96/102, but the `local` area — the one this spec
+  // gates — is 140. (The spec's "≥119 expected" was an untested guess flagged
+  // unconfirmed-from-below; this is the impl-PR confirmation it asked for.)
+  // 140 shipped 2025-09; Chrome auto-updates, so by ship date this excludes a
+  // negligible user slice. See
+  // `docs/superpowers/specs/2026-06-11-position-store-service-worker.md`
+  // §Acceptance Criteria (impl-PR merge precondition).
+  minimum_chrome_version: '140',
+
   // --- Background service worker ------------------------------------------
   // Holds persistent state and handles messaging between content scripts
   // and the popup/options page.  No UI — purely a message bus.

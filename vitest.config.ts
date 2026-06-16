@@ -59,6 +59,7 @@ export default defineConfig({
       'src/chrome/background/commands/**/__tests__/**/*.test.ts',
       'src/chrome/background/context-menu/**/__tests__/**/*.test.ts',
       'src/chrome/background/messaging/**/__tests__/**/*.test.ts',
+      'src/chrome/background/position/**/__tests__/**/*.test.ts',
       'src/chrome/background/state/**/__tests__/**/*.test.ts',
       'src/chrome/background/welcome/**/__tests__/**/*.test.ts',
       'src/chrome/content/**/__tests__/**/*.test.ts',

@@ -15,6 +15,7 @@
 import { dispatchActivation } from './activation/dispatch';
 import type { ActivationError, ActivationIntent } from './activation/types';
 import type { OnMessageError } from './messaging/on-message';
+import { handlePosition } from './position/handlers';
 
 export type RouteResponse = { ok: false; error: OnMessageError } | { ok: true; data: unknown };
 
@@ -50,6 +51,12 @@ export function route(
   sendResponse: (resp: RouteResponse) => void,
   deps: RouteDeps = defaultDeps,
 ): void {
+  // #196 — position RPCs. `handlePosition` returns true when it owns the type
+  // (and has taken responsibility for `sendResponse`); fall through otherwise.
+  // The sender-shape provenance gate in `handleOnMessage` has already enforced
+  // CS-only / popup-only membership for every position type before we get here.
+  if (handlePosition(msg, sender, sendResponse)) return;
+
   if (msg.type === 'activate-reader') {
     const tabId = sender.tab?.id;
     // The popup is the only legitimate sender of `activate-reader` over

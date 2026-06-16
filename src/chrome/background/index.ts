@@ -39,6 +39,17 @@
  * - `docs/superpowers/specs/2026-05-08-messaging-contract.md`
  */
 
+// Side-effect import: #196 SW access-gate. Evaluating this module calls
+// `chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })`
+// synchronously at top-level on EVERY SW wake (before the first await), the
+// same MV3 discipline as listener registration — so the `local` area is
+// re-gated against content scripts on every startup regardless of whether the
+// access level persists across restarts. Feature-detected + fail-closed; see
+// `./position/access-gate.ts`. Imported FIRST so the gate is asserted ahead of
+// any message handling. See spec
+// `docs/superpowers/specs/2026-06-11-position-store-service-worker.md`.
+import './position/access-gate';
+
 import { dispatchActivation } from './activation/dispatch';
 import { handleOnMessage } from './messaging/on-message';
 import { route } from './route';
