@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>IDB-isolation reproducer — inverse RPC</title>
+    <style>
+      body {
+        font:
+          13px/1.4 system-ui,
+          sans-serif;
+        width: 360px;
+        margin: 0;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 8px;
+      }
+      pre {
+        background: #f4f4f4;
+        padding: 8px;
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 220px;
+        overflow: auto;
+      }
+      .pass {
+        color: #137333;
+        font-weight: 600;
+      }
+      .fail {
+        color: #c5221f;
+        font-weight: 600;
+      }
+      hr {
+        border: none;
+        border-top: 1px solid #ddd;
+        margin: 16px 0;
+      }
+      button {
+        font: inherit;
+        padding: 6px 10px;
+        margin: 0 6px 8px 0;
+        cursor: pointer;
+      }
+      .muted {
+        color: #5f6368;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Check 1 — inverse composability (popup ↔ SW share the IDB namespace)</h1>
+    <p>
+      Sends <code>position/list</code> to the SW. The popup runs under
+      <code>chrome-extension://&lt;id&gt;</code>, the same origin as the SW, so it MUST see the
+      SW-written sentinel. A content script (host-page origin) must NOT.
+    </p>
+    <div id="verdict">running…</div>
+    <pre id="out"></pre>
+
+    <hr />
+
+    <h1>Check 3 — session survival across a real cold restart</h1>
+    <p class="muted">
+      The sentinel is written <strong>only</strong> when you click <em>Write</em> — opening this
+      popup no longer writes it (methodology fix). To test: click <strong>Write</strong>, fully quit
+      Chrome (Cmd+Q), relaunch, open this popup, click <strong>Read</strong>. ABSENT = PASS
+      (cleared); PRESENT = SURVIVED/FAIL.
+    </p>
+    <div>
+      <button id="write-session" type="button">Write session sentinel</button>
+      <button id="read-session" type="button">Read session sentinel</button>
+    </div>
+    <div id="session-verdict" class="muted">no action yet</div>
+    <pre id="session-out"></pre>
+
+    <hr />
+
+    <h1>Check 5 — <code>local</code> + <code>setAccessLevel</code> trusted-context read</h1>
+    <p>
+      The popup is a <strong>trusted context</strong>. After the SW calls
+      <code>chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })</code>, a content
+      script must NOT read <code>local-position-sentinel</code>, but this popup MUST still see it.
+    </p>
+    <div id="local-verdict">running…</div>
+    <pre id="local-out"></pre>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
