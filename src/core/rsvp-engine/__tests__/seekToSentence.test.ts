@@ -316,3 +316,33 @@ describe('unified sentence predicate (#208)', () => {
     expect(events).toEqual([{ type: 'word', index: 3, word: 'Then' }]);
   });
 });
+
+// Issue #118 — seekToSentence delegates to seekTo, so a 'prev' that
+// resolves to the currently-displayed word index now rides the new
+// "preserve the in-flight beat" branch. Pin that transitive behavior:
+// no duplicate emit, original deadline kept.
+describe('seekToSentence onto the current word preserves the beat (#118)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('"prev" landing on the displayed word does not re-emit and keeps the original deadline', () => {
+    const engine = createRsvpEngine({ words: STREAM, wpm: 300 }); // 200 ms/word
+    const events: RsvpEvent[] = [];
+    engine.subscribe((e) => events.push(e));
+    engine.start(); // 'Hi.' at index 0, t=0; nextIndex = 1; displayed = 0
+
+    vi.advanceTimersByTime(120); // 60% through 'Hi.'
+    // cur = 1; 'Hi.' is sentence-final so the current sentence start is 1,
+    // which equals cur → back up one sentence to index 0 == the displayed
+    // word → preserve branch fires.
+    engine.seekToSentence('prev');
+
+    expect(engine.state).toBe('playing');
+    expect(events).toHaveLength(1); // no duplicate 'Hi.'
+    vi.advanceTimersByTime(79);
+    expect(events).toHaveLength(1);
+    vi.advanceTimersByTime(1); // t=200 → 'How' at the original deadline
+    expect(events).toHaveLength(2);
+    expect(events[1]).toEqual({ type: 'word', index: 1, word: 'How' });
+  });
+});

@@ -320,6 +320,16 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
   // Documented on `progress()` so consumers know the axis change.
   let nextIndex = 0;
   let timerId: ReturnType<typeof setTimeout> | null = null;
+  // Issue #118 — the wall-clock time the current word's gap began and the
+  // full gap it was scheduled for. Together they let `setWpm` reschedule the
+  // REMAINING slice of the in-flight gap (preserving the fraction already
+  // displayed) instead of restarting a full beat at the new cadence — the
+  // old behavior cost up to a full msPerWord of jitter, dominant at low WPM.
+  // Both are (re)set on every emit via `scheduleNext`; the baseline is NOT
+  // updated by `rescheduleRemaining`, so repeated `setWpm` calls measure
+  // elapsed against the word's true display start, not the last reschedule.
+  let wordStartedAt: number | null = null;
+  let wordFullDelay = 0;
   let seekInFlight = false;
   // Word just emitted to subscribers — drives Safari-style pacing for the
   // gap BEFORE the next word. In chunk mode this is the chunk's LAST
@@ -355,12 +365,49 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
     return calculatePunctuationDelay(lastEmittedWord, base);
   };
 
-  const scheduleNext = (): void => {
+  const armTimer = (delay: number): void => {
     timerId = setTimeout(() => {
       timerId = null;
       if (state !== RSVP_STATE.PLAYING) return;
       tick();
-    }, nextDelay());
+    }, delay);
+  };
+
+  const scheduleNext = (): void => {
+    const delay = nextDelay();
+    // Record the gap baseline at emit time so a mid-gap `setWpm` can
+    // preserve the elapsed fraction (issue #118).
+    wordStartedAt = Date.now();
+    wordFullDelay = delay;
+    armTimer(delay);
+  };
+
+  // Issue #118 — reschedule the in-flight gap at the CURRENT cadence,
+  // preserving the fraction of the current word already displayed. Replaces
+  // the prior `clearPending()` + full `scheduleNext()`, which discarded the
+  // elapsed time and restarted a whole beat. `wordStartedAt` / `wordFullDelay`
+  // are left at the word's original emit baseline so repeated reschedules
+  // accumulate correctly rather than resetting the clock each call.
+  //
+  // Clock assumption: elapsed is measured against `Date.now()` (wall clock),
+  // while the gap is armed via `setTimeout` (the runtime's macrotask clock).
+  // These are coherent in the foreground. In a backgrounded/suspended tab —
+  // where `setTimeout` is throttled but the wall clock keeps advancing — the
+  // fraction can read high and is clamped to `[0,1]`, so the worst case is a
+  // word firing on the next (already-throttled) tick. That is strictly no
+  // worse than the old full-beat-restart and is invisible to a reader who
+  // isn't looking at a background tab; the engine lives in `src/core` and
+  // cannot read `document.visibilityState` to gate on foreground. Accepted.
+  const rescheduleRemaining = (): void => {
+    if (timerId === null || wordStartedAt === null) {
+      scheduleNext();
+      return;
+    }
+    const elapsed = Date.now() - wordStartedAt;
+    const fraction = wordFullDelay > 0 ? Math.min(1, Math.max(0, elapsed / wordFullDelay)) : 0;
+    const remaining = Math.max(0, nextDelay() * (1 - fraction));
+    clearPending();
+    armTimer(remaining);
   };
 
   // Total ticks remaining: in word mode, `words.length`; in chunk mode,
@@ -539,11 +586,10 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
       assertValidWpm(next);
       wpm = next;
       // Reschedule any pending tick at the new cadence so the next emission
-      // reflects the change. The currently displayed word's remaining time
-      // is reset — acceptable for a control-surface live update.
+      // reflects the change, preserving the fraction of the current word
+      // already displayed (issue #118) rather than restarting a full beat.
       if (state === RSVP_STATE.PLAYING && timerId !== null) {
-        clearPending();
-        scheduleNext();
+        rescheduleRemaining();
       }
     },
     setPunctuationPacing(enabled: boolean): void {
@@ -721,12 +767,24 @@ export function createRsvpEngine(options: RsvpEngineOptions): RsvpEngine {
         return;
       }
 
+      // Word currently on screen while playing (the last-emitted word).
+      // Captured before `nextIndex` is overwritten so the #118 preserve
+      // check below can compare the seek target against it.
+      const displayedIndex = nextIndex - 1;
       nextIndex = target;
       seekInFlight = true;
       try {
         if (state === RSVP_STATE.PLAYING) {
-          clearPending();
-          tick();
+          if (target === displayedIndex && timerId !== null) {
+            // Issue #118 — seeking onto the word already displayed: leave the
+            // in-flight beat running (no re-emit, no reschedule) instead of
+            // restarting a full beat. Restore `nextIndex` to the post-emit
+            // invariant (next word to emit = target + 1).
+            nextIndex = target + 1;
+          } else {
+            clearPending();
+            tick();
+          }
         } else if (state === RSVP_STATE.PAUSED) {
           emit({ type: 'word', index: target, word: words[target] });
           // Keep `lastEmittedWord` in sync with the just-emitted word so that

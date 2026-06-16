@@ -292,4 +292,52 @@ describe('seekTo() with snapToSentence', () => {
     expect(engine.state).toBe('done');
     expect(events[events.length - 1]).toEqual({ type: 'done' });
   });
+
+  // Issue #118 — seeking onto the word ALREADY displayed while playing
+  // must preserve the in-flight beat rather than re-emit the word and
+  // restart a full beat (which costs up to a full msPerWord of jitter
+  // and a redundant redraw — visible when the scrubber settles on the
+  // current word). Seeking onto a DIFFERENT word keeps the existing
+  // emit-immediately-at-a-full-beat behavior (a new word earns a full
+  // display beat).
+  describe('seekTo preserves the in-flight beat when targeting the current word (#118)', () => {
+    it('seekTo onto the currently displayed word does not re-emit and keeps the original deadline', () => {
+      const words = ['a', 'b', 'c'];
+      const engine = createRsvpEngine({ words, wpm: 300 }); // 200 ms/word
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start(); // 'a' at t=0; displayed index 0; nextIndex = 1
+      expect(events).toHaveLength(1);
+
+      vi.advanceTimersByTime(120); // 60% through 'a'
+      engine.seekTo(0); // == current displayed word → preserve beat (80 ms left)
+
+      expect(engine.state).toBe('playing');
+      expect(events).toHaveLength(1); // NO duplicate 'a' re-emit
+      vi.advanceTimersByTime(79);
+      expect(events).toHaveLength(1);
+      vi.advanceTimersByTime(1); // t = 200 → 'b' at the word's original deadline
+      expect(events).toHaveLength(2);
+      expect(events[1]).toEqual({ type: 'word', index: 1, word: 'b' });
+    });
+
+    it('seekTo onto a DIFFERENT word still emits it immediately at a full beat', () => {
+      const words = ['a', 'b', 'c', 'd'];
+      const engine = createRsvpEngine({ words, wpm: 300 }); // 200 ms/word
+      const events: RsvpEvent[] = [];
+      engine.subscribe((e) => events.push(e));
+      engine.start(); // 'a'
+
+      vi.advanceTimersByTime(120);
+      engine.seekTo(2); // different word → emit 'c' now, fresh full beat
+      expect(events).toHaveLength(2);
+      expect(events[1]).toEqual({ type: 'word', index: 2, word: 'c' });
+
+      vi.advanceTimersByTime(199);
+      expect(events).toHaveLength(2);
+      vi.advanceTimersByTime(1); // full 200 ms beat from the seek
+      expect(events).toHaveLength(3);
+      expect(events[2]).toEqual({ type: 'word', index: 3, word: 'd' });
+    });
+  });
 });
