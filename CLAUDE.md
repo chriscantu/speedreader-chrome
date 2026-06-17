@@ -38,6 +38,23 @@ For routine extension work, prefer hierarchical dispatch, ~6 agents, Queen: `ext
 
 Spawn on-demand; do not preallocate. Reap idle agents after task completion.
 
+### Parallel builder isolation (#117)
+
+Do **not** rely on the `Agent` tool's `isolation: "worktree"` for parallel
+builders — the harness `WorktreeCreate` hook does not reroot a subagent's Bash
+CWD, so siblings share one working tree and a builder's `git checkout` clobbers
+another's uncommitted work. Instead the coordinator pre-creates one isolated
+worktree per builder with [`bin/swarm-worktrees.sh`](bin/swarm-worktrees.sh):
+
+```
+bin/swarm-worktrees.sh add <task> <branchA> <branchB> ...   # prints one checkout path per line
+bin/swarm-worktrees.sh list <task>
+bin/swarm-worktrees.sh cleanup <task>                        # removes checkouts; keeps branches
+```
+
+Dispatch each builder with an explicit `cd .worktrees/<task>/<branch>` and grant
+its Bash perms that path. Coordinator (not subagents) does commit/push/PR.
+
 ## Key references
 
 - [`docs/superpowers/specs/2026-04-19-chrome-port-backlog-design.md`](docs/superpowers/specs/2026-04-19-chrome-port-backlog-design.md) — approved design for this initial phase.
