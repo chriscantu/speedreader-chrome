@@ -147,6 +147,42 @@ describe('swarm-worktrees.sh — list / cleanup', () => {
   });
 });
 
+describe('swarm-worktrees.sh — path containment (security regression for #117 review)', () => {
+  it('refuses a traversing task name and performs NO rm outside .worktrees/', () => {
+    // A sibling of the repo that must survive — proves cleanup cannot rm-rf out
+    // of the .worktrees/ subtree via a `..` task.
+    const victimName = `victim-${process.pid}`;
+    const victim = join(repo, '..', victimName);
+    writeFileSync(victim, 'keep');
+    try {
+      const res = run(repo, ['cleanup', `../${victimName}`]);
+      expect(res.status).toBe(2);
+      // The destructive path never ran — sibling intact.
+      expect(existsSync(victim)).toBe(true);
+    } finally {
+      rmSync(victim, { force: true });
+    }
+  });
+
+  it('refuses task = ".." (would target the repo root)', () => {
+    const res = run(repo, ['cleanup', '..']);
+    expect(res.status).toBe(2);
+    // Repo working tree intact.
+    expect(existsSync(join(repo, 'README.md'))).toBe(true);
+  });
+
+  it('refuses a task containing a slash', () => {
+    expect(run(repo, ['add', 'a/b', 'br']).status).toBe(2);
+  });
+
+  it('refuses a branch name that escapes via ..', () => {
+    const res = run(repo, ['add', 'tasksec', '../../evil']);
+    expect(res.status).toBe(2);
+    // No worktree was created (validation runs before any add).
+    expect(existsSync(join(repo, '.worktrees/tasksec'))).toBe(false);
+  });
+});
+
 describe('swarm-worktrees.sh — usage', () => {
   it('exits 2 with no command', () => {
     expect(run(repo, []).status).toBe(2);

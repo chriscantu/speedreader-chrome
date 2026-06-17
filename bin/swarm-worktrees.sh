@@ -12,10 +12,11 @@
 #
 #   add <task> <branch>...   Create a worktree per branch under
 #                            .worktrees/<task>/<branch>. New branches are cut
-#                            from WORKTREE_BASE (default HEAD); existing
-#                            branches are attached as-is. Prints one created
-#                            path per line (consumed by the coordinator to
-#                            `cd` each builder into its own checkout).
+#                            from HEAD (sync `main` before dispatch if you need
+#                            a fresher base); existing branches are attached
+#                            as-is. Prints one created path per line (consumed
+#                            by the coordinator to `cd` each builder into its
+#                            own checkout).
 #   list <task>              List the registered worktrees for <task>.
 #   cleanup <task>           Remove every worktree under .worktrees/<task> and
 #                            prune. Does NOT delete the branches (they may hold
@@ -32,7 +33,6 @@ set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
 WT_DIR=".worktrees"
-BASE="${WORKTREE_BASE:-HEAD}"
 
 usage() {
   echo "usage: swarm-worktrees.sh <add|list|cleanup> <task> [branch...]" >&2
@@ -46,6 +46,21 @@ task="${1:-}"
 [ -n "$task" ] || usage
 shift || true
 
+# CONTAINMENT (security): `task` is a single path segment under .worktrees/. It
+# flows into `git worktree add` paths and `rm -rf` (cleanup), so a `/` or `..`
+# would let those escape the .worktrees/ subtree and delete/clobber arbitrary
+# dirs (e.g. `cleanup ..` → rm -rf the repo root). Restrict to a flat slug.
+case "$task" in
+  . | ..)
+    echo "swarm-worktrees: invalid task name: '$task'" >&2
+    exit 2
+    ;;
+  *[!A-Za-z0-9._-]*)
+    echo "swarm-worktrees: task must be a flat slug [A-Za-z0-9._-] (no '/' or '..'): '$task'" >&2
+    exit 2
+    ;;
+esac
+
 base_path="$ROOT/$WT_DIR/$task"
 
 case "$cmd" in
@@ -54,6 +69,14 @@ case "$cmd" in
       echo "swarm-worktrees: 'add' needs at least one branch" >&2
       exit 2
     }
+    # Validate EVERY branch up front (security: a `..`-bearing ref would escape
+    # the task subtree; also makes the loop fail before creating partial state).
+    for br in "$@"; do
+      if ! git check-ref-format "refs/heads/$br"; then
+        echo "swarm-worktrees: invalid branch name: '$br'" >&2
+        exit 2
+      fi
+    done
     for br in "$@"; do
       path="$base_path/$br"
       if [ -e "$path" ]; then
@@ -64,8 +87,8 @@ case "$cmd" in
         # Branch exists — attach it (cannot be checked out in another worktree).
         git -C "$ROOT" worktree add "$path" "$br" >&2
       else
-        # New branch cut from the base ref.
-        git -C "$ROOT" worktree add "$path" -b "$br" "$BASE" >&2
+        # New branch cut from HEAD.
+        git -C "$ROOT" worktree add "$path" -b "$br" HEAD >&2
       fi
       echo "$path"
     done
