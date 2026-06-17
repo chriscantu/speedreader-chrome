@@ -99,6 +99,16 @@ export interface StorageAdapter {
   get(keys: string[]): Promise<Record<string, unknown>>;
   set(items: Record<string, unknown>): Promise<void>;
   remove(keys: string[]): Promise<void>;
+  /**
+   * Returns EVERY key name in the backing store (maps to
+   * `chrome.storage.local.getKeys()`). Keys only — NOT values — because
+   * the sole caller (`clearAll()`'s orphan sweep) discards values; this
+   * avoids deserializing the entire namespace's payloads just to read
+   * their key names. Used only on the `clearAll()` orphan sweep — a
+   * rare, user-initiated destructive path. NEVER called on the
+   * write/touch/read hot path; keep it off hot paths in any new caller.
+   */
+  getKeys(): Promise<string[]>;
 }
 
 export interface ReadingPositionStore {
@@ -132,19 +142,22 @@ export interface ReadingPositionStore {
    */
   list(): Promise<Array<{ url: string; position: ReadingPosition }>>;
   /**
-   * Removes every position currently tracked in the LRU index, plus
-   * the index itself. Exposed for #49 (popup "clear reading history"
-   * affordance). Non-position keys in the adapter are left untouched.
+   * Removes every `position:*` key — both those tracked by the LRU
+   * index AND orphans not referenced by it — plus the index itself.
+   * Exposed for #49 (popup "clear reading history" affordance).
+   * Non-position keys in the adapter are left untouched.
    *
-   * Orphaned `position:*` keys that are NOT referenced by the index
-   * (e.g. from a crashed write that updated the payload but not the
-   * index) are NOT cleaned by this call — they remain dormant in
-   * `chrome.storage.local` and are only recovered when their URL is
-   * next written. `chrome.storage.local` has no prefix-scan API; a
-   * full sweep would require `get(null)` which loads the entire
-   * extension storage (settings, session state, future feature
-   * payloads) into memory on a hot user-facing path. Tracked as a
-   * separate maintenance follow-up.
+   * Orphans arise when a `write()` lands the payload (step 1) but the
+   * subsequent index update (step 2) is lost to an SW kill, browser
+   * hard-quit, or mid-write quota trip. `chrome.storage.local` has no
+   * prefix-scan API, so the sweep performs one `getKeys()`
+   * (`chrome.storage.local.getKeys()`) to enumerate every key NAME
+   * (not value — the sweep discards values), then removes every
+   * `position:`-prefixed key. Cost: exactly one key-name enumeration
+   * per `clearAll()` — acceptable on this rare, user-initiated
+   * destructive path. The sweep runs unconditionally (NOT gated on a
+   * non-empty index), because the orphan-producing failure mode can
+   * leave the index empty while a payload survives (#197).
    */
   clearAll(): Promise<void>;
 }
@@ -355,8 +368,18 @@ export function createReadingPositionStore(
 
     clearAll() {
       return enqueue(async () => {
-        const index = await readIndex();
-        if (index.length > 0) await adapter.remove(index);
+        // Orphan sweep (#197): enumerate ALL keys and remove every
+        // `position:*` one, not just those the index tracks. `getKeys()`
+        // returns every key in the namespace, so this set already
+        // contains both index-tracked keys AND orphans — no need to read
+        // or union the index (a stranded index entry can only reference a
+        // key that either already appears here or no longer exists). Runs
+        // unconditionally: an orphan-producing crash can leave the index
+        // empty while a stranded payload survives, so any index-gated
+        // short-circuit would miss exactly the keys this exists to clear.
+        const allKeys = await adapter.getKeys();
+        const positionKeys = allKeys.filter((k) => k.startsWith(POSITION_KEY_PREFIX));
+        if (positionKeys.length > 0) await adapter.remove(positionKeys);
         await adapter.remove([POSITION_INDEX_KEY]);
       });
     },

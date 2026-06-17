@@ -23,6 +23,7 @@ function spyAdapter() {
     remove: vi.fn(async (keys: string[]) => {
       for (const k of keys) map.delete(k);
     }),
+    getKeys: vi.fn(async () => [...map.keys()]),
   };
   return { adapter, map };
 }
