@@ -53,6 +53,11 @@ function createMemoryAdapter(): StorageAdapter & { snapshot(): Record<string, un
         map.delete(k);
       }
     },
+    async getAll() {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of map.entries()) out[k] = structuredClone(v);
+      return out;
+    },
     snapshot() {
       return Object.fromEntries(map.entries());
     },
@@ -411,6 +416,12 @@ describe('reading-position store — concurrent writes serialize through the que
       async remove(keys) {
         for (const k of keys) map.delete(k);
       },
+      async getAll() {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of map.entries()) out[k] = structuredClone(v);
+        return out;
+      },
       snapshot() {
         return Object.fromEntries(map.entries());
       },
@@ -513,6 +524,11 @@ describe('reading-position store — concurrent writes serialize through the que
       async remove(keys) {
         for (const k of keys) map.delete(k);
       },
+      async getAll() {
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of map.entries()) out[k] = structuredClone(v);
+        return out;
+      },
     };
     const flakeyStore = createReadingPositionStore({
       adapter: flakeyAdapter,
@@ -613,27 +629,64 @@ describe('reading-position store — makeReadingPosition smart constructor (via 
   });
 });
 
-describe('reading-position store — clearAll() orphan-key contract', () => {
-  test('orphan position:* keys NOT referenced by the index are LEFT in place', async () => {
-    // Document the pragmatic boundary of `clearAll`: it removes only
-    // what the LRU index tracks. Orphans from a crashed write that
-    // updated the payload but not the index survive — sweeping them
-    // would require a full `get(null)` over chrome.storage.local on a
-    // user-facing hot path. Pinning this so a future "extend clearAll
-    // to also sweep orphans" change has to flip an explicit test.
-    const orphanKey = `${'position:'}https://orphan.example.com/`;
+describe('reading-position store — clearAll() orphan sweep (#197)', () => {
+  // Inverts the prior negative-pin (#195 TG6): clearAll() now SWEEPS
+  // orphaned `position:*` keys that the LRU index never tracked, in
+  // addition to the index-keyed removal. Orphans arise from a crashed
+  // write that landed the payload but lost the index update.
+  //
+  // Mutation evidence: delete the `getAll()` sweep block in
+  // `clearAll()` (so it removes only `index`) and the "orphan + index"
+  // and "only orphan" cases below go red — the orphan survives.
+
+  test('removes BOTH an indexed entry and an unindexed orphan', async () => {
+    const orphanKey = `position:https://orphan.example.com/`;
     await adapter.set({ [orphanKey]: { schemaVersion: 1, wordIndex: 1, totalWords: 10 } });
-    // Plus a tracked entry to prove clearAll DID run.
     await store.write('https://example.com/tracked', { wordIndex: 1, totalWords: 10 });
 
     await store.clearAll();
 
     const snap = adapter.snapshot();
-    // Tracked entry and index are gone.
     expect(snap[keyOf('https://example.com/tracked')]).toBeUndefined();
     expect(snap[POSITION_INDEX_KEY]).toBeUndefined();
-    // Orphan remains — documented behavior.
-    expect(snap[orphanKey]).toEqual({ schemaVersion: 1, wordIndex: 1, totalWords: 10 });
+    // Orphan is now swept — the discriminating assertion.
+    expect(snap[orphanKey]).toBeUndefined();
+  });
+
+  test('removes an orphan even when the index is absent (empty-index crash case)', async () => {
+    // The orphan-producing failure mode: write() landed the payload but
+    // the index update was lost, so there is NO index at all. A sweep
+    // gated on a non-empty index would miss this exact key.
+    const orphanKey = `position:https://orphan.example.com/`;
+    await adapter.set({ [orphanKey]: { schemaVersion: 1, wordIndex: 1, totalWords: 10 } });
+
+    await store.clearAll();
+
+    expect(adapter.snapshot()[orphanKey]).toBeUndefined();
+  });
+
+  test('does NOT remove non-position keys (settings.*, font:*, etc.)', async () => {
+    // Explicit regression: a sweep that nukes everything must fail this.
+    await adapter.set({
+      'settings.theme': { value: 'dark' },
+      'font:default': { family: 'OpenDyslexic' },
+      'session-state': { lastTab: 7 },
+    });
+    const orphanKey = `position:https://orphan.example.com/`;
+    await adapter.set({ [orphanKey]: { schemaVersion: 1, wordIndex: 1, totalWords: 10 } });
+
+    await store.clearAll();
+
+    const snap = adapter.snapshot();
+    expect(snap[orphanKey]).toBeUndefined();
+    expect(snap['settings.theme']).toEqual({ value: 'dark' });
+    expect(snap['font:default']).toEqual({ family: 'OpenDyslexic' });
+    expect(snap['session-state']).toEqual({ lastTab: 7 });
+  });
+
+  test('empty store with no orphans → no-op (still scans, does not throw)', async () => {
+    await expect(store.clearAll()).resolves.toBeUndefined();
+    expect(Object.keys(adapter.snapshot())).toHaveLength(0);
   });
 });
 

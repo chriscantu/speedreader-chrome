@@ -23,6 +23,11 @@ function spyAdapter() {
     remove: vi.fn(async (keys: string[]) => {
       for (const k of keys) map.delete(k);
     }),
+    getAll: vi.fn(async () => {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of map.entries()) out[k] = v;
+      return out;
+    }),
   };
   return { adapter, map };
 }
