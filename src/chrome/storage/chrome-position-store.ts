@@ -52,11 +52,13 @@ function chromeStorageAdapter(): StorageAdapter {
     async remove(keys) {
       await chrome.storage.local.remove(keys);
     },
-    async getAll() {
-      // `get(null)` returns the ENTIRE `chrome.storage.local` namespace.
-      // Used only by the core store's `clearAll()` orphan sweep — a rare,
-      // user-initiated path. Do NOT call on read/write/touch hot paths.
-      return (await chrome.storage.local.get(null)) as Record<string, unknown>;
+    async getKeys() {
+      // `getKeys()` returns every key NAME in `chrome.storage.local`
+      // WITHOUT deserializing values (Chrome 130+; this extension pins a
+      // 140 floor). Used only by the core store's `clearAll()` orphan
+      // sweep — a rare, user-initiated path. Do NOT call on
+      // read/write/touch hot paths.
+      return chrome.storage.local.getKeys();
     },
   };
 }

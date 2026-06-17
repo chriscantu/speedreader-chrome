@@ -53,10 +53,8 @@ function createMemoryAdapter(): StorageAdapter & { snapshot(): Record<string, un
         map.delete(k);
       }
     },
-    async getAll() {
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of map.entries()) out[k] = structuredClone(v);
-      return out;
+    async getKeys() {
+      return [...map.keys()];
     },
     snapshot() {
       return Object.fromEntries(map.entries());
@@ -416,11 +414,9 @@ describe('reading-position store — concurrent writes serialize through the que
       async remove(keys) {
         for (const k of keys) map.delete(k);
       },
-      async getAll() {
+      async getKeys() {
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
-        const out: Record<string, unknown> = {};
-        for (const [k, v] of map.entries()) out[k] = structuredClone(v);
-        return out;
+        return [...map.keys()];
       },
       snapshot() {
         return Object.fromEntries(map.entries());
@@ -524,10 +520,8 @@ describe('reading-position store — concurrent writes serialize through the que
       async remove(keys) {
         for (const k of keys) map.delete(k);
       },
-      async getAll() {
-        const out: Record<string, unknown> = {};
-        for (const [k, v] of map.entries()) out[k] = structuredClone(v);
-        return out;
+      async getKeys() {
+        return [...map.keys()];
       },
     };
     const flakeyStore = createReadingPositionStore({
@@ -635,9 +629,9 @@ describe('reading-position store — clearAll() orphan sweep (#197)', () => {
   // addition to the index-keyed removal. Orphans arise from a crashed
   // write that landed the payload but lost the index update.
   //
-  // Mutation evidence: delete the `getAll()` sweep block in
-  // `clearAll()` (so it removes only `index`) and the "orphan + index"
-  // and "only orphan" cases below go red — the orphan survives.
+  // Mutation evidence: revert the `getKeys()` sweep in `clearAll()` to
+  // an index-only removal and the "orphan + index" and "only orphan"
+  // cases below go red — the orphan survives.
 
   test('removes BOTH an indexed entry and an unindexed orphan', async () => {
     const orphanKey = `position:https://orphan.example.com/`;

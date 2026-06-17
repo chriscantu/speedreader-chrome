@@ -13,6 +13,7 @@ interface FakeLocalStorage {
   get: ReturnType<typeof vi.fn>;
   set: ReturnType<typeof vi.fn>;
   remove: ReturnType<typeof vi.fn>;
+  getKeys: ReturnType<typeof vi.fn>;
 }
 
 let fakeStore: Map<string, unknown>;
@@ -39,6 +40,7 @@ beforeEach(() => {
       const keyList = Array.isArray(keys) ? keys : [keys];
       for (const k of keyList) fakeStore.delete(k);
     }),
+    getKeys: vi.fn(async () => [...fakeStore.keys()]),
   };
   originalChrome = globalThis.chrome;
   // Minimal cast — we only stub the surface the adapter uses.
@@ -94,5 +96,31 @@ describe('chrome-position-store adapter', () => {
     for (const call of local.set.mock.calls) {
       expect(call.length).toBe(1);
     }
+  });
+
+  /**
+   * #197 — the adapter's `getKeys()` maps to `chrome.storage.local.getKeys()`,
+   * the only production wiring of the orphan-sweep enumeration. The core
+   * store's tests use hand-rolled fakes, so this is the sole guard that the
+   * real adapter reaches the right Chrome API. Mutation evidence: changing
+   * `chrome.storage.local.getKeys()` to `.get(null)` (or dropping the await)
+   * leaves the orphan unswept and flips this test red.
+   */
+  test('clearAll() orphan sweep round-trips through chrome.storage.local.getKeys()', async () => {
+    const store = createChromePositionStore();
+    // An orphan position:* key the LRU index never tracked.
+    fakeStore.set('position:https://orphan.example.com/', {
+      schemaVersion: 1,
+      wordIndex: 1,
+      totalWords: 10,
+    });
+    // A non-position key that must survive.
+    fakeStore.set('settings.theme', { value: 'dark' });
+
+    await store.clearAll();
+
+    expect(local.getKeys).toHaveBeenCalled();
+    expect(fakeStore.has('position:https://orphan.example.com/')).toBe(false);
+    expect(fakeStore.get('settings.theme')).toEqual({ value: 'dark' });
   });
 });
