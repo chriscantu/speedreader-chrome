@@ -378,6 +378,21 @@ describe('content script — CR2 persistent-resume sanity guard (RPC transport)'
     expect(toast).toBeNull();
   });
 
+  test('range guard — skips resume when saved wordIndex is out of range for the current stream', async () => {
+    // Companion guard to CR2 (ring test-gap #5): totalWords matches the body
+    // (drift 0, within tolerance) so the CR2 drift guard would HONOR — but
+    // wordIndex=99 >= the 6-word stream, so the `wordIndex < fullWords.length`
+    // range guard must reject. Toast ABSENT. A mutant dropping the range check
+    // would resume into a stale offset and flip this red.
+    const { toast } = await mountWithSavedPosition(
+      'https://example.com/range-guard',
+      'alpha beta gamma delta epsilon zeta.',
+      99,
+      6,
+    );
+    expect(toast).toBeNull();
+  });
+
   test('CR2 — tolerance uses Math.ceil: small totalWords still admits ±1 drift', async () => {
     // Reachable low-end edge: totalWords=2 → tolerance = ceil(2*0.05) = 1.
     // Body=3 words, wordIndex=1 (range guard 0 < 1 < 3 passes), drift=|2-3|=1.

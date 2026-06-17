@@ -35,6 +35,24 @@ describe('PopupHistoryClient — full-history management over RPC', () => {
     await expect(client.delete('https://a/')).rejects.toBeTruthy();
   });
 
+  it('list() returns [] when the SW is asleep (sendMessage → undefined)', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const client = createPopupHistoryClient(apiWith(sendMessage));
+    await expect(client.list()).resolves.toEqual([]);
+  });
+
+  it('delete() rejects with no-response when the SW is asleep (sendMessage → undefined)', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const client = createPopupHistoryClient(apiWith(sendMessage));
+    await expect(client.delete('https://a/')).rejects.toThrow('no-response');
+  });
+
+  it('clearAll() rejects with no-response when the SW is asleep (sendMessage → undefined)', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const client = createPopupHistoryClient(apiWith(sendMessage));
+    await expect(client.clearAll()).rejects.toThrow('no-response');
+  });
+
   it('clearAll() sends position/clear-all', async () => {
     const sendMessage = vi.fn(async () => ({ ok: true, data: undefined }));
     const client = createPopupHistoryClient(apiWith(sendMessage));

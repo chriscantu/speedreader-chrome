@@ -23,7 +23,7 @@ import {
   type ReadingPosition,
 } from '../../../core/storage/reading-position';
 import { createChromePositionStore } from '../../storage/chrome-position-store';
-import { POSITION_PERSISTENCE_ENABLED } from './access-gate';
+import { positionPersistenceEnabled } from './access-gate';
 
 /**
  * A store that touches no storage. Used when persistence is disabled
@@ -40,22 +40,44 @@ const nullStore: ReadingPositionStore = {
 };
 
 /**
- * Returns the real chrome-backed store when `enabled`, else a no-op store.
- * `makeStore` is only invoked in the enabled branch, so the disabled path
- * never even constructs the `chrome.storage.local` adapter — guaranteeing zero
- * `position:*` writes.
+ * Returns a store that consults `isEnabled()` on EVERY op (not once at
+ * construction). When disabled, the op resolves to the "nothing persisted"
+ * answer and touches no adapter — guaranteeing zero `position:*` writes. The
+ * real chrome-backed store is lazily constructed on first enabled op, so a
+ * permanently-disabled SW lifetime never builds the `chrome.storage.local`
+ * adapter at all.
+ *
+ * Checking `isEnabled()` dynamically (vs a static boolean) is what makes the
+ * gate fail-closed against a `setAccessLevel` that RESOLVES LATE or REJECTS:
+ * the access-gate flips its signal only once the call resolves OK, so writes
+ * dispatched before resolution (or after a rejection) are dropped rather than
+ * landing in an un-gated `local` (ring security finding #1).
  */
 export function createGuardedPositionStore(
-  enabled: boolean,
+  isEnabled: () => boolean,
   makeStore: () => ReadingPositionStore = createChromePositionStore,
 ): ReadingPositionStore {
-  return enabled ? makeStore() : nullStore;
+  let real: ReadingPositionStore | null = null;
+  const live = (): ReadingPositionStore | null => {
+    if (!isEnabled()) return null;
+    real ??= makeStore();
+    return real;
+  };
+  return {
+    read: (url) => live()?.read(url) ?? nullStore.read(url),
+    write: (url, position) => live()?.write(url, position) ?? nullStore.write(url, position),
+    touch: (url) => live()?.touch(url) ?? nullStore.touch(url),
+    clear: (url) => live()?.clear(url) ?? nullStore.clear(url),
+    list: () => live()?.list() ?? nullStore.list(),
+    clearAll: () => live()?.clearAll() ?? nullStore.clearAll(),
+  };
 }
 
 /**
  * The single SW-lifetime store instance. Wired to the existing
- * `chrome.storage.local` adapter, gated by the access-gate's fail-closed flag.
+ * `chrome.storage.local` adapter, gated by the access-gate's live fail-closed
+ * signal (enabled only once `setAccessLevel` resolves OK).
  */
 export const positionStore: ReadingPositionStore = createGuardedPositionStore(
-  POSITION_PERSISTENCE_ENABLED,
+  positionPersistenceEnabled,
 );

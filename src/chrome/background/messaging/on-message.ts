@@ -85,14 +85,32 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+/**
+ * A trusted extension page (popup / options / welcome). #196 — the trust
+ * signal is the Chrome-populated `sender.url` ORIGIN, not tab-absence: the
+ * browser-action popup has no `sender.tab`, but the OPTIONS page opens in a
+ * real tab (so `sender.tab.id` is defined), and classifying it by tab-presence
+ * alone mis-labels it as a content script — which would reject its popup-only
+ * `position/clear-all` RPC at the gate (ring security finding #2). A content
+ * script injected into a web page always has an `http(s)` `sender.url`; a CS
+ * cannot forge a `chrome-extension://` origin (`sender.url` is set by Chrome,
+ * not the sender — spec §Sender-URL Binding), so this is a safe trust signal.
+ */
+function isExtensionPageSender(sender: chrome.runtime.MessageSender): boolean {
+  return typeof sender.url === 'string' && sender.url.startsWith('chrome-extension://');
+}
+
 function isPopupShape(sender: chrome.runtime.MessageSender): boolean {
-  // Popup messages come from an extension page; no `sender.tab`.
-  return sender.tab === undefined;
+  // Trusted extension page: no `sender.tab` (browser-action popup) OR an
+  // extension-origin sender (options page in a tab).
+  return sender.tab === undefined || isExtensionPageSender(sender);
 }
 
 function isContentScriptShape(sender: chrome.runtime.MessageSender): boolean {
-  // Content-script messages have a tab id AND must be from the top frame.
-  return sender.tab?.id !== undefined && sender.frameId === 0;
+  // Content-script messages have a tab id AND must be from the top frame AND
+  // must NOT be an extension page (an extension page in a tab is trusted, not
+  // a CS — exclude it so its popup-only RPCs aren't mis-gated as CS-only).
+  return !isExtensionPageSender(sender) && sender.tab?.id !== undefined && sender.frameId === 0;
 }
 
 /**

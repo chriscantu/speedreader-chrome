@@ -40,38 +40,76 @@
  */
 
 /**
- * Feature-detect `setAccessLevel` and, when present, restrict `local` to
- * trusted contexts. Returns whether position persistence is enabled.
- *
- * **FAIL-CLOSED (spec §The Core Decision, normative).** When `setAccessLevel`
- * is absent (should be unreachable above the pinned floor), this returns
- * `false` and the store MUST refuse to persist — it must NEVER fall back to
- * writing `position:*` into an un-gated, content-script-readable `local`.
- * Degraded-but-safe (no resume feature) is the only acceptable failure mode;
- * reopening the enumeration threat is not.
- *
- * The call is fire-and-forget: a rejection is swallowed (logged) rather than
- * thrown, so SW startup never crashes on it.
+ * Live fail-closed signal. Persistence is enabled ONLY once `setAccessLevel`
+ * has actually RESOLVED — not merely when the API is present. The store
+ * consults this on every op (`store.ts`), so a `setAccessLevel` that is present
+ * but REJECTS at runtime leaves this `false` and the store refuses to persist,
+ * rather than write `position:*` into an `local` area that was never gated.
+ * (Ring security finding #1: presence-detection is fail-OPEN on a runtime
+ * rejection — the threat reopens because a CS retains raw `local` access when
+ * the gate call never took effect.)
  */
-export function applyLocalAccessGate(local: chrome.storage.LocalStorageArea | undefined): boolean {
-  if (!local || typeof local.setAccessLevel !== 'function') {
-    return false;
-  }
-  // Issued synchronously; the access-level change resolves on a microtask.
-  void Promise.resolve(local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })).catch(
-    (err: unknown) => {
-      console.warn('[speedreader] setAccessLevel(local, TRUSTED_CONTEXTS) failed', err);
-    },
-  );
-  return true;
+let persistenceEnabled = false;
+
+/** Whether position persistence is currently enabled (gate resolved OK). */
+export function positionPersistenceEnabled(): boolean {
+  return persistenceEnabled;
 }
 
 /**
- * Top-level, every-wake assertion. Whether position persistence is enabled for
- * this SW lifetime. Consumed by `background/position/store.ts` to enforce
- * fail-closed. `undefined` `chrome`/`storage.local` (non-MV3 test hosts)
- * degrades to disabled.
+ * Feature-detect `setAccessLevel` and, when present, restrict `local` to
+ * trusted contexts. Flips {@link positionPersistenceEnabled} to `true` ONLY
+ * after the call resolves. Returns a promise of the resolved enabled state.
+ *
+ * **FAIL-CLOSED (spec §The Core Decision, normative).** Persistence stays
+ * disabled when `setAccessLevel` is absent (should be unreachable above the
+ * pinned Chrome-140 floor) OR present-but-rejecting. The store MUST NEVER fall
+ * back to writing `position:*` into an un-gated, content-script-readable
+ * `local`. Degraded-but-safe (no resume feature) is the only acceptable
+ * failure mode; reopening the enumeration threat is not.
+ *
+ * The CALL is issued synchronously (call-ordering, not resolution-ordering, is
+ * what the SW-lifecycle discipline requires — spec §Lifecycle Hazards fact 1);
+ * a rejection is caught (logged), never thrown, so SW startup never crashes.
  */
-export const POSITION_PERSISTENCE_ENABLED: boolean = applyLocalAccessGate(
-  typeof chrome !== 'undefined' ? chrome.storage?.local : undefined,
-);
+export function applyLocalAccessGate(
+  local: chrome.storage.LocalStorageArea | undefined,
+): Promise<boolean> {
+  // Re-assert from a CLOSED state every time: persistence stays disabled until
+  // THIS application's setAccessLevel resolves OK. Without this reset, a prior
+  // enabled state would leak through the pending window (or a later rejection),
+  // defeating fail-closed.
+  persistenceEnabled = false;
+  if (!local || typeof local.setAccessLevel !== 'function') {
+    return Promise.resolve(false);
+  }
+  // Issued synchronously; the access-level change resolves on a microtask.
+  // Persistence is enabled only on RESOLUTION — never on mere API presence.
+  // The call is wrapped so a SYNCHRONOUS throw (bad-arg / area-locked on some
+  // Chrome build) fails closed (persistence stays disabled) rather than
+  // escaping as an uncaught exception at SW module-eval time (ring re-review:
+  // availability defect on the sync-throw path).
+  let pending: Promise<unknown>;
+  try {
+    pending = Promise.resolve(local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }));
+  } catch (err: unknown) {
+    console.warn('[speedreader] setAccessLevel(local, TRUSTED_CONTEXTS) threw', err);
+    return Promise.resolve(false);
+  }
+  return pending.then(
+    () => {
+      persistenceEnabled = true;
+      return true;
+    },
+    (err: unknown) => {
+      persistenceEnabled = false;
+      console.warn('[speedreader] setAccessLevel(local, TRUSTED_CONTEXTS) failed', err);
+      return false;
+    },
+  );
+}
+
+// Top-level, every-wake assertion. Issued synchronously at module load (before
+// the first await, same discipline as listener registration). `undefined`
+// `chrome`/`storage.local` (non-MV3 test hosts) degrades to disabled.
+void applyLocalAccessGate(typeof chrome !== 'undefined' ? chrome.storage?.local : undefined);

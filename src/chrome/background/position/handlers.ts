@@ -126,6 +126,11 @@ export function handlePosition(
         err(sendResponse);
         return true;
       }
+      // The popup-supplied `url` is trusted (popup is the user's own history
+      // surface) and is canonicalized by `store.clear` → `positionKey` before
+      // any key access; a non-canonicalizable url no-ops. Defense-in-depth note
+      // (ring security #3): if a future refactor moves canonicalization out of
+      // `store.clear`, this handler must canonicalize here instead.
       void (async () => {
         await store.clear(payload.url);
         sendResponse({ ok: true, data: undefined });

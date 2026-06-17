@@ -29,7 +29,7 @@ describe('createGuardedPositionStore — fail-closed when persistence disabled',
     const { adapter } = spyAdapter();
     const makeStore = vi.fn(() => createReadingPositionStore({ adapter, now: () => 1000 }));
 
-    const store = createGuardedPositionStore(false, makeStore);
+    const store = createGuardedPositionStore(() => false, makeStore);
 
     // The fail-closed branch must NOT build the chrome-backed store at all.
     expect(makeStore).not.toHaveBeenCalled();
@@ -57,12 +57,39 @@ describe('createGuardedPositionStore — fail-closed when persistence disabled',
       return inner;
     });
 
-    const store = createGuardedPositionStore(true, makeStore);
-    expect(makeStore).toHaveBeenCalledTimes(1);
+    const store = createGuardedPositionStore(() => true, makeStore);
+    // Lazy: the real store is built on first enabled op, not at construction.
+    expect(makeStore).not.toHaveBeenCalled();
 
     await store.write('https://example.com/a', { wordIndex: 5, totalWords: 50 });
+    expect(makeStore).toHaveBeenCalledTimes(1);
     expect(adapter.set).toHaveBeenCalled();
     const got = await store.read('https://example.com/a');
     expect(got?.wordIndex).toBe(5);
+  });
+
+  // Ring security finding #1 — the live-signal contract: a write dispatched
+  // while the gate has NOT yet resolved (signal false) is dropped with zero
+  // adapter access; once the gate resolves (signal true) writes land. This is
+  // what makes the store fail-closed against a late-resolving / rejecting
+  // setAccessLevel instead of writing to an un-gated `local`.
+  it('consults the live signal per-op: drops writes while disabled, lands them once enabled', async () => {
+    const { adapter } = spyAdapter();
+    let enabled = false;
+    const makeStore = vi.fn(() => createReadingPositionStore({ adapter, now: () => 1000 }));
+    const store = createGuardedPositionStore(() => enabled, makeStore);
+
+    // Disabled window — dropped, no adapter touch, no store construction.
+    await store.write('https://example.com/a', { wordIndex: 5, totalWords: 50 });
+    expect(makeStore).not.toHaveBeenCalled();
+    expect(adapter.set).not.toHaveBeenCalled();
+    await expect(store.read('https://example.com/a')).resolves.toBeUndefined();
+
+    // Gate resolves → signal flips → subsequent writes land.
+    enabled = true;
+    await store.write('https://example.com/a', { wordIndex: 9, totalWords: 90 });
+    expect(adapter.set).toHaveBeenCalled();
+    const got = await store.read('https://example.com/a');
+    expect(got?.wordIndex).toBe(9);
   });
 });

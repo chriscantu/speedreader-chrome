@@ -46,6 +46,24 @@ describe('ContentPositionClient — sender-bound RPCs (no url in any payload)', 
     await expect(client.write({ wordIndex: 1, totalWords: 2 })).rejects.toBeTruthy();
   });
 
+  it('write() rejects with no-response when the SW is asleep (sendMessage → undefined)', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const client = createContentPositionClient(apiWith(sendMessage));
+    await expect(client.write({ wordIndex: 1, totalWords: 2 })).rejects.toThrow('no-response');
+  });
+
+  it('clear() rejects with no-response when the SW is asleep (sendMessage → undefined)', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const client = createContentPositionClient(apiWith(sendMessage));
+    await expect(client.clear()).rejects.toThrow('no-response');
+  });
+
+  it('read() degrades to undefined when the SW is asleep (sendMessage → undefined)', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const client = createContentPositionClient(apiWith(sendMessage));
+    await expect(client.read()).resolves.toBeUndefined();
+  });
+
   it('clear() sends position/clear with NO url', async () => {
     const sendMessage = vi.fn(async () => ({ ok: true, data: undefined }));
     const client = createContentPositionClient(apiWith(sendMessage));
