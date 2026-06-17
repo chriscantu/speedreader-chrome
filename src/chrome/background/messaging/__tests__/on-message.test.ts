@@ -187,4 +187,109 @@ describe('handleOnMessage — sender-provenance validation', () => {
 
     expect(route).toHaveBeenCalledWith(msg, sender, sendResponse);
   });
+
+  // #196 — position RPC provenance. The gate is the type-confusion-closing
+  // layer: a CS-only type from a popup sender (and vice-versa) is rejected
+  // BEFORE the router, for all six types.
+  const CS_POSITION = ['position/get', 'position/set', 'position/clear'] as const;
+  const POPUP_POSITION = ['position/list', 'position/delete', 'position/clear-all'] as const;
+
+  it.each(CS_POSITION)('accepts CS-only %s from a content-script sender', async (type) => {
+    const { handleOnMessage } = await import('../on-message');
+    const route = vi.fn();
+    const handled = handleOnMessage({ type }, contentScriptSender(), vi.fn(), { route });
+    expect(handled).toBe(true);
+    expect(route).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(CS_POSITION)('REJECTS CS-only %s from a popup sender', async (type) => {
+    const { handleOnMessage } = await import('../on-message');
+    const route = vi.fn();
+    const sendResponse = vi.fn();
+    handleOnMessage({ type }, popupSender(), sendResponse, { route });
+    expect(route).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({
+      ok: false,
+      error: { kind: 'sender-shape-mismatch', expected: 'content-script', got: 'popup' },
+    });
+  });
+
+  it.each(POPUP_POSITION)('accepts popup-only %s from a popup sender', async (type) => {
+    const { handleOnMessage } = await import('../on-message');
+    const route = vi.fn();
+    const handled = handleOnMessage({ type }, popupSender(), vi.fn(), { route });
+    expect(handled).toBe(true);
+    expect(route).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(POPUP_POSITION)('REJECTS popup-only %s from a content-script sender', async (type) => {
+    const { handleOnMessage } = await import('../on-message');
+    const route = vi.fn();
+    const sendResponse = vi.fn();
+    handleOnMessage({ type }, contentScriptSender(), sendResponse, { route });
+    expect(route).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({
+      ok: false,
+      error: { kind: 'sender-shape-mismatch', expected: 'popup', got: 'content-script' },
+    });
+  });
+
+  // #196 ring finding #2 — the OPTIONS page opens in a real tab, so its
+  // sender has `tab.id` defined + `frameId === 0` (looks like a CS by shape)
+  // but a `chrome-extension://` origin. It MUST be classified as a trusted
+  // (popup-shaped) sender so its popup-only `position/clear-all` RPC is
+  // accepted, and MUST still be refused for CS-only types.
+  function optionsTabSender(): chrome.runtime.MessageSender {
+    return {
+      id: OWN_ID,
+      url: `chrome-extension://${OWN_ID}/src/chrome/options/index.html`,
+      tab: { id: 9 } as chrome.tabs.Tab,
+      frameId: 0,
+    };
+  }
+
+  it.each(POPUP_POSITION)(
+    'accepts popup-only %s from the options page (extension-origin, in a tab)',
+    async (type) => {
+      const { handleOnMessage } = await import('../on-message');
+      const route = vi.fn();
+      const handled = handleOnMessage({ type }, optionsTabSender(), vi.fn(), { route });
+      expect(handled).toBe(true);
+      expect(route).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(CS_POSITION)(
+    'REJECTS CS-only %s from the options page (trusted, not a CS)',
+    async (type) => {
+      const { handleOnMessage } = await import('../on-message');
+      const route = vi.fn();
+      const sendResponse = vi.fn();
+      handleOnMessage({ type }, optionsTabSender(), sendResponse, { route });
+      expect(route).not.toHaveBeenCalled();
+      expect(sendResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ok: false,
+          error: expect.objectContaining({
+            kind: 'sender-shape-mismatch',
+            expected: 'content-script',
+          }),
+        }),
+      );
+    },
+  );
+
+  // Fail-closed default: a type in NEITHER provenance set is rejected, not
+  // forwarded to the router by sender shape alone.
+  it('rejects a type in neither provenance set (fail-closed default)', async () => {
+    const { handleOnMessage } = await import('../on-message');
+    const route = vi.fn();
+    const sendResponse = vi.fn();
+    const handled = handleOnMessage({ type: 'totally-unknown' }, popupSender(), sendResponse, {
+      route,
+    });
+    expect(handled).toBe(false);
+    expect(route).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: { kind: 'invalid-payload' } });
+  });
 });

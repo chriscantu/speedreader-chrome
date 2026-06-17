@@ -5,8 +5,8 @@
  *   - `loadSettings()` for the historyEnabled flag
  *   - `ReadingPositionStore.list()` for entries
  *   - `chrome.tabs.create({ url })` for resume
- *   - `store.clear(url)` for delete (and the section re-renders without it)
- *   - `store.clearAll()` for clear-all (and the section shows the empty state)
+ *   - `client.delete(url)` for delete (and the section re-renders without it)
+ *   - `client.clearAll()` for clear-all (and the section shows the empty state)
  *   - `chrome.runtime.openOptionsPage()` for the Enable link
  *
  * Anti-tautology stance:
@@ -17,29 +17,28 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { bootstrapPopup } from '../index';
-import type { ReadingPositionStore } from '../../../core/storage/reading-position';
+import type { PopupHistoryClient } from '../position/client';
 
-interface StoreStub extends ReadingPositionStore {
+interface ClientStub extends PopupHistoryClient {
   __snapshot(): Array<{
     url: string;
     position: { wordIndex: number; totalWords: number; lastReadAt: number };
   }>;
 }
 
-function makeStoreStub(initial: Array<{ url: string; lastReadAt: number }>): StoreStub {
-  // Mutable backing list — list() reads it, clear/clearAll mutate it.
+// #196 — the popup reaches the SW-owned store through the RPC client
+// (list / delete / clear-all), not a direct ReadingPositionStore.
+function makeHistoryClientStub(initial: Array<{ url: string; lastReadAt: number }>): ClientStub {
+  // Mutable backing list — list() reads it, delete/clearAll mutate it.
   let entries = initial.map((e) => ({
     url: e.url,
     position: { wordIndex: 0, totalWords: 100, lastReadAt: e.lastReadAt },
   }));
   return {
-    read: vi.fn(async () => undefined),
-    write: vi.fn(async () => undefined),
-    touch: vi.fn(async () => undefined),
-    clear: vi.fn(async (url: string) => {
+    list: vi.fn(async () => entries.map((e) => ({ url: e.url, position: { ...e.position } }))),
+    delete: vi.fn(async (url: string) => {
       entries = entries.filter((e) => e.url !== url);
     }),
-    list: vi.fn(async () => entries.map((e) => ({ url: e.url, position: { ...e.position } }))),
     clearAll: vi.fn(async () => {
       entries = [];
     }),
@@ -107,19 +106,19 @@ afterEach(() => {
 describe('bootstrapPopup — history section disabled', () => {
   it('renders the "off" message when historyEnabled is false', async () => {
     const api = makeChromeStub();
-    const store = makeStoreStub([]);
+    const client = makeHistoryClientStub([]);
     await bootstrapPopup({
       api,
       doc: document,
       loadSettings: async () => ({ historyEnabled: false }),
-      store,
+      historyClient: client,
       now: () => NOW,
     });
 
     const container = document.getElementById('history-container') as HTMLElement;
     expect(container.textContent ?? '').toMatch(/Reading history is off/i);
-    // No store.list() call when disabled — privacy floor.
-    expect(store.list).not.toHaveBeenCalled();
+    // No client.list() call when disabled — privacy floor.
+    expect(client.list).not.toHaveBeenCalled();
   });
 
   it('Enable link click invokes chrome.runtime.openOptionsPage', async () => {
@@ -128,7 +127,7 @@ describe('bootstrapPopup — history section disabled', () => {
       api,
       doc: document,
       loadSettings: async () => ({ historyEnabled: false }),
-      store: makeStoreStub([]),
+      historyClient: makeHistoryClientStub([]),
       now: () => NOW,
     });
     const enableBtn = document
@@ -140,9 +139,9 @@ describe('bootstrapPopup — history section disabled', () => {
 });
 
 describe('bootstrapPopup — history section enabled', () => {
-  it('renders entries from store.list when enabled', async () => {
+  it('renders entries from client.list when enabled', async () => {
     const api = makeChromeStub();
-    const store = makeStoreStub([
+    const client = makeHistoryClientStub([
       { url: 'https://example.com/a', lastReadAt: NOW - 30 * 60_000 },
       { url: 'https://example.com/b', lastReadAt: NOW - 2 * 86_400_000 },
     ]);
@@ -150,7 +149,7 @@ describe('bootstrapPopup — history section enabled', () => {
       api,
       doc: document,
       loadSettings: async () => ({ historyEnabled: true }),
-      store,
+      historyClient: client,
       now: () => NOW,
     });
 
@@ -163,14 +162,14 @@ describe('bootstrapPopup — history section enabled', () => {
 
   it('clicking an entry calls chrome.tabs.create with that URL', async () => {
     const api = makeChromeStub();
-    const store = makeStoreStub([
+    const client = makeHistoryClientStub([
       { url: 'https://example.com/article-x', lastReadAt: NOW - 60_000 },
     ]);
     await bootstrapPopup({
       api,
       doc: document,
       loadSettings: async () => ({ historyEnabled: true }),
-      store,
+      historyClient: client,
       now: () => NOW,
     });
 
@@ -182,7 +181,7 @@ describe('bootstrapPopup — history section enabled', () => {
 
   it('clicking delete removes the row from the DOM after re-render', async () => {
     const api = makeChromeStub();
-    const store = makeStoreStub([
+    const client = makeHistoryClientStub([
       { url: 'https://example.com/a', lastReadAt: NOW - 60_000 },
       { url: 'https://example.com/b', lastReadAt: NOW - 120_000 },
     ]);
@@ -190,7 +189,7 @@ describe('bootstrapPopup — history section enabled', () => {
       api,
       doc: document,
       loadSettings: async () => ({ historyEnabled: true }),
-      store,
+      historyClient: client,
       now: () => NOW,
     });
     expect(document.querySelectorAll('[role="listitem"]').length).toBe(2);
@@ -200,11 +199,11 @@ describe('bootstrapPopup — history section enabled', () => {
     );
     if (!firstDelete) throw new Error('test: delete button missing');
     firstDelete.click();
-    // Wait for the async store.clear() + remount.
+    // Wait for the async client.delete() + remount.
     await vi.waitFor(() => {
       expect(document.querySelectorAll('[role="listitem"]').length).toBe(1);
     });
-    expect(store.clear).toHaveBeenCalledWith('https://example.com/a');
+    expect(client.delete).toHaveBeenCalledWith('https://example.com/a');
     // The REMAINING row is b, not a — observed state change, not call shape.
     expect(document.body.textContent).toContain('example.com / b');
     expect(document.body.textContent).not.toContain('example.com / a');
@@ -213,12 +212,14 @@ describe('bootstrapPopup — history section enabled', () => {
   it('clicking Clear all (with confirm=true) wipes the list and shows the empty state', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const api = makeChromeStub();
-    const store = makeStoreStub([{ url: 'https://example.com/a', lastReadAt: NOW - 60_000 }]);
+    const client = makeHistoryClientStub([
+      { url: 'https://example.com/a', lastReadAt: NOW - 60_000 },
+    ]);
     await bootstrapPopup({
       api,
       doc: document,
       loadSettings: async () => ({ historyEnabled: true }),
-      store,
+      historyClient: client,
       now: () => NOW,
     });
 
@@ -228,7 +229,7 @@ describe('bootstrapPopup — history section enabled', () => {
     await vi.waitFor(() => {
       expect(document.body.textContent).toMatch(/No articles yet/);
     });
-    expect(store.clearAll).toHaveBeenCalledTimes(1);
+    expect(client.clearAll).toHaveBeenCalledTimes(1);
     expect(document.querySelector('[role="list"]')).toBeNull();
   });
 });
@@ -236,12 +237,12 @@ describe('bootstrapPopup — history section enabled', () => {
 describe('bootstrapPopup — history section graceful degradation', () => {
   it('settings load failure renders the disabled state, does NOT block primary buttons', async () => {
     const api = makeChromeStub();
-    const store = makeStoreStub([]);
+    const client = makeHistoryClientStub([]);
     await bootstrapPopup({
       api,
       doc: document,
       loadSettings: () => Promise.reject(new Error('storage unavailable')),
-      store,
+      historyClient: client,
       now: () => NOW,
     });
     // History section renders the disabled state on settings failure.
@@ -253,15 +254,15 @@ describe('bootstrapPopup — history section graceful degradation', () => {
     expect(articleBtn.disabled).toBe(false);
   });
 
-  // TG2 — store.list() rejection path: regression turning the try/catch
-  // around store.list() into a re-throw would crash popup boot, blocking
+  // TG2 — client.list() rejection path: regression turning the try/catch
+  // around client.list() into a re-throw would crash popup boot, blocking
   // the article button. Pin the graceful-degradation contract: empty-state
   // renders, primary button stays wired, console.error fired exactly once.
-  it('store.list() rejection renders the empty-state, does NOT block primary buttons', async () => {
+  it('client.list() rejection renders the empty-state, does NOT block primary buttons', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const api = makeChromeStub();
-    const failingStore = makeStoreStub([]);
-    failingStore.list = vi.fn(async () => {
+    const failingClient = makeHistoryClientStub([]);
+    failingClient.list = vi.fn(async () => {
       throw new Error('storage failed');
     });
 
@@ -269,7 +270,7 @@ describe('bootstrapPopup — history section graceful degradation', () => {
       api,
       doc: document,
       loadSettings: async () => ({ historyEnabled: true }),
-      store: failingStore,
+      historyClient: failingClient,
       now: () => NOW,
     });
 
@@ -286,22 +287,22 @@ describe('bootstrapPopup — history section graceful degradation', () => {
     expect(articleBtn.disabled).toBe(false);
     // console.error fired exactly once for the list() failure path.
     expect(consoleError).toHaveBeenCalledTimes(1);
-    expect(failingStore.list).toHaveBeenCalledTimes(1);
+    expect(failingClient.list).toHaveBeenCalledTimes(1);
   });
 });
 
 // TG1 (integration leg) — pin that the rendering layer TRUSTS the
-// ordering returned by `store.list()` rather than re-sorting in the
+// ordering returned by `client.list()` rather than re-sorting in the
 // popup. Feeding oldest-first must render oldest-first in the DOM —
 // proves a future popup-side `entries.sort(...)` would surface here.
-describe('bootstrapPopup — history section trusts store.list() ordering', () => {
-  it('renders entries in the order store.list() returns them (no client-side re-sort)', async () => {
+describe('bootstrapPopup — history section trusts client.list() ordering', () => {
+  it('renders entries in the order client.list() returns them (no client-side re-sort)', async () => {
     const api = makeChromeStub();
     // Store returns OLDEST-first deliberately. The contract (#48) is
     // newest-first, but the popup layer should not silently paper over
     // a regression in the store's ordering — if it did, oldest-first
     // would be rendered without anyone noticing.
-    const store = makeStoreStub([
+    const client = makeHistoryClientStub([
       { url: 'https://example.com/oldest', lastReadAt: NOW - 10 * 86_400_000 },
       { url: 'https://example.com/middle', lastReadAt: NOW - 5 * 86_400_000 },
       { url: 'https://example.com/newest', lastReadAt: NOW - 60_000 },
@@ -310,7 +311,7 @@ describe('bootstrapPopup — history section trusts store.list() ordering', () =
       api,
       doc: document,
       loadSettings: async () => ({ historyEnabled: true }),
-      store,
+      historyClient: client,
       now: () => NOW,
     });
 

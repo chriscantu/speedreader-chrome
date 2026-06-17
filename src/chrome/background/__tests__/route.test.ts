@@ -213,6 +213,39 @@ describe('route — activate-reader handler', () => {
     expect(deps.dispatchActivation).not.toHaveBeenCalled();
   });
 
+  // #196 — route delegates the six position types to handlePosition before
+  // the activate-reader branch. (In this unit env the default position store
+  // is the fail-closed null store, since no chrome.storage.local is present.)
+  it('dispatches popup position/list (returns ok with the default store)', async () => {
+    const { promise, sendResponse } = waitForResponse();
+    route(
+      { type: 'position/list' },
+      popupSender(),
+      sendResponse,
+      makeDeps({ ok: true, data: undefined }),
+    );
+    const resp = await promise;
+    expect(resp.ok).toBe(true);
+  });
+
+  it('dispatches CS position/get bound to sender.url (returns ok)', async () => {
+    const csSender: chrome.runtime.MessageSender = {
+      id: OWN_ID,
+      url: 'https://example.com/article',
+      tab: { id: 7 } as chrome.tabs.Tab,
+      frameId: 0,
+    };
+    const { promise, sendResponse } = waitForResponse();
+    route(
+      { type: 'position/get' },
+      csSender,
+      sendResponse,
+      makeDeps({ ok: true, data: undefined }),
+    );
+    const resp = await promise;
+    expect(resp.ok).toBe(true);
+  });
+
   it('returns invalid-payload for unknown message types', () => {
     const sendResponse = vi.fn();
     const deps = makeDeps({ ok: true, data: undefined });

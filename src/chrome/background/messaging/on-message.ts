@@ -34,6 +34,10 @@ const POPUP_ONLY_TYPES = new Set<string>([
   'activate-reader',
   'extract-summary',
   'restricted-url-probe',
+  // #196 — popup-only position RPCs (history management). SSOT in
+  // `core/messaging/types.ts` so gate membership and handler wiring cannot
+  // drift apart (spec §"Gate is allowlist, registered atomically").
+  ...POPUP_POSITION_TYPES,
 ]);
 
 /**
@@ -41,9 +45,16 @@ const POPUP_ONLY_TYPES = new Set<string>([
  * CS→SW signals). Listed here so the gate refuses popup-shaped senders
  * for these types.
  */
-const CS_ONLY_TYPES = new Set<string>(['cs-progress', 'overlay-state']);
+const CS_ONLY_TYPES = new Set<string>([
+  'cs-progress',
+  'overlay-state',
+  // #196 — content-script-only position RPCs (sender-bound; no `url` in wire
+  // shape). SSOT in `core/messaging/types.ts`.
+  ...CS_POSITION_TYPES,
+]);
 
 import type { ActivationError } from '../activation/types';
+import { CS_POSITION_TYPES, POPUP_POSITION_TYPES } from '../../../core/messaging/types';
 
 export type OnMessageError =
   | { kind: 'sender-rejected' }
@@ -74,14 +85,32 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+/**
+ * A trusted extension page (popup / options / welcome). #196 — the trust
+ * signal is the Chrome-populated `sender.url` ORIGIN, not tab-absence: the
+ * browser-action popup has no `sender.tab`, but the OPTIONS page opens in a
+ * real tab (so `sender.tab.id` is defined), and classifying it by tab-presence
+ * alone mis-labels it as a content script — which would reject its popup-only
+ * `position/clear-all` RPC at the gate (ring security finding #2). A content
+ * script injected into a web page always has an `http(s)` `sender.url`; a CS
+ * cannot forge a `chrome-extension://` origin (`sender.url` is set by Chrome,
+ * not the sender — spec §Sender-URL Binding), so this is a safe trust signal.
+ */
+function isExtensionPageSender(sender: chrome.runtime.MessageSender): boolean {
+  return typeof sender.url === 'string' && sender.url.startsWith('chrome-extension://');
+}
+
 function isPopupShape(sender: chrome.runtime.MessageSender): boolean {
-  // Popup messages come from an extension page; no `sender.tab`.
-  return sender.tab === undefined;
+  // Trusted extension page: no `sender.tab` (browser-action popup) OR an
+  // extension-origin sender (options page in a tab).
+  return sender.tab === undefined || isExtensionPageSender(sender);
 }
 
 function isContentScriptShape(sender: chrome.runtime.MessageSender): boolean {
-  // Content-script messages have a tab id AND must be from the top frame.
-  return sender.tab?.id !== undefined && sender.frameId === 0;
+  // Content-script messages have a tab id AND must be from the top frame AND
+  // must NOT be an extension page (an extension page in a tab is trusted, not
+  // a CS — exclude it so its popup-only RPCs aren't mis-gated as CS-only).
+  return !isExtensionPageSender(sender) && sender.tab?.id !== undefined && sender.frameId === 0;
 }
 
 /**
@@ -135,6 +164,16 @@ export function handleOnMessage(
       ok: false,
       error: { kind: 'sender-shape-mismatch', expected: 'content-script', got },
     });
+    return false;
+  }
+
+  // 3b. Fail-closed default (#196, spec §"Gate is allowlist, registered
+  //     atomically"). A type in NEITHER provenance set previously reached the
+  //     router by sender shape alone — so an accidentally-omitted position
+  //     type would route ungated. Reject unknown types here so an omitted
+  //     gate-registration fails closed (invalid-payload) instead of leaking.
+  if (!POPUP_ONLY_TYPES.has(msg.type) && !CS_ONLY_TYPES.has(msg.type)) {
+    sendResponse({ ok: false, error: { kind: 'invalid-payload' } });
     return false;
   }
 

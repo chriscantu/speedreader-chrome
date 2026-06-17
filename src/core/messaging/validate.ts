@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SettingsSchemaV5 } from '../settings/schema';
+import type { PositionSetMessage, PositionDeleteMessage } from './types';
 
 /**
  * Per-activation override payload — applied by the CS as one-shot deltas
@@ -75,4 +76,46 @@ export function pickValidOverrides(raw: Overrides): Overrides {
     out.startFromWordOne = raw.startFromWordOne;
   }
   return out;
+}
+
+/**
+ * Wire-shape narrowing for the #196 position RPCs (per the messaging-contract
+ * spec's payload-validation discipline). These are shape gates only —
+ * primitive-type checks on the payload fields. Range/cross-field bounds for
+ * `wordIndex`/`totalWords` are enforced downstream by the core store's smart
+ * constructor (`reading-position.ts` `makeReadingPosition`), the single source
+ * of truth for that invariant; duplicating it here would risk drift.
+ *
+ * The `url`-less CS types (`position/get`, `position/clear`) and the param-less
+ * popup types (`position/list`, `position/clear-all`) need no payload narrowing
+ * — their wire shape is just `{ type }` — so they have no validator here.
+ */
+
+function isObject(raw: unknown): raw is Record<string, unknown> {
+  return typeof raw === 'object' && raw !== null;
+}
+
+/**
+ * Narrows a `position/set` payload. Returns the typed fields when `wordIndex`
+ * and `totalWords` are both finite numbers; `null` otherwise. The handler
+ * forwards these to the store, whose bounds gate drops out-of-range values.
+ */
+export function validatePositionSet(
+  raw: unknown,
+): Pick<PositionSetMessage, 'wordIndex' | 'totalWords'> | null {
+  if (!isObject(raw)) return null;
+  if (typeof raw.wordIndex !== 'number' || !Number.isFinite(raw.wordIndex)) return null;
+  if (typeof raw.totalWords !== 'number' || !Number.isFinite(raw.totalWords)) return null;
+  return { wordIndex: raw.wordIndex, totalWords: raw.totalWords };
+}
+
+/**
+ * Narrows a `position/delete` payload. Returns the `url` when it is a non-empty
+ * string; `null` otherwise. The store canonicalizes the url and no-ops on a
+ * non-canonicalizable value, so this gate only rejects the obviously-malformed.
+ */
+export function validatePositionDelete(raw: unknown): Pick<PositionDeleteMessage, 'url'> | null {
+  if (!isObject(raw)) return null;
+  if (typeof raw.url !== 'string' || raw.url.length === 0) return null;
+  return { url: raw.url };
 }

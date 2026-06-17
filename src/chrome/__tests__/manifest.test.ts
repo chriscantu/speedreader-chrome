@@ -10,6 +10,19 @@ import manifest from '../manifest';
  * binary lands separately (see fonts/README.md); the manifest contract
  * MUST be in place first so #27/#28 don't have to touch this surface.
  */
+/**
+ * #196 — `minimum_chrome_version` is pinned to the `local.setAccessLevel`
+ * floor (Chrome 140 per MDN browser-compat-data). This is a security-load-
+ * bearing merge precondition: below the floor the gate API is absent and the
+ * cross-origin reading-history enumeration threat would reopen. A regression
+ * that drops or downgrades this string must fail CI, not ship green.
+ */
+describe('manifest — minimum_chrome_version floor (#196)', () => {
+  it('pins minimum_chrome_version to the local.setAccessLevel floor (140)', () => {
+    expect(manifest.minimum_chrome_version).toBe('140');
+  });
+});
+
 describe('manifest — web_accessible_resources for fonts (#10)', () => {
   const wars = manifest.web_accessible_resources ?? [];
   const fontEntry = wars.find((entry) =>
