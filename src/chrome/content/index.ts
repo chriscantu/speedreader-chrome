@@ -1,8 +1,10 @@
 /**
  * SpeedReader — Content Script
  *
- * This script is injected into page contexts by the manifest's content_scripts
- * entry. It handles:
+ * This script is injected lazily into a tab's isolated world by the service
+ * worker via `chrome.scripting.executeScript` when the user activates the
+ * reader — there is NO `content_scripts` manifest entry (see `manifest.ts`
+ * and the #142 note below). It handles:
  * - Article extraction via Readability (issue #17)
  * - RSVP overlay rendering (issues #19, #20)
  * - Communication with the background service worker
@@ -168,28 +170,24 @@ function detachPositionFlushListeners(): void {
 }
 
 /**
- * Issue #142 — resident-cost trade-off (surfaced by the antagonistic-ring
- * arbiter on PR #140, perf finding #1).
+ * Issue #142 — resident-cost trade-off. ACCEPTED.
  *
- * This listener registers at CS module load on every matched top-level
- * document. At N open tabs that means:
- * - N resident listener closures
- * - N copies of the `handleActivateReader` import graph
- *   (`activate-handler.ts` -> `core/restricted.ts`)
- * - The `msg.type !== 'activate-reader'` early-return runs on EVERY
- *   `runtime.onMessage` event routed to each tab (future feature
- *   messages, devtools probes, etc.).
+ * Invariant (read before touching this listener):
+ * - Injection is LAZY (no `content_scripts` entry — see `manifest.ts`): the
+ *   CS exists only in tabs the user activates, so there is NO open-tab
+ *   fan-out. The "N open tabs -> N listeners" cliff in #142 does not exist.
+ * - Lazy listener registration would recover ~nothing: the resident cost is
+ *   the static import graph (loaded at injection regardless of when
+ *   `addListener` runs), not the closure. Don't reach for it.
+ * - The `sender.id` + `isRestricted` gate is load-bearing for #134's
+ *   residual TOCTOU closure — do NOT remove it.
  *
- * Decision: trade ACCEPTED. The cliff is non-catastrophic at typical
- * browsing scale, and the CS-side gate is load-bearing for #134's
- * residual TOCTOU closure between the SW's post-injection recheck
- * (PR #133) and the `chrome.tabs.sendMessage` handoff — removing it
- * reintroduces the race. Lazy registration would require a different
- * handshake protocol since the listener wouldn't exist at
- * `sendMessage` time; non-trivial design change, deferred. Flagged
- * for future hot-path expansion (auto-activate-on-scroll, etc.).
+ * Revisit only if injection becomes broad (auto-activate-on-scroll,
+ * declarative `content_scripts`, or #135 subframe injection): that creates
+ * real fan-out — re-run the profiler and re-open the trade.
  *
- * Refs: #134 (gate rationale), #140 (review), #142 (this note).
+ * Full data, methodology, and rationale: issue #142 + the profiler at
+ * `tests/e2e/profiling/cs-heap-fanout.spec.ts`. Refs: #134, #135, #140.
  */
 if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
   chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
