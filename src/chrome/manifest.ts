@@ -23,7 +23,7 @@
 export default {
   manifest_version: 3,
   name: 'SpeedReader',
-  version: '0.2.0',
+  version: '0.3.0',
   description: 'RSVP reading accessibility extension for Chrome',
 
   // --- Minimum Chrome version ---------------------------------------------
