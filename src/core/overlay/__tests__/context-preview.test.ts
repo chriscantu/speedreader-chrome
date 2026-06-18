@@ -2,7 +2,7 @@ import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest';
 import { buildSentenceContext } from '../sentence-context';
 import type { SentenceContext } from '../sentence-context';
 import { createOverlay } from '../overlay';
-import type { OverlayOptions } from '../types';
+import type { OverlayOptions, OverlaySettings } from '../types';
 import { createRsvpEngine } from '../../rsvp-engine';
 
 function expectCtx(ctx: SentenceContext | null): SentenceContext {
@@ -99,11 +99,22 @@ function defaultOpts(overrides: Partial<OverlayOptions> = {}): OverlayOptions {
   return {
     doc: document,
     words: ['the', 'quick', 'brown', 'fox.', 'jumped', 'over.', 'the', 'lazy', 'dog.'],
-    initialSettings: { theme: 'system', wpm: 300, fontSize: 20 },
+    // #242 — preview only shows when `contextLine` is enabled. These
+    // legacy integration tests assert the show-on-pause behaviour, so they
+    // opt the decoration in. The off-by-default path has its own block.
+    initialSettings: { theme: 'system', wpm: 300, fontSize: 20, contextLine: true },
     subscribeSettings: () => () => undefined,
     engineFactory: createRsvpEngine,
     ...overrides,
   };
+}
+
+// #242 — the preview slot stays in flow at all times (no `display:none`,
+// no `hidden` attribute) so toggling play/pause no longer reflows the
+// modal. Visibility is carried by `visibility`/`opacity`. These helpers
+// read the inline style the overlay writes.
+function isPreviewVisible(preview: HTMLElement): boolean {
+  return preview.style.visibility !== 'hidden' && preview.style.opacity !== '0';
 }
 
 function getShadow(): ShadowRoot {
@@ -151,11 +162,14 @@ describe('createOverlay — context preview (#20)', () => {
     overlay.unmount();
   });
 
-  test('hidden while playing (initial state)', () => {
+  test('not visible while playing (initial state) — slot reserved, no hidden attribute', () => {
     const overlay = createOverlay(defaultOpts());
     overlay.mount();
     const preview = getPreview();
-    expect(preview.hidden).toBe(true);
+    // #242 — slot stays in flow; the `hidden` attribute must never be used
+    // (it pulls the element out of flow → the reflow this fix kills).
+    expect(preview.hasAttribute('hidden')).toBe(false);
+    expect(isPreviewVisible(preview)).toBe(false);
     expect(preview.textContent).toBe('');
     overlay.unmount();
   });
@@ -167,7 +181,7 @@ describe('createOverlay — context preview (#20)', () => {
     getPlayPauseBtn().click();
 
     const preview = getPreview();
-    expect(preview.hidden).toBe(false);
+    expect(isPreviewVisible(preview)).toBe(true);
     const strong = getCurrentStrong(preview);
     expect(strong.textContent).toBe('the');
     // Semantic emphasis — must be <strong>, not <b> / <span class=…>.
@@ -189,10 +203,12 @@ describe('createOverlay — context preview (#20)', () => {
     const btn = getPlayPauseBtn();
     btn.click(); // pause
     const preview = getPreview();
-    expect(preview.hidden).toBe(false);
+    expect(isPreviewVisible(preview)).toBe(true);
 
     btn.click(); // resume
-    expect(preview.hidden).toBe(true);
+    // #242 — visibility carries the play state; the slot stays in flow.
+    expect(isPreviewVisible(preview)).toBe(false);
+    expect(preview.hasAttribute('hidden')).toBe(false);
     expect(preview.textContent).toBe('');
     overlay.unmount();
   });
@@ -231,11 +247,12 @@ describe('createOverlay — context preview (#20)', () => {
     const btn = getPlayPauseBtn();
     btn.click(); // pause — preview now visible
     const preview = getPreview();
-    expect(preview.hidden).toBe(false);
+    expect(isPreviewVisible(preview)).toBe(true);
     btn.click(); // resume
     // Advance past the single word so the engine ticks to done.
     vi.advanceTimersByTime(60000 / 300 + 5);
-    expect(preview.hidden).toBe(true);
+    expect(isPreviewVisible(preview)).toBe(false);
+    expect(preview.hasAttribute('hidden')).toBe(false);
     expect(preview.textContent).toBe('');
     overlay.unmount();
   });
@@ -289,6 +306,112 @@ describe('createOverlay — context preview (#20)', () => {
     expect(preview.querySelector('script')).toBeNull();
     const strong = getCurrentStrong(preview);
     expect(strong.textContent).toBe('<script>x</script>');
+    overlay.unmount();
+  });
+});
+
+describe('createOverlay — context preview reflow + contextLine gate (#242)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    document.querySelectorAll('[data-speedreader-overlay]').forEach((n) => n.remove());
+  });
+
+  test('play→pause→resume never toggles the hidden attribute or display:none (slot stays in flow)', () => {
+    const overlay = createOverlay(defaultOpts());
+    overlay.mount();
+    const btn = getPlayPauseBtn();
+    const preview = getPreview();
+
+    // Initial (playing): slot reserved, no hidden attr, display untouched.
+    expect(preview.hasAttribute('hidden')).toBe(false);
+    expect(preview.style.display).not.toBe('none');
+
+    btn.click(); // pause — visible
+    expect(preview.hasAttribute('hidden')).toBe(false);
+    expect(preview.style.display).not.toBe('none');
+    expect(isPreviewVisible(preview)).toBe(true);
+
+    btn.click(); // resume — hidden via visibility, NOT the hidden attribute
+    expect(preview.hasAttribute('hidden')).toBe(false);
+    expect(preview.style.display).not.toBe('none');
+    expect(isPreviewVisible(preview)).toBe(false);
+
+    overlay.unmount();
+  });
+
+  test('contextLine: false → preview never visible even when paused', () => {
+    const overlay = createOverlay(
+      defaultOpts({
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20, contextLine: false },
+      }),
+    );
+    overlay.mount();
+    const preview = getPreview();
+    expect(isPreviewVisible(preview)).toBe(false);
+
+    getPlayPauseBtn().click(); // pause
+    // The decoration is off → no preview content, slot stays invisible.
+    expect(isPreviewVisible(preview)).toBe(false);
+    expect(preview.textContent).toBe('');
+    expect(preview.querySelector('strong.context-current')).toBeNull();
+    overlay.unmount();
+  });
+
+  test('contextLine undefined → treated as off (off-by-default schema intent)', () => {
+    const overlay = createOverlay(
+      defaultOpts({ initialSettings: { theme: 'system', wpm: 300, fontSize: 20 } }),
+    );
+    overlay.mount();
+    const preview = getPreview();
+    getPlayPauseBtn().click(); // pause
+    expect(isPreviewVisible(preview)).toBe(false);
+    expect(preview.textContent).toBe('');
+    overlay.unmount();
+  });
+
+  test('contextLine: true → preview visible on pause', () => {
+    const overlay = createOverlay(
+      defaultOpts({
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20, contextLine: true },
+      }),
+    );
+    overlay.mount();
+    const preview = getPreview();
+    getPlayPauseBtn().click(); // pause
+    expect(isPreviewVisible(preview)).toBe(true);
+    expect(getCurrentStrong(preview).textContent).toBe('the');
+    overlay.unmount();
+  });
+
+  test('live subscribeSettings toggle of contextLine updates the preview without remount', () => {
+    let push: ((s: OverlaySettings) => void) | undefined;
+    const overlay = createOverlay(
+      defaultOpts({
+        initialSettings: { theme: 'system', wpm: 300, fontSize: 20, contextLine: false },
+        subscribeSettings: (listener) => {
+          push = listener;
+          return () => undefined;
+        },
+      }),
+    );
+    overlay.mount();
+    const preview = getPreview();
+    getPlayPauseBtn().click(); // pause — still off, not visible
+    expect(isPreviewVisible(preview)).toBe(false);
+
+    // Enable contextLine live (paused) → preview appears, same DOM node.
+    push?.({ theme: 'system', wpm: 300, fontSize: 20, contextLine: true });
+    expect(isPreviewVisible(preview)).toBe(true);
+    expect(getCurrentStrong(preview).textContent).toBe('the');
+
+    // Disable live → preview hides again, slot still in flow.
+    push?.({ theme: 'system', wpm: 300, fontSize: 20, contextLine: false });
+    expect(isPreviewVisible(preview)).toBe(false);
+    expect(preview.hasAttribute('hidden')).toBe(false);
     overlay.unmount();
   });
 });

@@ -309,6 +309,11 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             // subscribeSettings below so a user can toggle the position
             // anchor mid-session without a remount.
             scrubberAutoHide: settings.scrubberAutoHide,
+            // #242 — surrounding-sentence context preview toggle (wires the
+            // #72 `contextLine` setting). Off by default; the overlay
+            // reserves the slot regardless so toggling play/pause never
+            // reflows. Live-updated via subscribeSettings below.
+            contextLine: settings.contextLine,
           },
           subscribeSettings: (listener) =>
             subscribeSettings((s) =>
@@ -321,6 +326,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
                 chunkSize: s.chunkSize,
                 alignment: s.alignment,
                 scrubberAutoHide: s.scrubberAutoHide,
+                contextLine: s.contextLine,
               }),
             ),
           // OpenDyslexic font URL (#27, #10). `core/` cannot call

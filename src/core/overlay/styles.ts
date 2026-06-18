@@ -315,10 +315,20 @@ export const OVERLAY_CSS = `
   font: 400 13px / 1.5 var(--font-reader);
   color: var(--text-muted);
   text-align: center;
-  min-block-size: 24px;
+  /* #242 — reserve ~2 lines so the slot stays in flow whether or not the
+   * preview is showing; toggling play/pause then fades opacity instead of
+   * reflowing the modal. 2 × 13px × 1.5 line-height ≈ 39px. Typical
+   * one-/two-line context fits; longer context scrolls within the slot
+   * (overflow:auto) rather than growing the modal. */
+  min-block-size: 39px;
+  max-block-size: 39px;
+  overflow-y: auto;
+  /* #242 — fade the show/hide. visibility is transitioned too so the
+   * element is removed from the AT rotor / hit-testing while hidden but
+   * the height stays reserved. Instant under prefers-reduced-motion (see
+   * the reduced-motion block below). */
+  transition: opacity 200ms ease-out, visibility 200ms ease-out;
 }
-
-.context-preview[hidden] { display: none; }
 
 .context-current {
   color: var(--text);
@@ -863,6 +873,8 @@ export const OVERLAY_CSS = `
 @media (prefers-reduced-motion: reduce) {
   .backdrop, .modal { transition: none !important; animation: none !important; }
   .scrubber-area { transition: none !important; }
+  /* #242 — motion-sensitive users get an instant preview swap, no fade. */
+  .context-preview { transition: none !important; }
 }
 
 /* ===== Touch-primary (#36) ===== */

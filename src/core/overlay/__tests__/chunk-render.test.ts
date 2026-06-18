@@ -126,18 +126,27 @@ describe('createOverlay — chunk event rendering (#51)', () => {
     const overlay = createOverlay(
       defaultOpts({
         words: ['The', 'quick', 'brown', 'fox', 'jumps', 'over', 'lazy', 'dog.'],
-        initialSettings: { theme: 'system', wpm: 300, fontSize: 20, chunkSize: 2 },
+        // #242 — preview only shows when `contextLine` is enabled.
+        initialSettings: {
+          theme: 'system',
+          wpm: 300,
+          fontSize: 20,
+          chunkSize: 2,
+          contextLine: true,
+        },
       }),
     );
     overlay.mount();
     const root = getShadow();
     const preview = getEl<HTMLElement>(root, `.${OVERLAY_CLASS.CONTEXT_PREVIEW}`);
-    // Preview is hidden while playing.
-    expect(preview.hidden).toBe(true);
+    // #242 — preview not visible while playing; slot stays in flow (no
+    // `hidden` attribute / no display:none → no reflow on toggle).
+    expect(preview.style.visibility).toBe('hidden');
+    expect(preview.hasAttribute('hidden')).toBe(false);
 
     // Pause via space key — togglePlayPause renders the preview.
     document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
-    expect(preview.hidden).toBe(false);
+    expect(preview.style.visibility).toBe('visible');
     // Preview text contains the current chunk word (rendered as the
     // `<strong>` child).
     const current = preview.querySelector('strong');
