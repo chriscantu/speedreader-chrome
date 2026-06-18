@@ -62,6 +62,41 @@ describe('OVERLAY_CSS theme-slot consumers (issue #150)', () => {
   });
 });
 
+describe('OVERLAY_CSS word-region vertical centering (issue #241)', () => {
+  // #241 — the default (non-touch) `.word-region` previously used
+  // `align-items: baseline`, so the streaming RSVP word hugged the top of
+  // the region while the accent focus-ticks (anchored to the region's
+  // vertical center) pointed at empty space. The fix centers the word at
+  // the default breakpoint so the word and the ticks share one axis.
+  //
+  // The default rule is the one carrying `font-family: var(--font-mono)`
+  // (the touch `@media (pointer: coarse)` `.word-region` override does not
+  // restate font-family), so the regex binds to that block specifically to
+  // avoid passing merely because the touch block already centers.
+  test('default .word-region uses align-items: center (not baseline)', () => {
+    const block = OVERLAY_CSS.match(
+      /\.word-region\s*\{[^}]*font-family:\s*var\(--font-mono[^}]*\}/,
+    )?.[0];
+    expect(block, 'expected the default .word-region rule').not.toBeUndefined();
+    expect(block).toMatch(/align-items:\s*center/);
+    expect(block).not.toMatch(/align-items:\s*baseline/);
+  });
+
+  // #241 — the responsive word size is governed by the clamp; the body
+  // `fontSize` setting must NOT pin `--rsvp-font-size` to a default-driven
+  // value (20px) that would override the clamp. The clamp must remain the
+  // value the word region actually resolves to. This guards the CSS source
+  // half of the decouple; the JS half (applyFontSize no longer writes the
+  // property) is covered in font-size-stepper.test.ts.
+  test('default .word-region keeps the responsive clamp as its font-size', () => {
+    const block = OVERLAY_CSS.match(
+      /\.word-region\s*\{[^}]*font-family:\s*var\(--font-mono[^}]*\}/,
+    )?.[0];
+    expect(block, 'expected the default .word-region rule').not.toBeUndefined();
+    expect(block).toMatch(/font-size:[^;]*clamp\(40px,\s*8\.5cqi \+ 0\.5rem,\s*54px\)/);
+  });
+});
+
 describe('OVERLAY_CSS resume-toast is out of flow (issue #218)', () => {
   // The resume toast (#48) is inserted in flow directly above the word
   // region and removed on its 5 s auto-dismiss / Start Over. While it was

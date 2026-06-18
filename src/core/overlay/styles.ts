@@ -244,7 +244,10 @@ export const OVERLAY_CSS = `
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  align-items: baseline;
+  /* #241 — center the word vertically so it shares an axis with the accent
+   * focus-ticks (anchored to the region vertical center). baseline made the
+   * word hug the top while the ticks pointed at empty space. */
+  align-items: center;
   gap: 0 0.4ch;
   padding: 36px 24px 20px;
   font-family: var(--font-mono);
