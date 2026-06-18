@@ -170,66 +170,24 @@ function detachPositionFlushListeners(): void {
 }
 
 /**
- * Issue #142 — resident-cost trade-off (surfaced by the antagonistic-ring
- * arbiter on PR #140, perf finding #1).
+ * Issue #142 — resident-cost trade-off. ACCEPTED.
  *
- * Decision: trade ACCEPTED, now backed by measurement (see
- * `tests/e2e/profiling/cs-heap-fanout.spec.ts`).
+ * Invariant (read before touching this listener):
+ * - Injection is LAZY (no `content_scripts` entry — see `manifest.ts`): the
+ *   CS exists only in tabs the user activates, so there is NO open-tab
+ *   fan-out. The "N open tabs -> N listeners" cliff in #142 does not exist.
+ * - Lazy listener registration would recover ~nothing: the resident cost is
+ *   the static import graph (loaded at injection regardless of when
+ *   `addListener` runs), not the closure. Don't reach for it.
+ * - The `sender.id` + `isRestricted` gate is load-bearing for #134's
+ *   residual TOCTOU closure — do NOT remove it.
  *
- * Premise correction. The arbiter finding assumed declarative
- * `content_scripts` fan-out ("N open tabs -> N resident listeners"). This
- * extension has NO `content_scripts` entry (see `manifest.ts`): the CS is
- * injected lazily via `chrome.scripting.executeScript` ONLY into tabs the
- * user actively opens the reader on. Open / background tabs the user never
- * activated carry ZERO CS cost — fan-out is bounded by ACTIVATED tabs,
- * realistically a handful, not the open-tab count. (Profiler empirically
- * confirms a non-activated tab has no listener.)
+ * Revisit only if injection becomes broad (auto-activate-on-scroll,
+ * declarative `content_scripts`, or #135 subframe injection): that creates
+ * real fan-out — re-run the profiler and re-open the trade.
  *
- * Measured per-ACTIVATED-tab marginal cost: ~0.85 MB resident JS heap
- * (~866 KB usedJSHeapSize delta, overlay unmounted; reproducible to ~12 B
- * across 3 runs on the static local fixture — a live page with timers
- * would read higher, so treat this as the static-fixture floor, not a
- * live-page budget). Dominated by the static import graph loaded at module
- * evaluation (`overlay`, `rsvp-engine`, `tokenize`, `storage`, plus
- * `activate-handler` -> `core/restricted`), NOT by the listener closure.
- * Exact bytes live in the (gitignored) results JSON; regenerate to refresh.
- *
- * Single injection per document: re-activation re-runs the SW's
- * `executeScript` loader, but the ESM module body (where `addListener`
- * lives) executes once per isolated-world realm, so the listener is not
- * duplicated. Subframe injection (the #135 note above) would add a
- * per-frame axis and must re-open this budget.
- *
- * Why lazy listener registration is rejected: (1) injection is already
- * lazy, so there is no resident cost to recover on non-activated tabs;
- * (2) the ~0.85 MB is the import graph, which evaluates at injection no
- * matter when `addListener` runs — deferring registration recovers only a
- * closure (bytes); (3) the CS-side gate is load-bearing for #134's
- * residual TOCTOU closure between the SW post-injection recheck (PR #133)
- * and the `chrome.tabs.sendMessage` handoff — removing it reintroduces the
- * race. The `msg.type !== 'activate-reader'` early-return is cheap and
- * runs only on messages routed to an already-activated tab.
- *
- * User impact (this matters for the heavy-tab-retention pattern common in
- * the ADHD/executive-function population we serve): the cost lands only on
- * deliberate activation, and ~0.85 MB is ~1/40th of a typical page, so
- * even a realistic ceiling of a handful of activated tabs is not
- * perceptible relative to page memory. Note: closing the overlay (Esc)
- * unmounts the UI but does NOT reclaim this heap — the import graph stays
- * resident until the document navigates (inherent to isolated-world
- * injection; intentional, not a leak).
- *
- * Revisit trigger: a future hot-path that injects broadly (e.g.
- * auto-activate-on-scroll, declarative `content_scripts`, or subframe
- * injection per #135) WOULD turn this into a true open-tab fan-out —
- * budget against the measured ~0.85 MB/tab and re-run the profiler before
- * shipping it. (Auto-activate-on-scroll also carries a separate UX cost:
- * injecting the reader onto pages the user did not choose is a
- * predictability/low-stimulation regression for this population,
- * independent of the heap.)
- *
- * Refs: #134 (gate rationale), #135 (subframe note), #140 (review),
- * #142 (this note).
+ * Full data, methodology, and rationale: issue #142 + the profiler at
+ * `tests/e2e/profiling/cs-heap-fanout.spec.ts`. Refs: #134, #135, #140.
  */
 if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
   chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
