@@ -190,22 +190,30 @@ describe('createOverlay — font-size stepper (#29)', () => {
     overlay.unmount();
   });
 
-  test('modal reflects initial fontSize via --rsvp-font-size custom property (cascades to word-region)', () => {
-    // Review M3 — the property is written on `modal` (ancestor) so the
-    // hot `word` element stays free of inline-style invalidation on
-    // every RSVP tick. `.word-region` reads it via CSS cascade.
+  test('#241 — initial fontSize does NOT pin --rsvp-font-size; the responsive clamp governs', () => {
+    // #241 — the body `fontSize` setting (default 20) previously drove
+    // `--rsvp-font-size: 20px` onto `.modal`, which overrode the designed
+    // responsive `clamp(40px, 8.5cqi + 0.5rem, 54px)` on `.word-region` and
+    // rendered the streaming word at 20px. Decoupled: mount no longer writes
+    // the custom property from fontSize, so the clamp is the live value.
     const overlay = createOverlay(
       defaultOpts({ initialSettings: defaultSettings({ fontSize: 32 }) }),
     );
     overlay.mount();
-    expect(getModal().style.getPropertyValue('--rsvp-font-size')).toBe('32px');
-    // word-region MUST NOT have an inline custom-prop write — the hot path
-    // must stay clean. This is the mutation guard for fix M3.
+    // Neither the modal ancestor nor the word region may carry an inline
+    // `--rsvp-font-size` write driven by the body fontSize — otherwise the
+    // clamp is dead fallback again. This is the discriminating assertion for
+    // the decouple: re-adding the setProperty in applyFontSize flips it RED.
+    expect(getModal().style.getPropertyValue('--rsvp-font-size')).toBe('');
     expect(getWordRegion().style.getPropertyValue('--rsvp-font-size')).toBe('');
     overlay.unmount();
   });
 
-  test('subscribeSettings emission with new fontSize updates the modal property', () => {
+  test('subscribeSettings emission refreshes stepper boundary state without pinning --rsvp-font-size (#241)', () => {
+    // #241 — fontSize no longer drives the custom property, so a settings
+    // emission must NOT write `--rsvp-font-size` (that would re-pin the word
+    // and override the responsive clamp). The boundary aria-disabled refresh
+    // — the still-live consequence of a fontSize change — keeps working.
     let notify: SettingsSubscriber = () => undefined;
     const overlay = createOverlay(
       defaultOpts({
@@ -218,46 +226,30 @@ describe('createOverlay — font-size stepper (#29)', () => {
     );
     overlay.mount();
     const modal = getModal();
-    expect(modal.style.getPropertyValue('--rsvp-font-size')).toBe('20px');
+    expect(modal.style.getPropertyValue('--rsvp-font-size')).toBe('');
     notify({ theme: 'system', wpm: 300, fontSize: 36 });
-    expect(modal.style.getPropertyValue('--rsvp-font-size')).toBe('36px');
-    // Stepper boundary state also refreshes on emission.
+    expect(modal.style.getPropertyValue('--rsvp-font-size')).toBe('');
+    // Stepper boundary state still refreshes on emission.
     notify({ theme: 'system', wpm: 300, fontSize: FONT_SIZE_MAX });
     expect(getIncBtn().getAttribute('aria-disabled')).toBe('true');
     overlay.unmount();
   });
 
-  test('mount-time clamps non-finite initial fontSize (M4 — POSITIVE_INFINITY → MIN)', () => {
-    // Review M4 — initialSettings flows in from the caller unclamped.
-    // subscribeSettings clamps but mount doesn't, so a malformed value
-    // (NaN, Infinity, negative) would write garbage CSS. Non-finite
-    // falls back to FONT_SIZE_MIN; finite-out-of-range clamps normally.
-    const overlay = createOverlay(
-      defaultOpts({
-        initialSettings: defaultSettings({ fontSize: Number.POSITIVE_INFINITY }),
-      }),
-    );
-    overlay.mount();
-    expect(getModal().style.getPropertyValue('--rsvp-font-size')).toBe(`${FONT_SIZE_MIN}px`);
-    overlay.unmount();
-  });
-
-  test('mount-time clamps negative initial fontSize to FONT_SIZE_MIN', () => {
-    const overlay = createOverlay(
-      defaultOpts({ initialSettings: defaultSettings({ fontSize: -50 }) }),
-    );
-    overlay.mount();
-    expect(getModal().style.getPropertyValue('--rsvp-font-size')).toBe(`${FONT_SIZE_MIN}px`);
-    overlay.unmount();
-  });
-
-  test('mount-time clamps over-large initial fontSize to FONT_SIZE_MAX', () => {
-    const overlay = createOverlay(
-      defaultOpts({ initialSettings: defaultSettings({ fontSize: 10_000 }) }),
-    );
-    overlay.mount();
-    expect(getModal().style.getPropertyValue('--rsvp-font-size')).toBe(`${FONT_SIZE_MAX}px`);
-    overlay.unmount();
+  test('mount-time non-finite/out-of-range fontSize never writes garbage --rsvp-font-size (#241)', () => {
+    // #241 — fontSize no longer drives the custom property at all, so even a
+    // malformed initial value cannot leak garbage CSS onto the modal. (Pre-#241
+    // the M4 clamp existed to stop NaN/Infinity/negative reaching setProperty;
+    // the decouple removes that write entirely, so the invariant is simply
+    // "no `--rsvp-font-size` is ever pinned from fontSize".)
+    for (const fontSize of [Number.POSITIVE_INFINITY, -50, 10_000]) {
+      const overlay = createOverlay(
+        defaultOpts({ initialSettings: defaultSettings({ fontSize }) }),
+      );
+      overlay.mount();
+      expect(getModal().style.getPropertyValue('--rsvp-font-size')).toBe('');
+      overlay.unmount();
+      document.querySelectorAll('[data-speedreader-overlay]').forEach((n) => n.remove());
+    }
   });
 
   test('omitting onFontSizeChange keeps the buttons clickable (no throw) but does not crash', () => {

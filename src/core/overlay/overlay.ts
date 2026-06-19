@@ -854,13 +854,14 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     };
     const applyFontSize = (n: number): void => {
       currentFontSize = n;
-      // Write the custom property on the modal ancestor rather than the
-      // hot `word` element (review M3). `.word-region` reads
-      // `var(--rsvp-font-size)` via CSS custom-property inheritance, so
-      // moving the write up one level keeps the cascade working while
-      // avoiding inline-style invalidation on every RSVP tick (~10 Hz
-      // at 600 wpm).
-      modal.style.setProperty('--rsvp-font-size', `${n}px`);
+      // #241 — the streaming RSVP word is sized by the responsive
+      // `clamp(40px, 8.5cqi + 0.5rem, 54px)` on `.word-region` (styles.ts),
+      // NOT by the body `fontSize` setting. Writing `--rsvp-font-size` here
+      // pinned the word to the 20px default and made the clamp dead fallback,
+      // rendering the word tiny. So this no longer touches the custom property;
+      // it only keeps `currentFontSize` and the stepper boundary state in sync.
+      // (The A−/A+ stepper consequently no longer resizes the streaming word —
+      // accepted behavior change; it stays wired to onFontSizeChange/persistence.)
       // #215 — aria-disabled (not native `disabled`) so the buttons stay in
       // the tab chain at MIN/MAX (WCAG 2.4.3); the click handlers short-circuit
       // on it. Mirrors the #214 WPM-stepper treatment.
