@@ -62,6 +62,72 @@ describe('OVERLAY_CSS theme-slot consumers (issue #150)', () => {
   });
 });
 
+describe('OVERLAY_CSS word-region vertical centering (issue #241)', () => {
+  // #241 — the default (non-touch) `.word-region` previously used
+  // `align-items: baseline`, so the streaming RSVP word hugged the top of
+  // the region while the accent focus-ticks (anchored to the region's
+  // vertical center) pointed at empty space. The fix centers the word at
+  // the default breakpoint so the word and the ticks share one axis.
+  //
+  // The default rule is the one carrying `font-family: var(--font-mono)`
+  // (the touch `@media (pointer: coarse)` `.word-region` override does not
+  // restate font-family), so the regex binds to that block specifically to
+  // avoid passing merely because the touch block already centers.
+  test('default .word-region uses align-items: center (not baseline)', () => {
+    const block = OVERLAY_CSS.match(
+      /\.word-region\s*\{[^}]*font-family:\s*var\(--font-mono[^}]*\}/,
+    )?.[0];
+    expect(block, 'expected the default .word-region rule').not.toBeUndefined();
+    expect(block).toMatch(/align-items:\s*center/);
+    expect(block).not.toMatch(/align-items:\s*baseline/);
+  });
+
+  // #241 — the responsive word size is governed by the clamp; the body
+  // `fontSize` setting must NOT pin `--rsvp-font-size` to a default-driven
+  // value (20px) that would override the clamp. The clamp must remain the
+  // value the word region actually resolves to. This guards the CSS source
+  // half of the decouple; the JS half (applyFontSize no longer writes the
+  // property) is covered in font-size-stepper.test.ts.
+  test('default .word-region keeps the responsive clamp as its font-size', () => {
+    const block = OVERLAY_CSS.match(
+      /\.word-region\s*\{[^}]*font-family:\s*var\(--font-mono[^}]*\}/,
+    )?.[0];
+    expect(block, 'expected the default .word-region rule').not.toBeUndefined();
+    expect(block).toMatch(/font-size:[^;]*clamp\(40px,\s*8\.5cqi \+ 0\.5rem,\s*54px\)/);
+  });
+
+  // #241 (a11y ring MED) — the accent focus-ticks must anchor to the region's
+  // vertical CENTER, not its top/bottom EDGES. With the word now centered
+  // (align-items: center) and the region free to grow (touch flex: 1 1 auto,
+  // tall viewports), edge-anchored ticks (top: 18px / bottom: 6px) drift away
+  // from the centered word, breaking the equidistant gaze-anchor. Center
+  // anchoring (top: 50% + a vertical translate on each tick) keeps the two
+  // ticks symmetric about the word at ANY region height.
+  //
+  // Mutation check: reverting ::before to `top: 18px` / ::after to
+  // `bottom: 6px` (dropping the top: 50% center anchor) flips these RED.
+  test('::before focus-tick anchors to vertical center (top: 50% + translate), not the top edge', () => {
+    // Bind to the STANDALONE ::before rule, whose body opens directly with
+    // `top:` (only whitespace after `{`). The shared `::before, ::after`
+    // baseline block opens with `content:`, so anchoring the regex to
+    // `{\s*top:` excludes it (and its comment, which mentions "top: 50%").
+    const block = OVERLAY_CSS.match(/\.word-region::before\s*\{\s*top:[^}]*\}/)?.[0];
+    expect(block, 'expected the standalone ::before tick rule').not.toBeUndefined();
+    expect(block).toMatch(/top:\s*50%/);
+    expect(block).toMatch(/transform:\s*translate\(-50%,/);
+    expect(block).not.toMatch(/top:\s*18px/);
+  });
+
+  test('::after focus-tick anchors to vertical center (top: 50% + translate), not the bottom edge', () => {
+    // See ::before note — bind to the standalone rule via its `{\s*top:` open.
+    const block = OVERLAY_CSS.match(/\.word-region::after\s*\{\s*top:[^}]*\}/)?.[0];
+    expect(block, 'expected the standalone ::after tick rule').not.toBeUndefined();
+    expect(block).toMatch(/top:\s*50%/);
+    expect(block).toMatch(/transform:\s*translate\(-50%,/);
+    expect(block).not.toMatch(/bottom:\s*6px/);
+  });
+});
+
 describe('OVERLAY_CSS resume-toast is out of flow (issue #218)', () => {
   // The resume toast (#48) is inserted in flow directly above the word
   // region and removed on its 5 s auto-dismiss / Start Over. While it was
