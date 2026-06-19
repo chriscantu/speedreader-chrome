@@ -267,8 +267,17 @@ export const OVERLAY_CSS = `
   content: '';
   position: absolute;
   inset-inline-start: 50%;
-  transform: translateX(-50%);
+  /* #241 — anchor both ticks to the region's vertical CENTER (top: 50%) so
+   * they track the now-centered word at ANY region height (touch full-height
+   * flex: 1 1 auto, tall viewports) — not just at min-block-size. The
+   * per-tick transform carries BOTH the horizontal centering (-50% X, was the
+   * shared translateX) and the vertical offset above/below center. Each tick
+   * is 14px tall and sits with its inner edge 26px from center (a ~52px gap
+   * straddling the word line), so the two ticks stay symmetric about the
+   * gaze anchor as the region grows. Previously edge-anchored
+   * (top: 18px / bottom: 6px), which drifted off the centered word. */
   width: 1.5px;
+  height: 14px;
   background: var(--accent, #1a73e8);
   opacity: 0.85;
   border-radius: 1px;
@@ -276,13 +285,13 @@ export const OVERLAY_CSS = `
 }
 
 .word-region::before {
-  top: 18px;
-  height: 14px;
+  top: 50%;
+  transform: translate(-50%, -40px);
 }
 
 .word-region::after {
-  bottom: 6px;
-  height: 14px;
+  top: 50%;
+  transform: translate(-50%, 26px);
 }
 
 .word-region .focus {

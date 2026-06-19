@@ -95,6 +95,37 @@ describe('OVERLAY_CSS word-region vertical centering (issue #241)', () => {
     expect(block, 'expected the default .word-region rule').not.toBeUndefined();
     expect(block).toMatch(/font-size:[^;]*clamp\(40px,\s*8\.5cqi \+ 0\.5rem,\s*54px\)/);
   });
+
+  // #241 (a11y ring MED) — the accent focus-ticks must anchor to the region's
+  // vertical CENTER, not its top/bottom EDGES. With the word now centered
+  // (align-items: center) and the region free to grow (touch flex: 1 1 auto,
+  // tall viewports), edge-anchored ticks (top: 18px / bottom: 6px) drift away
+  // from the centered word, breaking the equidistant gaze-anchor. Center
+  // anchoring (top: 50% + a vertical translate on each tick) keeps the two
+  // ticks symmetric about the word at ANY region height.
+  //
+  // Mutation check: reverting ::before to `top: 18px` / ::after to
+  // `bottom: 6px` (dropping the top: 50% center anchor) flips these RED.
+  test('::before focus-tick anchors to vertical center (top: 50% + translate), not the top edge', () => {
+    // Bind to the STANDALONE ::before rule, whose body opens directly with
+    // `top:` (only whitespace after `{`). The shared `::before, ::after`
+    // baseline block opens with `content:`, so anchoring the regex to
+    // `{\s*top:` excludes it (and its comment, which mentions "top: 50%").
+    const block = OVERLAY_CSS.match(/\.word-region::before\s*\{\s*top:[^}]*\}/)?.[0];
+    expect(block, 'expected the standalone ::before tick rule').not.toBeUndefined();
+    expect(block).toMatch(/top:\s*50%/);
+    expect(block).toMatch(/transform:\s*translate\(-50%,/);
+    expect(block).not.toMatch(/top:\s*18px/);
+  });
+
+  test('::after focus-tick anchors to vertical center (top: 50% + translate), not the bottom edge', () => {
+    // See ::before note — bind to the standalone rule via its `{\s*top:` open.
+    const block = OVERLAY_CSS.match(/\.word-region::after\s*\{\s*top:[^}]*\}/)?.[0];
+    expect(block, 'expected the standalone ::after tick rule').not.toBeUndefined();
+    expect(block).toMatch(/top:\s*50%/);
+    expect(block).toMatch(/transform:\s*translate\(-50%,/);
+    expect(block).not.toMatch(/bottom:\s*6px/);
+  });
 });
 
 describe('OVERLAY_CSS resume-toast is out of flow (issue #218)', () => {
