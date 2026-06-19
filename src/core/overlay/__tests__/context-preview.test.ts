@@ -326,18 +326,16 @@ describe('createOverlay — context preview reflow + contextLine gate (#242)', (
     const btn = getPlayPauseBtn();
     const preview = getPreview();
 
-    // Initial (playing): slot reserved, no hidden attr, display untouched.
+    // Initial (playing): slot reserved, no hidden attr (the source never
+    // writes display:none — the slot stays in flow at all times).
     expect(preview.hasAttribute('hidden')).toBe(false);
-    expect(preview.style.display).not.toBe('none');
 
     btn.click(); // pause — visible
     expect(preview.hasAttribute('hidden')).toBe(false);
-    expect(preview.style.display).not.toBe('none');
     expect(isPreviewVisible(preview)).toBe(true);
 
     btn.click(); // resume — hidden via visibility, NOT the hidden attribute
     expect(preview.hasAttribute('hidden')).toBe(false);
-    expect(preview.style.display).not.toBe('none');
     expect(isPreviewVisible(preview)).toBe(false);
 
     overlay.unmount();

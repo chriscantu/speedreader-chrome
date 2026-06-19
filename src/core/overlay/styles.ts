@@ -315,14 +315,19 @@ export const OVERLAY_CSS = `
   font: 400 13px / 1.5 var(--font-reader);
   color: var(--text-muted);
   text-align: center;
-  /* #242 — reserve ~2 lines so the slot stays in flow whether or not the
+  /* #242 — reserve ~3 lines so the slot stays in flow whether or not the
    * preview is showing; toggling play/pause then fades opacity instead of
-   * reflowing the modal. 2 × 13px × 1.5 line-height ≈ 39px. Typical
-   * one-/two-line context fits; longer context scrolls within the slot
-   * (overflow:auto) rather than growing the modal. */
-  min-block-size: 39px;
-  max-block-size: 39px;
+   * reflowing the modal. 3 × 13px × 1.5 line-height ≈ 58px. The extra line
+   * over the prior 2-line (39px) reserve gives the common case slack so a
+   * 3rd line does not trip the mid-modal scrollbar; overflow-y:auto stays as
+   * the outlier safety net for genuinely long context. scrollbar-gutter:stable
+   * reserves the gutter whether or not the scrollbar shows, so an overflow
+   * can not reflow the inline text width (a small cousin of the play/pause
+   * reflow this slot fixes). */
+  min-block-size: 58px;
+  max-block-size: 58px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   /* #242 — fade the show/hide. visibility is transitioned too so the
    * element is removed from the AT rotor / hit-testing while hidden but
    * the height stays reserved. Instant under prefers-reduced-motion (see
