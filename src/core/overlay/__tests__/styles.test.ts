@@ -132,6 +132,10 @@ describe('OVERLAY_CSS word-region vertical centering (issue #241)', () => {
     expect(block).toMatch(/top:\s*50%/);
     expect(block).toMatch(/transform:\s*translate\(-50%,/);
     expect(block).not.toMatch(/top:\s*18px/);
+    // #247 (a11y ring HIGH) — the vertical offset must scale with the word so
+    // the tick tracks the enlarged glyph instead of collapsing inside it.
+    // Mutation: dropping the `* var(--rsvp-font-scale, 1)` factor flips this RED.
+    expect(block).toMatch(/translate\(-50%,\s*calc\(-40px \* var\(--rsvp-font-scale,\s*1\)\)\)/);
   });
 
   test('::after focus-tick anchors to vertical center (top: 50% + translate), not the bottom edge', () => {
@@ -141,6 +145,8 @@ describe('OVERLAY_CSS word-region vertical centering (issue #241)', () => {
     expect(block).toMatch(/top:\s*50%/);
     expect(block).toMatch(/transform:\s*translate\(-50%,/);
     expect(block).not.toMatch(/bottom:\s*6px/);
+    // #247 (a11y ring HIGH) — see ::before note; the offset scales with the word.
+    expect(block).toMatch(/translate\(-50%,\s*calc\(26px \* var\(--rsvp-font-scale,\s*1\)\)\)/);
   });
 });
 
