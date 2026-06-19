@@ -86,6 +86,21 @@ export interface OverlaySettings {
    * `subscribeSettings`.
    */
   scrubberAutoHide?: boolean;
+  /**
+   * Surrounding-sentence context preview toggle (#242, wires the #72
+   * `contextLine` setting). When `true`, the preview decoration appears
+   * on pause (showing the current sentence with the current word
+   * highlighted). When `false` (the schema default), the preview is never
+   * shown — its layout slot is still reserved (kept in flow) so toggling
+   * play/pause never reflows the modal, but the slot stays empty and
+   * invisible.
+   *
+   * Optional so existing callers and tests that pre-date this field
+   * continue to type-check — overlay treats `undefined` as `false`
+   * (matches the off-by-default schema intent). Live-updated via
+   * `subscribeSettings`.
+   */
+  contextLine?: boolean;
 }
 
 export type SettingsSubscriber = (s: OverlaySettings) => void;

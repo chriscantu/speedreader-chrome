@@ -454,15 +454,22 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     const word = doc.createElement('div');
     word.className = OVERLAY_CLASS.WORD_REGION;
 
-    // Surrounding-sentence preview (#20). Hidden by default; the pause
-    // hook in mount() shows it with before/<strong>current</strong>/after.
-    // Built with textContent + a single appended <strong> (no innerHTML,
-    // no XSS surface).
+    // Surrounding-sentence preview (#20, #242). The pause hook in mount()
+    // shows it with before/<strong>current</strong>/after. Built with
+    // textContent + a single appended <strong> (no innerHTML, no XSS
+    // surface).
+    //
+    // #242 — the slot is kept in flow at ALL times (no `hidden` attribute,
+    // no `display:none`) so toggling play/pause never reflows the modal.
+    // Visibility is carried by inline `visibility`/`opacity`; styles.ts
+    // reserves ~2 lines of height for the slot. Initial state is hidden
+    // (engine starts playing); `setPreviewVisible(false)` writes that.
     const preview = doc.createElement('div');
     preview.className = OVERLAY_CLASS.CONTEXT_PREVIEW;
     preview.setAttribute('role', 'region');
     preview.setAttribute('aria-label', OVERLAY_TEXT.CONTEXT_LABEL);
-    preview.hidden = true;
+    preview.style.visibility = 'hidden';
+    preview.style.opacity = '0';
 
     const ariaLive = doc.createElement('div');
     ariaLive.className = OVERLAY_CLASS.ARIA_LIVE;
@@ -807,6 +814,12 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // subscribeSettings handler flips it and recomputes so a user toggling
     // the option reveals/hides the bar mid-session without a remount.
     let currentScrubberAutoHide: boolean = opts.initialSettings.scrubberAutoHide ?? true;
+    // #242 — local cache for the context-preview decoration toggle. Default
+    // `false` (undefined treated as off) matches the schema's off-by-default
+    // intent. The subscribeSettings handler flips it and re-renders so a user
+    // toggling the option reveals/hides the preview mid-session (only while
+    // paused — playing never shows it) without a remount.
+    let currentContextLine: boolean = opts.initialSettings.contextLine ?? false;
 
     // Single point of truth for keeping the stepper UI in sync with
     // `currentWpm`. Called from mount-time init, the ArrowUp/Down keyboard
@@ -931,6 +944,15 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       if (nextScrubberAutoHide !== currentScrubberAutoHide) {
         currentScrubberAutoHide = nextScrubberAutoHide;
         recomputeScrubberVisibility();
+      }
+      // #242 — live context-preview toggle. Re-render so enabling it while
+      // paused reveals the preview and disabling it clears the slot, both
+      // without a remount. `renderPreview` is self-gating: it shows only
+      // when paused AND the decoration is on, and clears otherwise.
+      const nextContextLine: boolean = s.contextLine ?? false;
+      if (nextContextLine !== currentContextLine) {
+        currentContextLine = nextContextLine;
+        renderPreview();
       }
     });
 
@@ -1119,14 +1141,24 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       recomputeScrubberVisibility();
     };
 
+    // #242 — visibility-only show/hide. The slot is permanently in flow
+    // (styles.ts reserves its height); state is carried by inline
+    // `visibility`/`opacity` so toggling never reflows the modal. The CSS
+    // transition fades opacity (instant under prefers-reduced-motion via
+    // the reduced-motion block in styles.ts).
+    const setPreviewVisible = (visible: boolean): void => {
+      preview.style.visibility = visible ? 'visible' : 'hidden';
+      preview.style.opacity = visible ? '1' : '0';
+    };
+
     const clearPreview = (): void => {
       // Idempotency guard — clearPreview can be called on every state
       // transition; skip the layout-touching property writes when the
       // node is already in the cleared state. Matters when callers fan
       // out (toggle, swap, paused-state seek-driven word emits) — the
       // hot path stays free of redundant DOM writes.
-      if (preview.hidden && preview.firstChild === null) return;
-      preview.hidden = true;
+      if (preview.style.visibility === 'hidden' && preview.firstChild === null) return;
+      setPreviewVisible(false);
       // textContent='' removes children too, dropping the <strong>.
       preview.textContent = '';
     };
@@ -1135,8 +1167,15 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     // on `engine.state === 'paused'`. The internal early-return below
     // is belt-and-braces only; the per-word hot path should never reach
     // this function (perf-adversary F1 + scope-adversary F1).
+    //
+    // #242 — also gated on `currentContextLine`: when the decoration is
+    // off (the off-by-default schema state), the preview is never shown.
     const renderPreview = (): void => {
       if (!engine) return;
+      if (!currentContextLine) {
+        clearPreview();
+        return;
+      }
       if (engine.state !== 'paused') {
         clearPreview();
         return;
@@ -1165,7 +1204,7 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
       strong.textContent = ctx.current;
       preview.appendChild(strong);
       preview.appendChild(opts.doc.createTextNode(afterText));
-      preview.hidden = false;
+      setPreviewVisible(true);
     };
 
     engine.subscribe((ev) => {

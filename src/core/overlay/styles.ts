@@ -327,10 +327,25 @@ export const OVERLAY_CSS = `
   font: 400 13px / 1.5 var(--font-reader);
   color: var(--text-muted);
   text-align: center;
-  min-block-size: 24px;
+  /* #242 — reserve ~3 lines so the slot stays in flow whether or not the
+   * preview is showing; toggling play/pause then fades opacity instead of
+   * reflowing the modal. 3 × 13px × 1.5 line-height ≈ 58px. The extra line
+   * over the prior 2-line (39px) reserve gives the common case slack so a
+   * 3rd line does not trip the mid-modal scrollbar; overflow-y:auto stays as
+   * the outlier safety net for genuinely long context. scrollbar-gutter:stable
+   * reserves the gutter whether or not the scrollbar shows, so an overflow
+   * can not reflow the inline text width (a small cousin of the play/pause
+   * reflow this slot fixes). */
+  min-block-size: 58px;
+  max-block-size: 58px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  /* #242 — fade the show/hide. visibility is transitioned too so the
+   * element is removed from the AT rotor / hit-testing while hidden but
+   * the height stays reserved. Instant under prefers-reduced-motion (see
+   * the reduced-motion block below). */
+  transition: opacity 200ms ease-out, visibility 200ms ease-out;
 }
-
-.context-preview[hidden] { display: none; }
 
 .context-current {
   color: var(--text);
@@ -875,6 +890,8 @@ export const OVERLAY_CSS = `
 @media (prefers-reduced-motion: reduce) {
   .backdrop, .modal { transition: none !important; animation: none !important; }
   .scrubber-area { transition: none !important; }
+  /* #242 — motion-sensitive users get an instant preview swap, no fade. */
+  .context-preview { transition: none !important; }
 }
 
 /* ===== Touch-primary (#36) ===== */
