@@ -251,7 +251,12 @@ export const OVERLAY_CSS = `
   gap: 0 0.4ch;
   padding: 36px 24px 20px;
   font-family: var(--font-mono);
-  font-size: var(--rsvp-font-size, clamp(40px, 8.5cqi + 0.5rem, 54px));
+  /* #247 — the responsive clamp is the BASE size; --rsvp-font-scale (written
+   * by the A-/A+ stepper from fontSize / FONT_SIZE_DEFAULT, default 1.0) lets
+   * the reader scale the streaming word above the 54px ceiling / below the
+   * 40px floor for low-vision needs (WCAG 1.4.4) without losing the responsive
+   * base. The legacy --rsvp-font-size pin is gone (it overrode the clamp). */
+  font-size: calc(clamp(40px, 8.5cqi + 0.5rem, 54px) * var(--rsvp-font-scale, 1));
   font-weight: 500;
   letter-spacing: 0.01em;
   line-height: 1.15;
@@ -271,11 +276,14 @@ export const OVERLAY_CSS = `
    * they track the now-centered word at ANY region height (touch full-height
    * flex: 1 1 auto, tall viewports) — not just at min-block-size. The
    * per-tick transform carries BOTH the horizontal centering (-50% X, was the
-   * shared translateX) and the vertical offset above/below center. Each tick
-   * is 14px tall and sits with its inner edge 26px from center (a ~52px gap
-   * straddling the word line), so the two ticks stay symmetric about the
-   * gaze anchor as the region grows. Previously edge-anchored
-   * (top: 18px / bottom: 6px), which drifted off the centered word. */
+   * shared translateX) and the vertical offset above/below center.
+   * #247 — the vertical offset is multiplied by --rsvp-font-scale so the ticks
+   * grow WITH the scaled word: at scale 1 they straddle the ~54px word with a
+   * ~52px gap; at the stepper's max scale the offsets grow proportionally to
+   * the larger glyph, keeping the two ticks symmetric about (and clear of) the
+   * gaze anchor instead of collapsing inside the enlarged glyph. Each tick is
+   * 14px tall. Previously edge-anchored (top: 18px / bottom: 6px), which
+   * drifted off the centered word. */
   width: 1.5px;
   height: 14px;
   background: var(--accent, #1a73e8);
@@ -286,12 +294,12 @@ export const OVERLAY_CSS = `
 
 .word-region::before {
   top: 50%;
-  transform: translate(-50%, -40px);
+  transform: translate(-50%, calc(-40px * var(--rsvp-font-scale, 1)));
 }
 
 .word-region::after {
   top: 50%;
-  transform: translate(-50%, 26px);
+  transform: translate(-50%, calc(26px * var(--rsvp-font-scale, 1)));
 }
 
 .word-region .focus {

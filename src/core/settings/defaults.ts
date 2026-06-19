@@ -1,3 +1,4 @@
+import { FONT_SIZE_DEFAULT } from './bounds';
 import type { SettingsV7 } from './schema';
 
 export const DEFAULT_SETTINGS: SettingsV7 = {
@@ -5,7 +6,7 @@ export const DEFAULT_SETTINGS: SettingsV7 = {
   wpm: 250,
   theme: 'system',
   font: 'system-ui',
-  fontSize: 20,
+  fontSize: FONT_SIZE_DEFAULT,
   openDyslexic: false,
   punctuationPacing: true,
   alignment: 'orp',
