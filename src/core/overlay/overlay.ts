@@ -15,6 +15,7 @@ import { renderChunk, renderWord } from './word';
 import { buildSentenceContext } from './sentence-context';
 import { installFocusTrap } from './focus-trap';
 import {
+  FONT_SIZE_DEFAULT,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
   FONT_SIZE_STEP,
@@ -854,14 +855,17 @@ export function createOverlay(opts: OverlayOptions): OverlayHandle {
     };
     const applyFontSize = (n: number): void => {
       currentFontSize = n;
-      // #241 — the streaming RSVP word is sized by the responsive
-      // `clamp(40px, 8.5cqi + 0.5rem, 54px)` on `.word-region` (styles.ts),
-      // NOT by the body `fontSize` setting. Writing `--rsvp-font-size` here
-      // pinned the word to the 20px default and made the clamp dead fallback,
-      // rendering the word tiny. So this no longer touches the custom property;
-      // it only keeps `currentFontSize` and the stepper boundary state in sync.
-      // (The A−/A+ stepper consequently no longer resizes the streaming word —
-      // accepted behavior change; it stays wired to onFontSizeChange/persistence.)
+      // #247 — the streaming RSVP word's BASE size is the responsive
+      // `clamp(40px, 8.5cqi + 0.5rem, 54px)` on `.word-region` (styles.ts).
+      // The A−/A+ stepper scales it via `--rsvp-font-scale` (a MULTIPLIER on
+      // the clamp), NOT the legacy `--rsvp-font-size` absolute pin that #241
+      // removed (that pinned the word to the 20px default and killed the clamp).
+      // scale = fontSize / FONT_SIZE_DEFAULT, so the default (20) yields 1.0
+      // (clamp governs unchanged) and the reader can grow the word past the
+      // 54px ceiling / below the 40px floor for low-vision needs (WCAG 1.4.4).
+      // Written on `.modal` (not the hot per-tick `word` element) so the word
+      // reads it via cascade with no inline-style invalidation per RSVP tick.
+      modal.style.setProperty('--rsvp-font-scale', String(n / FONT_SIZE_DEFAULT));
       // #215 — aria-disabled (not native `disabled`) so the buttons stay in
       // the tab chain at MIN/MAX (WCAG 2.4.3); the click handlers short-circuit
       // on it. Mirrors the #214 WPM-stepper treatment.

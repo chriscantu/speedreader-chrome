@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createOverlay } from '../overlay';
 import type { OverlayOptions, OverlaySettings, SettingsSubscriber } from '../types';
 import { createRsvpEngine } from '../../rsvp-engine';
-import { FONT_SIZE_MAX, FONT_SIZE_MIN, FONT_SIZE_STEP } from '../../settings/bounds';
+import {
+  FONT_SIZE_DEFAULT,
+  FONT_SIZE_MAX,
+  FONT_SIZE_MIN,
+  FONT_SIZE_STEP,
+} from '../../settings/bounds';
 import { OVERLAY_CLASS } from '../constants';
 
 /**
@@ -247,6 +252,63 @@ describe('createOverlay — font-size stepper (#29)', () => {
       );
       overlay.mount();
       expect(getModal().style.getPropertyValue('--rsvp-font-size')).toBe('');
+      overlay.unmount();
+      document.querySelectorAll('[data-speedreader-overlay]').forEach((n) => n.remove());
+    }
+  });
+
+  // #247 — the stepper resizes the streaming word again, but via a MULTIPLIER
+  // (`--rsvp-font-scale`) on the responsive clamp, not the legacy absolute
+  // `--rsvp-font-size` pin (#241 removed that). scale = fontSize /
+  // FONT_SIZE_DEFAULT, so the default (20) is neutral (1.0) and the reader can
+  // push past the clamp's 40–54px bounds for low-vision needs (WCAG 1.4.4).
+  test('#247 — default fontSize writes a neutral --rsvp-font-scale of 1 on the modal', () => {
+    const overlay = createOverlay(
+      defaultOpts({ initialSettings: defaultSettings({ fontSize: FONT_SIZE_DEFAULT }) }),
+    );
+    overlay.mount();
+    expect(getModal().style.getPropertyValue('--rsvp-font-scale')).toBe('1');
+    overlay.unmount();
+  });
+
+  test('#247 — a non-default initial fontSize scales the clamp (40 → 2.0)', () => {
+    const overlay = createOverlay(
+      defaultOpts({ initialSettings: defaultSettings({ fontSize: 40 }) }),
+    );
+    overlay.mount();
+    expect(getModal().style.getPropertyValue('--rsvp-font-scale')).toBe(
+      String(40 / FONT_SIZE_DEFAULT),
+    );
+    overlay.unmount();
+  });
+
+  test('#247 — A+ / A− live-update --rsvp-font-scale (mutation: drop the setProperty → RED)', () => {
+    const overlay = createOverlay(
+      defaultOpts({ initialSettings: defaultSettings({ fontSize: FONT_SIZE_DEFAULT }) }),
+    );
+    overlay.mount();
+    getIncBtn().click();
+    expect(getModal().style.getPropertyValue('--rsvp-font-scale')).toBe(
+      String((FONT_SIZE_DEFAULT + FONT_SIZE_STEP) / FONT_SIZE_DEFAULT),
+    );
+    getDecBtn().click();
+    getDecBtn().click();
+    expect(getModal().style.getPropertyValue('--rsvp-font-scale')).toBe(
+      String((FONT_SIZE_DEFAULT - FONT_SIZE_STEP) / FONT_SIZE_DEFAULT),
+    );
+    overlay.unmount();
+  });
+
+  test('#247 — malformed initial fontSize cannot leak a non-finite scale (mount clamp guards it)', () => {
+    for (const fontSize of [Number.POSITIVE_INFINITY, Number.NaN, -50, 10_000]) {
+      const overlay = createOverlay(
+        defaultOpts({ initialSettings: defaultSettings({ fontSize }) }),
+      );
+      overlay.mount();
+      const scale = Number(getModal().style.getPropertyValue('--rsvp-font-scale'));
+      expect(Number.isFinite(scale)).toBe(true);
+      expect(scale).toBeGreaterThanOrEqual(FONT_SIZE_MIN / FONT_SIZE_DEFAULT);
+      expect(scale).toBeLessThanOrEqual(FONT_SIZE_MAX / FONT_SIZE_DEFAULT);
       overlay.unmount();
       document.querySelectorAll('[data-speedreader-overlay]').forEach((n) => n.remove());
     }

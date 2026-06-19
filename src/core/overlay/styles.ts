@@ -251,7 +251,12 @@ export const OVERLAY_CSS = `
   gap: 0 0.4ch;
   padding: 36px 24px 20px;
   font-family: var(--font-mono);
-  font-size: var(--rsvp-font-size, clamp(40px, 8.5cqi + 0.5rem, 54px));
+  /* #247 — the responsive clamp is the BASE size; --rsvp-font-scale (written
+   * by the A-/A+ stepper from fontSize / FONT_SIZE_DEFAULT, default 1.0) lets
+   * the reader scale the streaming word above the 54px ceiling / below the
+   * 40px floor for low-vision needs (WCAG 1.4.4) without losing the responsive
+   * base. The legacy --rsvp-font-size pin is gone (it overrode the clamp). */
+  font-size: calc(clamp(40px, 8.5cqi + 0.5rem, 54px) * var(--rsvp-font-scale, 1));
   font-weight: 500;
   letter-spacing: 0.01em;
   line-height: 1.15;

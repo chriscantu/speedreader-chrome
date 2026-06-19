@@ -96,6 +96,22 @@ describe('OVERLAY_CSS word-region vertical centering (issue #241)', () => {
     expect(block).toMatch(/font-size:[^;]*clamp\(40px,\s*8\.5cqi \+ 0\.5rem,\s*54px\)/);
   });
 
+  // #247 — the clamp is the BASE; the A−/A+ stepper scales it via
+  // `calc(clamp(...) * var(--rsvp-font-scale, 1))` so the reader can enlarge the
+  // streaming word past the 54px ceiling (WCAG 1.4.4). The legacy absolute
+  // `--rsvp-font-size` pin must be gone (it overrode the clamp → 20px word).
+  // Mutation: dropping the `* var(--rsvp-font-scale, 1)` factor flips this RED.
+  test('default .word-region scales the clamp by --rsvp-font-scale (no legacy --rsvp-font-size pin)', () => {
+    const block = OVERLAY_CSS.match(
+      /\.word-region\s*\{[^}]*font-family:\s*var\(--font-mono[^}]*\}/,
+    )?.[0];
+    expect(block, 'expected the default .word-region rule').not.toBeUndefined();
+    expect(block).toMatch(
+      /font-size:\s*calc\(\s*clamp\(40px,\s*8\.5cqi \+ 0\.5rem,\s*54px\)\s*\*\s*var\(--rsvp-font-scale,\s*1\)\s*\)/,
+    );
+    expect(block).not.toMatch(/var\(--rsvp-font-size/);
+  });
+
   // #241 (a11y ring MED) — the accent focus-ticks must anchor to the region's
   // vertical CENTER, not its top/bottom EDGES. With the word now centered
   // (align-items: center) and the region free to grow (touch flex: 1 1 auto,

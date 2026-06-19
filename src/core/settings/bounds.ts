@@ -16,6 +16,15 @@ export const WPM_STEP = 10;
 export const FONT_SIZE_MIN = 12;
 export const FONT_SIZE_MAX = 48;
 /**
+ * Neutral point for the RSVP word-scale (#247). The overlay sizes the
+ * streaming word as `clamp(...) * (fontSize / FONT_SIZE_DEFAULT)`, so a
+ * stored `fontSize` equal to this default yields a scale of 1.0 (the
+ * responsive clamp governs unchanged). Kept as the single source of truth
+ * for the default so the "default → scale 1.0" invariant cannot silently
+ * drift if the default is ever retuned.
+ */
+export const FONT_SIZE_DEFAULT = 20;
+/**
  * Increment used by the overlay's in-modal `A−` / `A+` stepper (#29).
  * Mirrors Safari upstream `FONT_SIZE_STEP = 2`
  * (`SpeedReader/SpeedReaderExtension/Resources/rsvp/settings-defaults.js`).
