@@ -392,11 +392,53 @@ function intentToActivatePayload(intent: ActivationIntent): ActivateReaderMessag
 }
 
 /**
+ * Issue #243 — bounded cold-start handoff retry.
+ *
+ * With lazy injection (#142) the content script is injected only on the
+ * activating dispatch, so on a cold start the just-injected CS message
+ * listener may not yet be registered when step-5
+ * `chrome.tabs.sendMessage` fires. The send then rejects with
+ * "Could not establish connection" and the funnel returns
+ * `handoff-failed` — alarming and unactionable for what is a
+ * deterministic internal race, not a real lost connection.
+ *
+ * The handoff (and ONLY the handoff) is retried a bounded number of
+ * times with a short backoff. `HANDOFF_MAX_ATTEMPTS` is the TOTAL number
+ * of `sendMessage` attempts (initial + retries); the backoff fires
+ * between attempts (`HANDOFF_MAX_ATTEMPTS - 1` times). The retry is
+ * scoped to the `sendMessage` reject path at step 5 — `restricted-page`
+ * (steps 2/4) and `inject-failed` (step 3) are earlier and still surface
+ * immediately with no retry.
+ *
+ * A full CS-ready handshake / messaging-contract redesign is the durable
+ * fix and is deferred; this bounded retry absorbs the cold-start window
+ * without that redesign.
+ */
+export const HANDOFF_MAX_ATTEMPTS = 3;
+const HANDOFF_BACKOFF_MS = 200;
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Options for {@link dispatchActivation}. `sleep` is injectable so the
+ * cold-start retry backoff is deterministic under test (no fake timers,
+ * no wall-clock delay). Production callers omit it and get the real
+ * `setTimeout`-backed backoff.
+ */
+export interface DispatchOptions {
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
  * Dispatch an activation intent. Returns a `Result` — never throws.
  */
 export async function dispatchActivation(
   intent: ActivationIntent,
+  options: DispatchOptions = {},
 ): Promise<Result<void, ActivationError>> {
+  const sleep = options.sleep ?? defaultSleep;
   // 1. Resolve the tab URL. tabs.get can reject (closed tab, race).
   let tab: chrome.tabs.Tab;
   try {
@@ -445,12 +487,29 @@ export async function dispatchActivation(
   // 5. Hand off to the CS via the `activate-reader` one-shot RPC. The
   //    `rsvp-session` Port is opened separately by the popup / CS per
   //    the messaging-contract spec.
+  //
+  //    Issue #243 — bounded cold-start retry. On a cold start the
+  //    just-injected CS listener (#142 lazy injection) may not yet be
+  //    registered, so the first `sendMessage` rejects with "Could not
+  //    establish connection". Retry the handoff up to
+  //    `HANDOFF_MAX_ATTEMPTS` total attempts with a short backoff before
+  //    surfacing `handoff-failed`. ONLY this reject path retries — the
+  //    earlier restricted/inject steps already returned above.
   const payload = intentToActivatePayload(intent);
-  try {
-    await chrome.tabs.sendMessage(intent.tabId, payload);
-  } catch (details) {
-    return { ok: false, error: { kind: 'handoff-failed', tabId: intent.tabId, details } };
+  let lastDetails: unknown;
+  for (let attempt = 1; attempt <= HANDOFF_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      await chrome.tabs.sendMessage(intent.tabId, payload);
+      return { ok: true, data: undefined };
+    } catch (details) {
+      lastDetails = details;
+      if (attempt < HANDOFF_MAX_ATTEMPTS) {
+        await sleep(HANDOFF_BACKOFF_MS);
+      }
+    }
   }
-
-  return { ok: true, data: undefined };
+  return {
+    ok: false,
+    error: { kind: 'handoff-failed', tabId: intent.tabId, details: lastDetails },
+  };
 }

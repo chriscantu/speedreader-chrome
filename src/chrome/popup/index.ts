@@ -173,7 +173,11 @@ function formatActivationError(resp: ActivationResponse | undefined): string {
       return 'SpeedReader cannot run on this page (restricted URL).';
     }
     if (inner === 'inject-failed') return 'Could not inject SpeedReader into this page.';
-    if (inner === 'handoff-failed') return 'Lost connection to the page. Try again.';
+    // Issue #243 — `handoff-failed` after the bounded cold-start retry
+    // (see dispatch.ts step 5) is almost always the first-run injection
+    // race, not a real lost connection. Use non-alarming copy that names
+    // the next action.
+    if (inner === 'handoff-failed') return 'SpeedReader is still starting up — press Read again.';
     if (inner === 'tab-unavailable') return 'Tab is no longer available.';
     return `Activation failed (${inner}).`;
   }

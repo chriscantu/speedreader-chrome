@@ -169,7 +169,9 @@ describe('dispatchActivation', () => {
     const { dispatchActivation } = await import('../dispatch');
     const intent: ActivationIntent = { source: 'popup', tabId: 5, scope: 'full' };
 
-    const result = await dispatchActivation(intent);
+    // Inject a no-op sleep so the bounded #243 retry backoff runs
+    // deterministically here instead of eating real wall-clock delay.
+    const result = await dispatchActivation(intent, { sleep: vi.fn(() => Promise.resolve()) });
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('unreachable');
@@ -455,5 +457,102 @@ describe('dispatchActivation', () => {
       url: `chrome-extension://${FOREIGN_ID}/popup.html`,
     });
     expect(stub.tabs.sendMessage).not.toHaveBeenCalled();
+  });
+
+  // Issue #243 — first-run cold-start handoff race. With lazy injection
+  // (#142) the just-injected content-script listener may not yet be
+  // registered when step-5 `chrome.tabs.sendMessage` fires, so the very
+  // first activation rejects with "Could not establish connection". This
+  // is a deterministic internal cold-start race, not a real lost
+  // connection. The handoff step retries a bounded number of times with a
+  // short backoff before surfacing `handoff-failed`.
+  //
+  // `sleep` is injected so the retry backoff is deterministic in tests —
+  // no fake timers, no wall-clock delay.
+  describe('#243 cold-start handoff retry', () => {
+    it('absorbs a sendMessage that rejects once then succeeds (overall ok)', async () => {
+      stub = installChromeStub({});
+      let calls = 0;
+      stub.tabs.sendMessage = vi.fn(() => {
+        calls += 1;
+        if (calls === 1) return Promise.reject(new Error('Could not establish connection'));
+        return Promise.resolve({ ok: true });
+      });
+      const sleep = vi.fn(() => Promise.resolve());
+      const { dispatchActivation } = await import('../dispatch');
+      const intent: ActivationIntent = { source: 'popup', tabId: 51, scope: 'full' };
+
+      const result = await dispatchActivation(intent, { sleep });
+
+      expect(result).toEqual({ ok: true, data: undefined });
+      // Exactly two attempts: the rejected one + the retry that succeeds.
+      expect(stub.tabs.sendMessage).toHaveBeenCalledTimes(2);
+      // One backoff between the two attempts.
+      expect(sleep).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries at most the bounded number of times, then surfaces handoff-failed', async () => {
+      stub = installChromeStub({
+        sendMessageRejects: new Error('Could not establish connection'),
+      });
+      const sleep = vi.fn(() => Promise.resolve());
+      const { dispatchActivation, HANDOFF_MAX_ATTEMPTS } = await import('../dispatch');
+      const intent: ActivationIntent = { source: 'popup', tabId: 52, scope: 'full' };
+
+      const result = await dispatchActivation(intent, { sleep });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error('unreachable');
+      expect(result.error.kind).toBe('handoff-failed');
+      // Bounded: total attempts === the ceiling (initial + retries), and
+      // the backoff fired exactly once per retry (attempts - 1).
+      expect(stub.tabs.sendMessage).toHaveBeenCalledTimes(HANDOFF_MAX_ATTEMPTS);
+      expect(sleep).toHaveBeenCalledTimes(HANDOFF_MAX_ATTEMPTS - 1);
+    });
+
+    it('does NOT retry restricted-page — surfaces immediately with no sendMessage, no sleep', async () => {
+      stub = installChromeStub({ tabUrl: 'chrome://settings' });
+      const sleep = vi.fn(() => Promise.resolve());
+      const { dispatchActivation } = await import('../dispatch');
+      const intent: ActivationIntent = { source: 'command', tabId: 53 };
+
+      const result = await dispatchActivation(intent, { sleep });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error('unreachable');
+      expect(result.error.kind).toBe('restricted-page');
+      expect(stub.tabs.sendMessage).not.toHaveBeenCalled();
+      expect(sleep).not.toHaveBeenCalled();
+    });
+
+    it('does NOT retry inject-failed — surfaces immediately with no sendMessage, no sleep', async () => {
+      stub = installChromeStub({
+        executeScriptRejects: new Error('Cannot access contents of url'),
+      });
+      const sleep = vi.fn(() => Promise.resolve());
+      const { dispatchActivation } = await import('../dispatch');
+      const intent: ActivationIntent = { source: 'command', tabId: 54 };
+
+      const result = await dispatchActivation(intent, { sleep });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error('unreachable');
+      expect(result.error.kind).toBe('inject-failed');
+      expect(stub.tabs.sendMessage).not.toHaveBeenCalled();
+      expect(sleep).not.toHaveBeenCalled();
+    });
+
+    it('happy path hands off on the first attempt with no retry / no backoff', async () => {
+      stub = installChromeStub({});
+      const sleep = vi.fn(() => Promise.resolve());
+      const { dispatchActivation } = await import('../dispatch');
+      const intent: ActivationIntent = { source: 'popup', tabId: 55, scope: 'full' };
+
+      const result = await dispatchActivation(intent, { sleep });
+
+      expect(result).toEqual({ ok: true, data: undefined });
+      expect(stub.tabs.sendMessage).toHaveBeenCalledTimes(1);
+      expect(sleep).not.toHaveBeenCalled();
+    });
   });
 });
