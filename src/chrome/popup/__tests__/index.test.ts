@@ -202,8 +202,10 @@ describe('bootstrapPopup — button clicks', () => {
       match: /Could not inject SpeedReader/i,
     },
     {
+      // Issue #243 — cold-start handoff copy must be non-alarming and
+      // name the next action ("press Read again"), not "Lost connection".
       inner: 'handoff-failed' as const,
-      match: /Lost connection to the page/i,
+      match: /still starting up — press Read again/i,
     },
     {
       inner: 'tab-unavailable' as const,
