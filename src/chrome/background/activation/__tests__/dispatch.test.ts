@@ -169,7 +169,9 @@ describe('dispatchActivation', () => {
     const { dispatchActivation } = await import('../dispatch');
     const intent: ActivationIntent = { source: 'popup', tabId: 5, scope: 'full' };
 
-    const result = await dispatchActivation(intent);
+    // Inject a no-op sleep so the bounded #243 retry backoff runs
+    // deterministically here instead of eating real wall-clock delay.
+    const result = await dispatchActivation(intent, { sleep: vi.fn(() => Promise.resolve()) });
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('unreachable');
